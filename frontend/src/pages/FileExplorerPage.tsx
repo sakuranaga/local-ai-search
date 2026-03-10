@@ -254,6 +254,57 @@ export function FileExplorerPage() {
     } catch { toast.error("処理に失敗しました"); }
   }
 
+  // Drag & drop / bulk move: move documents to folders
+  async function handleDropOnFolder(folderId: string | null, docIds: string[]) {
+    if (docIds.length === 0) return;
+
+    // Optimistic update: adjust folder counts immediately
+    const movingItems = items.filter((i) => docIds.includes(i.id));
+    const sourceFolderCounts = new Map<string, number>();
+    for (const it of movingItems) {
+      if (it.folder_id) {
+        sourceFolderCounts.set(it.folder_id, (sourceFolderCounts.get(it.folder_id) || 0) + 1);
+      }
+    }
+    setFolders((prev) =>
+      prev.map((f) => {
+        let count = f.document_count;
+        if (sourceFolderCounts.has(f.id)) count -= sourceFolderCounts.get(f.id)!;
+        if (f.id === folderId) count += docIds.length;
+        return { ...f, document_count: Math.max(0, count) };
+      })
+    );
+    // Optimistic update: update items in table
+    setItems((prev) =>
+      prev.map((i) =>
+        docIds.includes(i.id)
+          ? { ...i, folder_id: folderId, folder_name: folders.find((f) => f.id === folderId)?.name ?? null }
+          : i
+      )
+    );
+
+    try {
+      const res = await bulkAction(docIds, "move_to_folder", undefined, { folder_id: folderId });
+      toast.success(`${res.processed}件を移動しました`);
+      setSelected(new Set());
+      // Reload to get accurate data from server
+      load();
+      loadFolders();
+    } catch {
+      toast.error("移動に失敗しました");
+      // Revert on error
+      load();
+      loadFolders();
+    }
+  }
+
+  function handleDragStart(e: React.DragEvent, itemId: string) {
+    // If the dragged item is in the selection, drag all selected; otherwise drag just the one
+    const ids = selected.has(itemId) ? [...selected] : [itemId];
+    e.dataTransfer.setData("application/x-doc-ids", JSON.stringify(ids));
+    e.dataTransfer.effectAllowed = "move";
+  }
+
   async function handleCreateFolder() {
     if (!newFolderName.trim()) return;
     try {
@@ -294,12 +345,7 @@ export function FileExplorerPage() {
             >
               <FolderIcon className="h-3.5 w-3.5" />すべて
             </button>
-            <button
-              onClick={() => { setActiveFolderId("unfiled"); setPage(1); }}
-              className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${activeFolderId === "unfiled" ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
-            >
-              <FileText className="h-3.5 w-3.5" />未整理
-            </button>
+            <DropTarget folderId={null} onDrop={handleDropOnFolder} label="未整理" isActive={activeFolderId === "unfiled"} onClick={() => { setActiveFolderId("unfiled"); setPage(1); }} icon={<FileText className="h-3.5 w-3.5" />} />
             {folderTree.map((node) => (
               <FolderTreeItem
                 key={node.id}
@@ -307,6 +353,7 @@ export function FileExplorerPage() {
                 activeFolderId={activeFolderId}
                 onSelect={(id) => { setActiveFolderId(id); setPage(1); }}
                 onReload={() => { loadFolders(); load(); }}
+                onDrop={handleDropOnFolder}
                 allFolders={folders}
               />
             ))}
@@ -432,6 +479,8 @@ export function FileExplorerPage() {
                 {items.map((item) => (
                   <TableRow
                     key={item.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, item.id)}
                     className={`cursor-pointer ${selected.has(item.id) ? "bg-muted/50" : "hover:bg-muted/30"}`}
                   >
                     <TableCell onClick={(e) => e.stopPropagation()}>
@@ -566,7 +615,10 @@ export function FileExplorerPage() {
         folders={folders}
         selectedIds={[...selected]}
         onClose={() => setBulkActionOpen(null)}
-        onDone={() => { setBulkActionOpen(null); setSelected(new Set()); load(); loadFolders(); }}
+        onMove={(folderId) => {
+          setBulkActionOpen(null);
+          handleDropOnFolder(folderId, [...selected]);
+        }}
       />
 
       <BulkTagDialog
@@ -641,7 +693,50 @@ export function FileExplorerPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Folder Tree Item (recursive)
+// Drop Target (for "未整理" and similar simple items)
+// ---------------------------------------------------------------------------
+
+function DropTarget({
+  folderId,
+  onDrop,
+  label,
+  isActive,
+  onClick,
+  icon,
+}: {
+  folderId: string | null;
+  onDrop: (folderId: string | null, docIds: string[]) => void;
+  label: string;
+  isActive: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+
+  return (
+    <button
+      onClick={onClick}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        try {
+          const ids: string[] = JSON.parse(e.dataTransfer.getData("application/x-doc-ids"));
+          if (ids.length > 0) onDrop(folderId, ids);
+        } catch { /* ignore */ }
+      }}
+      className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 transition-colors ${
+        dragOver ? "bg-primary/20 ring-2 ring-primary/40" : isActive ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"
+      }`}
+    >
+      {icon}{label}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Folder Tree Item (recursive, with drop target)
 // ---------------------------------------------------------------------------
 
 function FolderTreeItem({
@@ -649,6 +744,7 @@ function FolderTreeItem({
   activeFolderId,
   onSelect,
   onReload,
+  onDrop,
   allFolders,
   depth = 0,
 }: {
@@ -656,12 +752,14 @@ function FolderTreeItem({
   activeFolderId: string | null;
   onSelect: (id: string) => void;
   onReload: () => void;
+  onDrop: (folderId: string | null, docIds: string[]) => void;
   allFolders: Folder[];
   depth?: number;
 }) {
   const [expanded, setExpanded] = useState(depth < 2);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(node.name);
+  const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isActive = activeFolderId === node.id;
@@ -684,6 +782,26 @@ function FolderTreeItem({
     } catch { toast.error("削除失敗"); }
   }
 
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOver(true);
+  }
+
+  function handleDragLeave() {
+    setDragOver(false);
+  }
+
+  function handleDropOnThis(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    try {
+      const ids: string[] = JSON.parse(e.dataTransfer.getData("application/x-doc-ids"));
+      if (ids.length > 0) onDrop(node.id, ids);
+    } catch { /* ignore */ }
+  }
+
   useEffect(() => {
     if (editing) inputRef.current?.focus();
   }, [editing]);
@@ -691,7 +809,12 @@ function FolderTreeItem({
   return (
     <div>
       <div
-        className={`group flex items-center gap-0.5 text-sm rounded py-0.5 ${isActive ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDropOnThis}
+        className={`group flex items-center gap-0.5 text-sm rounded py-0.5 transition-colors ${
+          dragOver ? "bg-primary/20 ring-2 ring-primary/40" : isActive ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"
+        }`}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
       >
         <button
@@ -712,7 +835,7 @@ function FolderTreeItem({
         ) : (
           <>
             <button onClick={() => onSelect(node.id)} className="flex items-center gap-1 flex-1 truncate text-left">
-              {isActive ? <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" /> : <FolderIcon className="h-3.5 w-3.5 flex-shrink-0" />}
+              {isActive || dragOver ? <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" /> : <FolderIcon className="h-3.5 w-3.5 flex-shrink-0" />}
               <span className="truncate">{node.name}</span>
               {node.document_count > 0 && (
                 <span className="text-xs text-muted-foreground ml-auto">{node.document_count}</span>
@@ -736,6 +859,7 @@ function FolderTreeItem({
           activeFolderId={activeFolderId}
           onSelect={onSelect}
           onReload={onReload}
+          onDrop={onDrop}
           allFolders={allFolders}
           depth={depth + 1}
         />
@@ -1241,26 +1365,15 @@ function BulkFolderDialog({
   folders,
   selectedIds,
   onClose,
-  onDone,
+  onMove,
 }: {
   open: boolean;
   folders: Folder[];
   selectedIds: string[];
   onClose: () => void;
-  onDone: () => void;
+  onMove: (folderId: string | null) => void;
 }) {
   const [targetFolder, setTargetFolder] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  async function handleSave() {
-    setSaving(true);
-    try {
-      const res = await bulkAction(selectedIds, "move_to_folder", undefined, { folder_id: targetFolder || null });
-      toast.success(`${res.processed}件を移動しました`);
-      onDone();
-    } catch { toast.error("移動失敗"); }
-    finally { setSaving(false); }
-  }
 
   return (
     <Dialog open={open} onOpenChange={() => onClose()}>
@@ -1280,7 +1393,7 @@ function BulkFolderDialog({
           ))}
         </select>
         <DialogFooter showCloseButton>
-          <Button onClick={handleSave} disabled={saving}>移動する</Button>
+          <Button onClick={() => onMove(targetFolder || null)}>移動する</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
