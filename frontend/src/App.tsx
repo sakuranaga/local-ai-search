@@ -42,7 +42,7 @@ function NavBar() {
     e.preventDefault();
     const q = searchValue.trim();
     if (q) {
-      navigate(`/?q=${encodeURIComponent(q)}`);
+      navigate(`/?q=${encodeURIComponent(q)}&_t=${Date.now()}`);
     }
   }
 
