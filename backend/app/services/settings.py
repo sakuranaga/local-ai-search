@@ -57,6 +57,11 @@ DEFAULTS = {
         "description": "検索結果の最大取得件数",
         "placeholder": "20",
     },
+    "vector_similarity_threshold": {
+        "value": "70",
+        "description": "ベクトル検索の最低類似度 (%) — この値未満の結果を除外",
+        "placeholder": "70",
+    },
     "ai_max_search_rounds": {
         "value": "3",
         "description": "AI自律検索の最大ラウンド数",

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Chunk, Document
 from app.services.embedding import get_embedding
+from app.services.settings import get_setting
 
 
 async def fulltext_search(
@@ -61,6 +62,10 @@ async def vector_search(
     """Semantic search using pgvector cosine distance (<=>)."""
     query_embedding = await get_embedding(query)
 
+    # Read similarity threshold from settings (default 70%)
+    threshold_pct = float(await get_setting(db, "vector_similarity_threshold") or "70")
+    max_distance = 1.0 - threshold_pct / 100.0  # e.g. 70% -> 0.3
+
     # Use pgvector cosine distance operator
     distance = Chunk.embedding.cosine_distance(query_embedding).label("distance")
 
@@ -77,6 +82,7 @@ async def vector_search(
         .join(Document, Chunk.document_id == Document.id)
         .where(Chunk.embedding.is_not(None))
         .where(Document.deleted_at.is_(None))
+        .where(distance <= max_distance)
     )
     if require_searchable:
         stmt = stmt.where(Document.searchable.is_(True))
@@ -128,6 +134,7 @@ async def merged_search(
     k = 60
     scores: dict[str, float] = {}
     chunk_map: dict[str, dict] = {}
+    distances: dict[str, float] = {}  # vector cosine distance per chunk
 
     # Score fulltext results by position
     for rank, item in enumerate(ft_results, start=1):
@@ -142,6 +149,8 @@ async def merged_search(
         scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
         if cid not in chunk_map:
             chunk_map[cid] = item
+        if "distance" in item:
+            distances[cid] = item["distance"]
 
     # Sort by RRF score descending
     ranked_ids = sorted(scores.keys(), key=lambda cid: scores[cid], reverse=True)
@@ -157,6 +166,8 @@ async def merged_search(
         seen_docs.add(doc_id)
         entry = item.copy()
         entry["rrf_score"] = scores[cid]
+        if cid in distances:
+            entry["distance"] = distances[cid]
         entry["source"] = "merged"
         all_results.append(entry)
 

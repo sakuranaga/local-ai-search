@@ -431,7 +431,7 @@ const SETTING_GROUPS: Record<string, { label: string; keys: string[] }> = {
   },
   search: {
     label: "検索設定",
-    keys: ["search_top_k", "ai_max_search_rounds"],
+    keys: ["search_top_k", "vector_similarity_threshold", "ai_max_search_rounds"],
   },
   ingest: {
     label: "取り込み設定",
