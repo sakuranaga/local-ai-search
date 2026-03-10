@@ -52,9 +52,9 @@ export function ResultList({ results, onSelect }: ResultListProps) {
                   {result.document_title}
                 </h3>
                 <div className="flex gap-1.5 shrink-0">
-                  {result.rrf_score != null && (
+                  {result.distance != null && (
                     <Badge variant="secondary">
-                      {result.rrf_score.toFixed(4)}
+                      関連度 {Math.round((1 - result.distance) * 100)}%
                     </Badge>
                   )}
                   <Badge variant="outline" className="gap-1">
