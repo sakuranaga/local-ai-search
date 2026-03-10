@@ -84,6 +84,7 @@ export interface SearchResult {
   content: string;
   file_type: string;
   source: string;
+  updated_at?: string;
   rrf_score?: number;
   distance?: number;
 }

@@ -48,19 +48,26 @@ export function ResultList({ results, onSelect }: ResultListProps) {
           >
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-2 mb-1">
-                <h3 className="font-semibold text-sm leading-tight line-clamp-1">
-                  {result.document_title}
-                </h3>
-                <div className="flex gap-1.5 shrink-0">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <h3 className="font-semibold text-sm leading-tight line-clamp-1">
+                    {result.document_title}
+                  </h3>
+                  <Badge variant="outline" className="gap-1 shrink-0">
+                    {fileTypeIcon(result.file_type)}
+                    {result.file_type}
+                  </Badge>
+                </div>
+                <div className="flex gap-1.5 shrink-0 items-center">
                   {result.distance != null && (
                     <Badge variant="secondary">
                       関連度 {Math.round((1 - result.distance) * 100)}%
                     </Badge>
                   )}
-                  <Badge variant="outline" className="gap-1">
-                    {fileTypeIcon(result.file_type)}
-                    {result.file_type}
-                  </Badge>
+                  {result.updated_at && (
+                    <span className="text-xs text-muted-foreground">
+                      更新:{new Date(result.updated_at).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  )}
                 </div>
               </div>
               <p className="text-sm text-muted-foreground line-clamp-3 mt-1">
