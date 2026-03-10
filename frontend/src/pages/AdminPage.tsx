@@ -20,9 +20,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   getUsers,
   createUser,
+  updateUser,
   deleteUser,
   getRoles,
   createRole,
@@ -37,7 +47,7 @@ import {
   type IngestStatus,
   type SystemSetting,
 } from "@/lib/api";
-import { Plus, Trash2, RefreshCw, FolderInput, Settings, Save } from "lucide-react";
+import { Plus, Trash2, RefreshCw, FolderInput, Settings, Save, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -46,28 +56,82 @@ import { toast } from "sonner";
 
 function UsersTab() {
   const [users, setUsers] = useState<User[]>([]);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [form, setForm] = useState({ username: "", password: "", display_name: "", role: "viewer" });
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editUser, setEditUser] = useState<User | null>(null);
+  const [createForm, setCreateForm] = useState({ username: "", password: "", email: "", display_name: "", role: "viewer" });
+  const [editForm, setEditForm] = useState({
+    username: "", email: "", display_name: "", avatar_url: "", role: "", password: "", is_active: true,
+  });
 
   const load = useCallback(() => {
     getUsers().then(setUsers).catch(() => toast.error("ユーザー取得に失敗"));
+    getRoles().then(setRoles).catch(() => {});
   }, []);
 
   useEffect(load, [load]);
 
+  function openEdit(u: User) {
+    setEditUser(u);
+    setEditForm({
+      username: u.username,
+      email: u.email,
+      display_name: u.display_name,
+      avatar_url: u.avatar_url ?? "",
+      role: u.roles[0] ?? "",
+      password: "",
+      is_active: u.is_active,
+    });
+    setEditOpen(true);
+  }
+
   async function handleCreate() {
     try {
-      await createUser(form);
+      await createUser({
+        username: createForm.username,
+        password: createForm.password,
+        email: createForm.email || undefined,
+        display_name: createForm.display_name || undefined,
+        role: createForm.role || undefined,
+      });
       toast.success("ユーザーを作成しました");
-      setDialogOpen(false);
-      setForm({ username: "", password: "", display_name: "", role: "viewer" });
+      setCreateOpen(false);
+      setCreateForm({ username: "", password: "", email: "", display_name: "", role: "viewer" });
       load();
     } catch {
       toast.error("作成に失敗しました");
     }
   }
 
-  async function handleDelete(id: number) {
+  async function handleUpdate() {
+    if (!editUser) return;
+    try {
+      const data: Record<string, unknown> = {};
+      if (editForm.username !== editUser.username) data.username = editForm.username;
+      if (editForm.email !== editUser.email) data.email = editForm.email;
+      if (editForm.display_name !== editUser.display_name) data.display_name = editForm.display_name;
+      const newAvatar = editForm.avatar_url || null;
+      if (newAvatar !== editUser.avatar_url) data.avatar_url = newAvatar;
+      const currentRole = editUser.roles[0] ?? "";
+      if (editForm.role !== currentRole) data.role = editForm.role;
+      if (editForm.is_active !== editUser.is_active) data.is_active = editForm.is_active;
+      if (editForm.password) data.password = editForm.password;
+
+      if (Object.keys(data).length === 0) {
+        setEditOpen(false);
+        return;
+      }
+      await updateUser(editUser.id, data);
+      toast.success("ユーザーを更新しました");
+      setEditOpen(false);
+      load();
+    } catch {
+      toast.error("更新に失敗しました");
+    }
+  }
+
+  async function handleDelete(id: string) {
     if (!confirm("本当に削除しますか？")) return;
     try {
       await deleteUser(id);
@@ -78,11 +142,13 @@ function UsersTab() {
     }
   }
 
+  const roleNames = roles.map((r) => r.name);
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">ユーザー一覧</CardTitle>
-        <Button size="sm" onClick={() => setDialogOpen(true)}>
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-1" /> 追加
         </Button>
       </CardHeader>
@@ -90,20 +156,36 @@ function UsersTab() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10" />
               <TableHead>ユーザー名</TableHead>
               <TableHead>表示名</TableHead>
+              <TableHead>メール</TableHead>
               <TableHead>ロール</TableHead>
               <TableHead>状態</TableHead>
-              <TableHead className="w-12" />
+              <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {users.map((u) => (
-              <TableRow key={u.id}>
+              <TableRow key={u.id} className="cursor-pointer hover:bg-muted/50" onClick={() => openEdit(u)}>
+                <TableCell>
+                  {u.avatar_url ? (
+                    <img src={u.avatar_url} alt="" className="h-7 w-7 rounded-full object-cover" />
+                  ) : (
+                    <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary">
+                      {(u.display_name || u.username).charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </TableCell>
                 <TableCell className="font-medium">{u.username}</TableCell>
                 <TableCell>{u.display_name}</TableCell>
+                <TableCell className="text-muted-foreground text-xs">{u.email}</TableCell>
                 <TableCell>
-                  <Badge variant="secondary">{u.role}</Badge>
+                  <div className="flex gap-1">
+                    {u.roles.map((r) => (
+                      <Badge key={r} variant="secondary">{r}</Badge>
+                    ))}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <Badge variant={u.is_active ? "default" : "outline"}>
@@ -111,9 +193,14 @@ function UsersTab() {
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <Button variant="ghost" size="icon" onClick={() => handleDelete(u.id)}>
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEdit(u); }}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleDelete(u.id); }}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -121,39 +208,100 @@ function UsersTab() {
         </Table>
       </CardContent>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      {/* Create dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>ユーザー追加</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <Input
-              placeholder="ユーザー名"
-              value={form.username}
-              onChange={(e) => setForm({ ...form, username: e.target.value })}
-            />
-            <Input
-              placeholder="パスワード"
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-            />
-            <Input
-              placeholder="表示名"
-              value={form.display_name}
-              onChange={(e) => setForm({ ...form, display_name: e.target.value })}
-            />
-            <Input
-              placeholder="ロール (admin, editor, viewer)"
-              value={form.role}
-              onChange={(e) => setForm({ ...form, role: e.target.value })}
-            />
+            <div>
+              <Label className="text-xs">ユーザー名 *</Label>
+              <Input value={createForm.username} onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">パスワード *</Label>
+              <Input type="password" value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">メールアドレス</Label>
+              <Input value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} placeholder="空欄の場合 username@local" />
+            </div>
+            <div>
+              <Label className="text-xs">表示名</Label>
+              <Input value={createForm.display_name} onChange={(e) => setCreateForm({ ...createForm, display_name: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">ロール</Label>
+              <Select value={createForm.role || undefined} onValueChange={(v) => setCreateForm({ ...createForm, role: v ?? "" })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {roleNames.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              キャンセル
-            </Button>
-            <Button onClick={handleCreate}>作成</Button>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>キャンセル</Button>
+            <Button onClick={handleCreate} disabled={!createForm.username || !createForm.password}>作成</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>ユーザー編集</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Avatar preview */}
+            <div className="flex items-center gap-4">
+              {editForm.avatar_url ? (
+                <img src={editForm.avatar_url} alt="" className="h-16 w-16 rounded-full object-cover border" />
+              ) : (
+                <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center text-xl font-medium text-primary">
+                  {(editForm.display_name || editForm.username).charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="flex-1">
+                <Label className="text-xs">アバター URL</Label>
+                <Input value={editForm.avatar_url} onChange={(e) => setEditForm({ ...editForm, avatar_url: e.target.value })} placeholder="https://..." />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">ユーザー名</Label>
+              <Input value={editForm.username} onChange={(e) => setEditForm({ ...editForm, username: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">メールアドレス</Label>
+              <Input value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">表示名</Label>
+              <Input value={editForm.display_name} onChange={(e) => setEditForm({ ...editForm, display_name: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">新しいパスワード (変更する場合のみ)</Label>
+              <Input type="password" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} placeholder="変更しない場合は空欄" />
+            </div>
+            <div>
+              <Label className="text-xs">ロール</Label>
+              <Select value={editForm.role || undefined} onValueChange={(v) => setEditForm({ ...editForm, role: v ?? "" })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {roleNames.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-sm">アカウント有効</Label>
+              <Switch checked={editForm.is_active} onCheckedChange={(v) => setEditForm({ ...editForm, is_active: v })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>キャンセル</Button>
+            <Button onClick={handleUpdate}>保存</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
