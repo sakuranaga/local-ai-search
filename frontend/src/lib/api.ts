@@ -435,6 +435,10 @@ export async function getSettings(): Promise<SystemSetting[]> {
   return apiFetch("/settings");
 }
 
+export async function getPublicSetting(key: string): Promise<{ key: string; value: string }> {
+  return apiFetch(`/settings/public/${key}`);
+}
+
 export async function updateSetting(
   key: string,
   value: string,
