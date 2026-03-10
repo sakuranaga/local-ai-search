@@ -210,11 +210,18 @@ export interface ChatSource {
   chunk_id: string;
 }
 
+export interface ChatContext {
+  content: string;
+  document_id: string;
+  title: string;
+  chunk_id: string;
+}
+
 export function streamChat(
   messages: ChatMessage[],
-  useSearch: boolean,
+  context: ChatContext[],
   onToken: (text: string) => void,
-  onSources: (sources: ChatSource[]) => void,
+  onContext: (ctx: ChatContext[], sources: ChatSource[]) => void,
   onDone: () => void,
   onError: (err: Error) => void,
 ): AbortController {
@@ -227,7 +234,7 @@ export function streamChat(
   fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ messages, use_search: useSearch }),
+    body: JSON.stringify({ messages, context }),
     signal: controller.signal,
   })
     .then(async (res) => {
@@ -257,8 +264,23 @@ export function streamChat(
               const parsed = JSON.parse(payload);
               if (parsed.type === "token") {
                 onToken(parsed.content);
+              } else if (parsed.type === "context") {
+                const ctx: ChatContext[] = parsed.context;
+                const sources: ChatSource[] = ctx.map((c: ChatContext) => ({
+                  document_id: c.document_id,
+                  title: c.title,
+                  chunk_id: c.chunk_id,
+                }));
+                onContext(ctx, sources);
               } else if (parsed.type === "sources") {
-                onSources(parsed.sources);
+                const sources: ChatSource[] = parsed.sources;
+                const ctx: ChatContext[] = sources.map((s: ChatSource) => ({
+                  content: "",
+                  document_id: s.document_id,
+                  title: s.title,
+                  chunk_id: s.chunk_id,
+                }));
+                onContext(ctx, sources);
               }
             } catch {
               onToken(payload);
