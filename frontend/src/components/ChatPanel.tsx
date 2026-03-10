@@ -284,9 +284,9 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
   }
 
   return (
-    <Card className="h-full flex flex-col">
+    <Card className="h-full flex flex-col !py-0 !gap-0">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b shrink-0">
+      <div className="flex items-center justify-between px-4 py-1.5 border-b shrink-0">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Sparkles className="h-4 w-4 text-primary" />
           AI チャット
@@ -371,7 +371,7 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
       </ScrollArea>
 
       {/* Input */}
-      <div className="border-t p-3 shrink-0">
+      <div className="border-t px-3 py-2 shrink-0">
         <div className="flex gap-2">
           <Textarea
             ref={textareaRef}

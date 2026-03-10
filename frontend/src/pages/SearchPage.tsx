@@ -208,7 +208,7 @@ export function SearchPage() {
           )}
         </div>
         {/* Right: AI chat */}
-        <div className="lg:col-span-2 min-h-0">
+        <div className="lg:col-span-2 min-h-0 p-px">
           <ChatPanel
             initialQuery={urlQ || undefined}
             onSourceClick={(docId) => {
