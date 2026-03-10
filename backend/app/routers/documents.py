@@ -11,7 +11,7 @@ from sqlalchemy.orm import aliased
 from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import Chunk, Document, DocumentPermission, File, User
+from app.models import Chunk, Document, DocumentPermission, DocumentTag, File, Folder, Tag, User
 from app.services.embedding import get_embeddings
 from app.services.parser import chunk_text, parse_file
 
@@ -20,6 +20,12 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 # ---------------------------------------------------------------------------
 # Response / request models
 # ---------------------------------------------------------------------------
+
+
+class TagInfo(BaseModel):
+    id: int
+    name: str
+    color: str | None
 
 
 class DocumentListItem(BaseModel):
@@ -32,6 +38,9 @@ class DocumentListItem(BaseModel):
     ai_knowledge: bool
     chunk_count: int
     memo: str | None
+    folder_id: str | None = None
+    folder_name: str | None = None
+    tags: list[TagInfo] = []
     created_by_name: str | None
     updated_by_name: str | None
     created_at: datetime
@@ -59,6 +68,8 @@ class DocumentUpdateRequest(BaseModel):
     is_public: bool | None = None
     searchable: bool | None = None
     ai_knowledge: bool | None = None
+    folder_id: str | None = None  # UUID string or "" to unset
+    tag_ids: list[int] | None = None  # replace all tags
 
 
 class BulkDeleteRequest(BaseModel):
@@ -67,9 +78,13 @@ class BulkDeleteRequest(BaseModel):
 
 class BulkActionRequest(BaseModel):
     ids: list[str]
-    action: str  # "delete" | "reindex" | "set_permissions"
+    action: str  # "delete" | "reindex" | "set_permissions" | "move_to_folder" | "add_tags" | "remove_tags"
     # For set_permissions action
     permissions: list["PermissionEntry"] | None = None
+    # For move_to_folder action
+    folder_id: str | None = None  # "" to unset
+    # For add_tags / remove_tags actions
+    tag_ids: list[int] | None = None
 
 
 class PermissionEntry(BaseModel):
@@ -149,6 +164,24 @@ async def _check_doc_access(
 # ---------------------------------------------------------------------------
 
 
+async def _load_tags_for_docs(db: AsyncSession, doc_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[TagInfo]]:
+    """Load tags for a batch of documents. Returns {doc_id: [TagInfo, ...]}."""
+    if not doc_ids:
+        return {}
+    result = await db.execute(
+        select(DocumentTag.document_id, Tag.id, Tag.name, Tag.color)
+        .join(Tag, DocumentTag.tag_id == Tag.id)
+        .where(DocumentTag.document_id.in_(doc_ids))
+        .order_by(Tag.name)
+    )
+    tags_map: dict[uuid.UUID, list[TagInfo]] = {}
+    for row in result.all():
+        tags_map.setdefault(row[0], []).append(
+            TagInfo(id=row[1], name=row[2], color=row[3])
+        )
+    return tags_map
+
+
 @router.get("", response_model=DocumentListResponse)
 async def list_documents(
     page: int = Query(1, ge=1),
@@ -157,6 +190,9 @@ async def list_documents(
     sort_dir: str = Query("desc"),
     file_type: str | None = Query(None),
     q: str | None = Query(None),
+    folder_id: str | None = Query(None),
+    unfiled: bool = Query(False),
+    tag: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -207,6 +243,8 @@ async def list_documents(
             Document.searchable,
             Document.ai_knowledge,
             Document.memo,
+            Document.folder_id,
+            Folder.name.label("folder_name"),
             Document.created_at,
             Document.updated_at,
             func.coalesce(chunk_count_sq.c.chunk_count, 0).label("chunk_count"),
@@ -216,6 +254,7 @@ async def list_documents(
         .outerjoin(chunk_count_sq, Document.id == chunk_count_sq.c.document_id)
         .outerjoin(CreatedByUser, Document.created_by_id == CreatedByUser.id)
         .outerjoin(UpdatedByUser, Document.updated_by_id == UpdatedByUser.id)
+        .outerjoin(Folder, Document.folder_id == Folder.id)
         .where(visibility_filter)
     )
 
@@ -224,6 +263,18 @@ async def list_documents(
         base = base.where(Document.file_type == file_type)
     if q:
         base = base.where(Document.title.ilike(f"%{q}%"))
+    if folder_id:
+        base = base.where(Document.folder_id == uuid.UUID(folder_id))
+    elif unfiled:
+        base = base.where(Document.folder_id.is_(None))
+    if tag:
+        tag_sq = (
+            select(DocumentTag.document_id)
+            .join(Tag, DocumentTag.tag_id == Tag.id)
+            .where(Tag.name == tag)
+            .subquery()
+        )
+        base = base.where(Document.id.in_(select(tag_sq.c.document_id)))
 
     # Count total before pagination
     count_stmt = select(func.count()).select_from(base.subquery())
@@ -249,6 +300,10 @@ async def list_documents(
     result = await db.execute(base)
     rows = result.all()
 
+    # Batch-load tags for returned documents
+    doc_ids = [row.id for row in rows]
+    tags_map = await _load_tags_for_docs(db, doc_ids)
+
     items = [
         DocumentListItem(
             id=str(row.id),
@@ -260,6 +315,9 @@ async def list_documents(
             ai_knowledge=row.ai_knowledge,
             chunk_count=row.chunk_count,
             memo=row.memo,
+            folder_id=str(row.folder_id) if row.folder_id else None,
+            folder_name=row.folder_name,
+            tags=tags_map.get(row.id, []),
             created_by_name=row.created_by_name,
             updated_by_name=row.updated_by_name,
             created_at=row.created_at,
@@ -413,6 +471,16 @@ async def get_document(
         r = await db.execute(select(User.username).where(User.id == doc.updated_by_id))
         updated_by_name = r.scalar_one_or_none()
 
+    # Load folder name
+    folder_name = None
+    if doc.folder_id:
+        r = await db.execute(select(Folder.name).where(Folder.id == doc.folder_id))
+        folder_name = r.scalar_one_or_none()
+
+    # Load tags
+    tags_map = await _load_tags_for_docs(db, [doc.id])
+    doc_tags = tags_map.get(doc.id, [])
+
     return DocumentDetail(
         id=str(doc.id),
         title=doc.title,
@@ -424,6 +492,9 @@ async def get_document(
         content=doc.content,
         chunk_count=len(chunks),
         memo=doc.memo,
+        folder_id=str(doc.folder_id) if doc.folder_id else None,
+        folder_name=folder_name,
+        tags=doc_tags,
         created_by_name=created_by_name,
         updated_by_name=updated_by_name,
         created_at=doc.created_at,
@@ -481,6 +552,14 @@ async def update_document(
         doc.searchable = body.searchable
     if body.ai_knowledge is not None:
         doc.ai_knowledge = body.ai_knowledge
+    if body.folder_id is not None:
+        doc.folder_id = uuid.UUID(body.folder_id) if body.folder_id else None
+    if body.tag_ids is not None:
+        await db.execute(
+            delete(DocumentTag).where(DocumentTag.document_id == doc.id)
+        )
+        for tid in body.tag_ids:
+            db.add(DocumentTag(document_id=doc.id, tag_id=tid))
 
     doc.updated_by_id = current_user.id
 
@@ -494,6 +573,15 @@ async def update_document(
         )
     ).scalar() or 0
 
+    # folder name
+    folder_name = None
+    if doc.folder_id:
+        r = await db.execute(select(Folder.name).where(Folder.id == doc.folder_id))
+        folder_name = r.scalar_one_or_none()
+
+    # tags
+    tags_map = await _load_tags_for_docs(db, [doc.id])
+
     return DocumentListItem(
         id=str(doc.id),
         title=doc.title,
@@ -504,6 +592,9 @@ async def update_document(
         ai_knowledge=doc.ai_knowledge,
         chunk_count=chunk_count,
         memo=doc.memo,
+        folder_id=str(doc.folder_id) if doc.folder_id else None,
+        folder_name=folder_name,
+        tags=tags_map.get(doc.id, []),
         created_by_name=None,
         updated_by_name=current_user.username,
         created_at=doc.created_at,
@@ -697,6 +788,77 @@ async def bulk_action(
             processed += 1
         await db.flush()
         return {"action": "set_permissions", "processed": processed}
+
+    elif body.action == "move_to_folder":
+        folder_uuid = uuid.UUID(body.folder_id) if body.folder_id else None
+        processed = 0
+        for doc_id_str in body.ids:
+            try:
+                doc_id = uuid.UUID(doc_id_str)
+            except ValueError:
+                continue
+            result = await db.execute(select(Document).where(Document.id == doc_id))
+            doc = result.scalar_one_or_none()
+            if doc is None:
+                continue
+            if not await _check_doc_access(doc, current_user, need_write=True, db=db):
+                continue
+            doc.folder_id = folder_uuid
+            doc.updated_by_id = current_user.id
+            processed += 1
+        await db.flush()
+        return {"action": "move_to_folder", "processed": processed}
+
+    elif body.action == "add_tags":
+        if not body.tag_ids:
+            raise HTTPException(status_code=400, detail="tag_ids required")
+        processed = 0
+        for doc_id_str in body.ids:
+            try:
+                doc_id = uuid.UUID(doc_id_str)
+            except ValueError:
+                continue
+            result = await db.execute(select(Document).where(Document.id == doc_id))
+            doc = result.scalar_one_or_none()
+            if doc is None:
+                continue
+            if not await _check_doc_access(doc, current_user, need_write=True, db=db):
+                continue
+            existing = await db.execute(
+                select(DocumentTag.tag_id).where(DocumentTag.document_id == doc_id)
+            )
+            existing_ids = {row[0] for row in existing.all()}
+            for tid in body.tag_ids:
+                if tid not in existing_ids:
+                    db.add(DocumentTag(document_id=doc_id, tag_id=tid))
+            processed += 1
+        await db.flush()
+        return {"action": "add_tags", "processed": processed}
+
+    elif body.action == "remove_tags":
+        if not body.tag_ids:
+            raise HTTPException(status_code=400, detail="tag_ids required")
+        processed = 0
+        for doc_id_str in body.ids:
+            try:
+                doc_id = uuid.UUID(doc_id_str)
+            except ValueError:
+                continue
+            result = await db.execute(select(Document).where(Document.id == doc_id))
+            doc = result.scalar_one_or_none()
+            if doc is None:
+                continue
+            if not await _check_doc_access(doc, current_user, need_write=True, db=db):
+                continue
+            await db.execute(
+                delete(DocumentTag).where(
+                    DocumentTag.document_id == doc_id,
+                    DocumentTag.tag_id.in_(body.tag_ids),
+                )
+            )
+            processed += 1
+        await db.flush()
+        return {"action": "remove_tags", "processed": processed}
 
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {body.action}")

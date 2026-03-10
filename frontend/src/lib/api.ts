@@ -95,6 +95,21 @@ export interface SearchResponse {
   results: SearchResult[];
 }
 
+export interface TagInfo {
+  id: number;
+  name: string;
+  color: string | null;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  document_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Document {
   id: string;
   title: string;
@@ -106,6 +121,9 @@ export interface Document {
   ai_knowledge: boolean;
   chunk_count: number;
   memo: string | null;
+  folder_id: string | null;
+  folder_name: string | null;
+  tags: TagInfo[];
   created_by_name: string | null;
   updated_by_name: string | null;
   created_at: string;
@@ -134,6 +152,9 @@ export interface DocumentListItem {
   ai_knowledge: boolean;
   chunk_count: number;
   memo: string | null;
+  folder_id: string | null;
+  folder_name: string | null;
+  tags: TagInfo[];
   created_by_name: string | null;
   updated_by_name: string | null;
   created_at: string;
@@ -333,6 +354,9 @@ export async function getDocuments(params: {
   sort_dir?: string;
   file_type?: string;
   q?: string;
+  folder_id?: string;
+  unfiled?: boolean;
+  tag?: string;
 } = {}): Promise<DocumentListResponse> {
   const p = new URLSearchParams();
   if (params.page) p.set("page", String(params.page));
@@ -341,6 +365,9 @@ export async function getDocuments(params: {
   if (params.sort_dir) p.set("sort_dir", params.sort_dir);
   if (params.file_type) p.set("file_type", params.file_type);
   if (params.q) p.set("q", params.q);
+  if (params.folder_id) p.set("folder_id", params.folder_id);
+  if (params.unfiled) p.set("unfiled", "true");
+  if (params.tag) p.set("tag", params.tag);
   return apiFetch(`/documents?${p.toString()}`);
 }
 
@@ -350,7 +377,7 @@ export async function getDocument(id: string): Promise<Document> {
 
 export async function updateDocument(
   id: string,
-  data: { title?: string; memo?: string; is_public?: boolean; searchable?: boolean; ai_knowledge?: boolean },
+  data: { title?: string; memo?: string; is_public?: boolean; searchable?: boolean; ai_knowledge?: boolean; folder_id?: string | null; tag_ids?: number[] },
 ): Promise<Document> {
   return apiFetch(`/documents/${id}`, {
     method: "PATCH",
@@ -386,10 +413,11 @@ export async function bulkAction(
   ids: string[],
   action: string,
   permissions?: DocumentPermissionEntry[],
+  extra?: Record<string, unknown>,
 ): Promise<{ action: string; processed: number }> {
   return apiFetch("/documents/bulk-action", {
     method: "POST",
-    body: JSON.stringify({ ids, action, permissions }),
+    body: JSON.stringify({ ids, action, permissions, ...extra }),
   });
 }
 
@@ -529,4 +557,56 @@ export async function updateSetting(
     method: "PUT",
     body: JSON.stringify({ value }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Folders
+// ---------------------------------------------------------------------------
+
+export async function getFolders(): Promise<Folder[]> {
+  return apiFetch("/folders");
+}
+
+export async function createFolder(data: { name: string; parent_id?: string | null }): Promise<Folder> {
+  return apiFetch("/folders", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateFolder(id: string, data: { name?: string; parent_id?: string | null }): Promise<Folder> {
+  return apiFetch(`/folders/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteFolder(id: string): Promise<void> {
+  return apiFetch(`/folders/${id}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------------------
+// Tags
+// ---------------------------------------------------------------------------
+
+export async function getTags(): Promise<TagInfo[]> {
+  return apiFetch("/tags");
+}
+
+export async function createTag(data: { name: string; color?: string | null }): Promise<TagInfo> {
+  return apiFetch("/tags", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateTag(id: number, data: { name?: string; color?: string | null }): Promise<TagInfo> {
+  return apiFetch(`/tags/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteTag(id: number): Promise<void> {
+  return apiFetch(`/tags/${id}`, { method: "DELETE" });
 }

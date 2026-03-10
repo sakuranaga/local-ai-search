@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
@@ -28,6 +28,8 @@ import { Separator } from "@/components/ui/separator";
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronRightIcon,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -38,6 +40,13 @@ import {
   Search as SearchIcon,
   FileText,
   Brain,
+  FolderIcon,
+  FolderOpen,
+  FolderPlus,
+  Plus,
+  X,
+  Tag as TagIcon,
+  Pencil,
 } from "lucide-react";
 import {
   getDocuments,
@@ -51,11 +60,19 @@ import {
   reindexDocument,
   getUsers,
   getRoles,
+  getFolders,
+  createFolder,
+  updateFolder,
+  deleteFolder,
+  getTags,
+  createTag,
   type DocumentListItem,
   type DocumentPermissionEntry,
   type Document,
   type User,
   type Role,
+  type Folder,
+  type TagInfo,
 } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
@@ -80,6 +97,37 @@ function formatBytes(bytes: number): string {
 
 const FILE_TYPES = ["", "md", "pdf", "docx"] as const;
 
+const TAG_COLORS = [
+  "#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4",
+  "#3b82f6", "#8b5cf6", "#ec4899", "#6b7280",
+];
+
+interface FolderNode extends Folder {
+  children: FolderNode[];
+}
+
+function buildFolderTree(folders: Folder[]): FolderNode[] {
+  const map = new Map<string, FolderNode>();
+  for (const f of folders) {
+    map.set(f.id, { ...f, children: [] });
+  }
+  const roots: FolderNode[] = [];
+  for (const node of map.values()) {
+    if (node.parent_id && map.has(node.parent_id)) {
+      map.get(node.parent_id)!.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  // Sort children alphabetically
+  const sortChildren = (nodes: FolderNode[]) => {
+    nodes.sort((a, b) => a.name.localeCompare(b.name));
+    for (const n of nodes) sortChildren(n.children);
+  };
+  sortChildren(roots);
+  return roots;
+}
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -97,22 +145,57 @@ export function FileExplorerPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
 
+  // Folder state
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null); // null = all, "unfiled" = no folder
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderParent, setNewFolderParent] = useState<string | null>(null);
+
+  // Tag state
+  const [allTags, setAllTags] = useState<TagInfo[]>([]);
+  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [newTagOpen, setNewTagOpen] = useState(false);
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState(TAG_COLORS[0]);
+
   // Dialogs
   const [detailDoc, setDetailDoc] = useState<DocumentListItem | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [bulkActionOpen, setBulkActionOpen] = useState<string | null>(null); // "delete"|"reindex"|"permissions"
+  const [bulkActionOpen, setBulkActionOpen] = useState<string | null>(null);
+
+  const loadFolders = useCallback(async () => {
+    try {
+      setFolders(await getFolders());
+    } catch { /* ignore */ }
+  }, []);
+
+  const loadTags = useCallback(async () => {
+    try {
+      setAllTags(await getTags());
+    } catch { /* ignore */ }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getDocuments({
+      const params: Parameters<typeof getDocuments>[0] = {
         page,
         per_page: perPage,
         sort_by: sortBy,
         sort_dir: sortDir,
         file_type: filterType || undefined,
         q: filterQ || undefined,
-      });
+      };
+      if (activeFolderId === "unfiled") {
+        params.unfiled = true;
+      } else if (activeFolderId) {
+        params.folder_id = activeFolderId;
+      }
+      if (activeTag) {
+        params.tag = activeTag;
+      }
+      const data = await getDocuments(params);
       setItems(data.items);
       setTotal(data.total);
     } catch {
@@ -120,21 +203,17 @@ export function FileExplorerPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, perPage, sortBy, sortDir, filterType, filterQ]);
+  }, [page, perPage, sortBy, sortDir, filterType, filterQ, activeFolderId, activeTag]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadFolders(); loadTags(); }, []);
 
   const totalPages = Math.ceil(total / perPage);
+  const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
 
   function handleSort(col: string) {
-    if (sortBy === col) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortBy(col);
-      setSortDir("desc");
-    }
+    if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortBy(col); setSortDir("desc"); }
     setPage(1);
   }
 
@@ -146,8 +225,7 @@ export function FileExplorerPage() {
   function toggleSelect(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   }
@@ -161,194 +239,294 @@ export function FileExplorerPage() {
     try {
       await updateDocument(item.id, { [field]: !item[field] });
       setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, [field]: !i[field] } : i)));
-    } catch {
-      toast.error("更新に失敗");
-    }
+    } catch { toast.error("更新に失敗"); }
   }
 
-  async function handleBulkAction(action: string) {
+  async function handleBulkAction(action: string, extra?: Record<string, unknown>) {
     try {
-      const res = await bulkAction([...selected], action);
+      const res = await bulkAction([...selected], action, undefined, extra);
       toast.success(`${res.processed}件処理しました`);
       setSelected(new Set());
       setBulkActionOpen(null);
       load();
-    } catch {
-      toast.error("処理に失敗しました");
-    }
+      loadFolders();
+      loadTags();
+    } catch { toast.error("処理に失敗しました"); }
+  }
+
+  async function handleCreateFolder() {
+    if (!newFolderName.trim()) return;
+    try {
+      await createFolder({ name: newFolderName.trim(), parent_id: newFolderParent });
+      setNewFolderName("");
+      setNewFolderParent(null);
+      setNewFolderOpen(false);
+      loadFolders();
+    } catch { toast.error("フォルダ作成失敗"); }
+  }
+
+  async function handleCreateTag() {
+    if (!newTagName.trim()) return;
+    try {
+      await createTag({ name: newTagName.trim(), color: newTagColor });
+      setNewTagName("");
+      setNewTagOpen(false);
+      loadTags();
+    } catch { toast.error("タグ作成失敗"); }
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-4 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">文書管理</h1>
-        <Button onClick={() => setUploadOpen(true)}>
-          <Upload className="h-4 w-4 mr-2" />
-          アップロード
-        </Button>
+    <div className="max-w-[1600px] mx-auto p-4 flex gap-4">
+      {/* Sidebar */}
+      <div className="w-56 flex-shrink-0 space-y-4">
+        {/* Folder tree */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-semibold text-muted-foreground">フォルダ</h3>
+            <button onClick={() => setNewFolderOpen(true)} className="p-0.5 hover:bg-muted rounded" title="新しいフォルダ">
+              <FolderPlus className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </div>
+          <div className="space-y-0.5">
+            <button
+              onClick={() => { setActiveFolderId(null); setPage(1); }}
+              className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${activeFolderId === null ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
+            >
+              <FolderIcon className="h-3.5 w-3.5" />すべて
+            </button>
+            <button
+              onClick={() => { setActiveFolderId("unfiled"); setPage(1); }}
+              className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${activeFolderId === "unfiled" ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
+            >
+              <FileText className="h-3.5 w-3.5" />未整理
+            </button>
+            {folderTree.map((node) => (
+              <FolderTreeItem
+                key={node.id}
+                node={node}
+                activeFolderId={activeFolderId}
+                onSelect={(id) => { setActiveFolderId(id); setPage(1); }}
+                onReload={() => { loadFolders(); load(); }}
+                allFolders={folders}
+              />
+            ))}
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Tags */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-semibold text-muted-foreground">タグ</h3>
+            <button onClick={() => setNewTagOpen(true)} className="p-0.5 hover:bg-muted rounded" title="新しいタグ">
+              <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </div>
+          <div className="space-y-0.5">
+            {activeTag && (
+              <button
+                onClick={() => { setActiveTag(null); setPage(1); }}
+                className="w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 hover:bg-muted text-muted-foreground"
+              >
+                <X className="h-3 w-3" />フィルタ解除
+              </button>
+            )}
+            {allTags.map((tag) => (
+              <button
+                key={tag.id}
+                onClick={() => { setActiveTag(activeTag === tag.name ? null : tag.name); setPage(1); }}
+                className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${activeTag === tag.name ? "bg-primary/10 font-medium" : "hover:bg-muted"}`}
+              >
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color || "#6b7280" }} />
+                <span className="truncate flex-1">{tag.name}</span>
+                <span className="text-xs text-muted-foreground">{(tag as TagInfo & { document_count?: number }).document_count ?? ""}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-3">
-        <form
-          className="relative flex-1 max-w-sm"
-          onSubmit={(e) => { e.preventDefault(); setFilterQ(searchInput); setPage(1); }}
-        >
-          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="タイトル検索..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="pl-9 h-9 text-sm"
-          />
-        </form>
-        <select
-          value={filterType}
-          onChange={(e) => { setFilterType(e.target.value); setPage(1); }}
-          className="h-9 rounded-md border bg-background px-3 text-sm"
-        >
-          <option value="">すべての種別</option>
-          {FILE_TYPES.filter(Boolean).map((t) => (
-            <option key={t} value={t}>{t.toUpperCase()}</option>
-          ))}
-        </select>
-        <span className="text-sm text-muted-foreground ml-auto">
-          {total.toLocaleString()}件
-        </span>
-      </div>
-
-      {/* Bulk actions */}
-      {selected.size > 0 && (
-        <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
-          <span className="text-sm font-medium">{selected.size}件選択中</span>
-          <Button variant="destructive" size="sm" onClick={() => setBulkActionOpen("delete")}>
-            <Trash2 className="h-3.5 w-3.5 mr-1" />削除
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setBulkActionOpen("reindex")}>
-            <RefreshCw className="h-3.5 w-3.5 mr-1" />ベクトル再構築
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setBulkActionOpen("permissions")}>
-            <Shield className="h-3.5 w-3.5 mr-1" />権限変更
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-            選択解除
+      {/* Main content */}
+      <div className="flex-1 min-w-0 space-y-4">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-bold">文書管理</h1>
+          <Button onClick={() => setUploadOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />アップロード
           </Button>
         </div>
-      )}
 
-      {/* Table */}
-      <Card>
-        <ScrollArea className="w-full">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10">
-                  <input
-                    type="checkbox"
-                    checked={items.length > 0 && selected.size === items.length}
-                    onChange={toggleSelectAll}
-                  />
-                </TableHead>
-                <TableHead className="cursor-pointer select-none" onClick={() => handleSort("title")}>
-                  <span className="flex items-center">タイトル <SortIcon col="title" /></span>
-                </TableHead>
-                <TableHead className="w-16">種別</TableHead>
-                <TableHead className="w-14">チャンク</TableHead>
-                <TableHead className="w-24">登録者</TableHead>
-                <TableHead className="w-24">更新者</TableHead>
-                <TableHead className="w-24 cursor-pointer select-none" onClick={() => handleSort("updated_at")}>
-                  <span className="flex items-center">更新日 <SortIcon col="updated_at" /></span>
-                </TableHead>
-                <TableHead className="w-28 text-center">検索 / AI</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow
-                  key={item.id}
-                  className={`cursor-pointer ${selected.has(item.id) ? "bg-muted/50" : "hover:bg-muted/30"}`}
-                >
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={selected.has(item.id)}
-                      onChange={() => toggleSelect(item.id)}
-                    />
-                  </TableCell>
-                  <TableCell onClick={() => setDetailDoc(item)}>
-                    <span className="font-medium text-sm max-w-[300px] truncate block hover:underline">
-                      {item.title}
-                    </span>
-                    {item.memo && (
-                      <p className="text-xs text-muted-foreground truncate max-w-[300px]">{item.memo}</p>
-                    )}
-                  </TableCell>
-                  <TableCell onClick={() => setDetailDoc(item)}>
-                    <Badge variant="outline" className="text-xs">{item.file_type}</Badge>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground" onClick={() => setDetailDoc(item)}>
-                    {item.chunk_count}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground" onClick={() => setDetailDoc(item)}>
-                    {item.created_by_name ?? "-"}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground" onClick={() => setDetailDoc(item)}>
-                    {item.updated_by_name ?? "-"}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground" onClick={() => setDetailDoc(item)}>
-                    {formatDate(item.updated_at)}
-                  </TableCell>
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-center gap-2">
-                      <button
-                        title={item.searchable ? "検索対象" : "検索除外"}
-                        className={`p-1 rounded transition-colors ${item.searchable ? "text-primary" : "text-muted-foreground/30 hover:text-muted-foreground"}`}
-                        onClick={() => handleToggleFlag(item, "searchable")}
-                      >
-                        <SearchIcon className="h-4 w-4" />
-                      </button>
-                      <button
-                        title={item.ai_knowledge ? "AIナレッジ対象" : "AIナレッジ除外"}
-                        className={`p-1 rounded transition-colors ${item.ai_knowledge ? "text-primary" : "text-muted-foreground/30 hover:text-muted-foreground"}`}
-                        onClick={() => handleToggleFlag(item, "ai_knowledge")}
-                      >
-                        <Brain className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {items.length === 0 && !loading && (
+        {/* Filters */}
+        <div className="flex items-center gap-3">
+          <form
+            className="relative flex-1 max-w-sm"
+            onSubmit={(e) => { e.preventDefault(); setFilterQ(searchInput); setPage(1); }}
+          >
+            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="タイトル検索..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="pl-9 h-9 text-sm"
+            />
+          </form>
+          <select
+            value={filterType}
+            onChange={(e) => { setFilterType(e.target.value); setPage(1); }}
+            className="h-9 rounded-md border bg-background px-3 text-sm"
+          >
+            <option value="">すべての種別</option>
+            {FILE_TYPES.filter(Boolean).map((t) => (
+              <option key={t} value={t}>{t.toUpperCase()}</option>
+            ))}
+          </select>
+          <span className="text-sm text-muted-foreground ml-auto">{total.toLocaleString()}件</span>
+        </div>
+
+        {/* Bulk actions */}
+        {selected.size > 0 && (
+          <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
+            <span className="text-sm font-medium">{selected.size}件選択中</span>
+            <Button variant="destructive" size="sm" onClick={() => setBulkActionOpen("delete")}>
+              <Trash2 className="h-3.5 w-3.5 mr-1" />削除
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setBulkActionOpen("reindex")}>
+              <RefreshCw className="h-3.5 w-3.5 mr-1" />ベクトル再構築
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setBulkActionOpen("permissions")}>
+              <Shield className="h-3.5 w-3.5 mr-1" />権限変更
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setBulkActionOpen("move_folder")}>
+              <FolderIcon className="h-3.5 w-3.5 mr-1" />フォルダ移動
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setBulkActionOpen("add_tags")}>
+              <TagIcon className="h-3.5 w-3.5 mr-1" />タグ追加
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>選択解除</Button>
+          </div>
+        )}
+
+        {/* Table */}
+        <Card>
+          <ScrollArea className="w-full">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                    文書がありません
-                  </TableCell>
+                  <TableHead className="w-10">
+                    <input type="checkbox" checked={items.length > 0 && selected.size === items.length} onChange={toggleSelectAll} />
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort("title")}>
+                    <span className="flex items-center">タイトル <SortIcon col="title" /></span>
+                  </TableHead>
+                  <TableHead className="w-16">種別</TableHead>
+                  <TableHead className="w-14">チャンク</TableHead>
+                  <TableHead className="w-24">登録者</TableHead>
+                  <TableHead className="w-24 cursor-pointer select-none" onClick={() => handleSort("updated_at")}>
+                    <span className="flex items-center">更新日 <SortIcon col="updated_at" /></span>
+                  </TableHead>
+                  <TableHead className="w-28 text-center">検索 / AI</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </ScrollArea>
-      </Card>
+              </TableHeader>
+              <TableBody>
+                {items.map((item) => (
+                  <TableRow
+                    key={item.id}
+                    className={`cursor-pointer ${selected.has(item.id) ? "bg-muted/50" : "hover:bg-muted/30"}`}
+                  >
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)} />
+                    </TableCell>
+                    <TableCell onClick={() => setDetailDoc(item)}>
+                      <span className="font-medium text-sm max-w-[400px] truncate block hover:underline">
+                        {item.title}
+                      </span>
+                      <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                        {item.folder_name && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                            <FolderIcon className="h-3 w-3" />{item.folder_name}
+                          </span>
+                        )}
+                        {item.tags?.map((t) => (
+                          <span
+                            key={t.id}
+                            className="inline-flex items-center text-xs px-1.5 py-0 rounded-full text-white"
+                            style={{ backgroundColor: t.color || "#6b7280" }}
+                          >
+                            {t.name}
+                          </span>
+                        ))}
+                        {item.memo && (
+                          <span className="text-xs text-muted-foreground truncate max-w-[200px]">{item.memo}</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell onClick={() => setDetailDoc(item)}>
+                      <Badge variant="outline" className="text-xs">{item.file_type}</Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground" onClick={() => setDetailDoc(item)}>
+                      {item.chunk_count}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground" onClick={() => setDetailDoc(item)}>
+                      {item.created_by_name ?? "-"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground" onClick={() => setDetailDoc(item)}>
+                      {formatDate(item.updated_at)}
+                    </TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          title={item.searchable ? "検索対象" : "検索除外"}
+                          className={`p-1 rounded transition-colors ${item.searchable ? "text-primary" : "text-muted-foreground/30 hover:text-muted-foreground"}`}
+                          onClick={() => handleToggleFlag(item, "searchable")}
+                        >
+                          <SearchIcon className="h-4 w-4" />
+                        </button>
+                        <button
+                          title={item.ai_knowledge ? "AIナレッジ対象" : "AIナレッジ除外"}
+                          className={`p-1 rounded transition-colors ${item.ai_knowledge ? "text-primary" : "text-muted-foreground/30 hover:text-muted-foreground"}`}
+                          onClick={() => handleToggleFlag(item, "ai_knowledge")}
+                        >
+                          <Brain className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {items.length === 0 && !loading && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      文書がありません
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </ScrollArea>
+        </Card>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
-          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2">
+            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
+            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/* Detail Modal */}
       <DocumentDetailModal
         item={detailDoc}
+        folders={folders}
+        allTags={allTags}
         onClose={() => setDetailDoc(null)}
-        onUpdated={() => { setDetailDoc(null); load(); }}
+        onUpdated={() => { setDetailDoc(null); load(); loadFolders(); loadTags(); }}
+        onTagsChanged={loadTags}
       />
 
       {/* Bulk action confirms */}
@@ -368,7 +546,7 @@ export function FileExplorerPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>一括ベクトル再構築</DialogTitle>
-            <DialogDescription>{selected.size}件の文書のベクトルデータを再構築します。時間がかかる場合があります。</DialogDescription>
+            <DialogDescription>{selected.size}件の文書のベクトルデータを再構築します。</DialogDescription>
           </DialogHeader>
           <DialogFooter showCloseButton>
             <Button onClick={() => handleBulkAction("reindex")}>再構築する</Button>
@@ -383,28 +561,207 @@ export function FileExplorerPage() {
         onDone={() => { setBulkActionOpen(null); setSelected(new Set()); load(); }}
       />
 
+      <BulkFolderDialog
+        open={bulkActionOpen === "move_folder"}
+        folders={folders}
+        selectedIds={[...selected]}
+        onClose={() => setBulkActionOpen(null)}
+        onDone={() => { setBulkActionOpen(null); setSelected(new Set()); load(); loadFolders(); }}
+      />
+
+      <BulkTagDialog
+        open={bulkActionOpen === "add_tags"}
+        allTags={allTags}
+        selectedIds={[...selected]}
+        onClose={() => setBulkActionOpen(null)}
+        onDone={() => { setBulkActionOpen(null); setSelected(new Set()); load(); loadTags(); }}
+      />
+
+      {/* New Folder Dialog */}
+      <Dialog open={newFolderOpen} onOpenChange={() => setNewFolderOpen(false)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>新しいフォルダ</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input placeholder="フォルダ名" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} autoFocus />
+            <select
+              value={newFolderParent ?? ""}
+              onChange={(e) => setNewFolderParent(e.target.value || null)}
+              className="w-full h-9 rounded-md border bg-background px-3 text-sm"
+            >
+              <option value="">ルート（トップレベル）</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
+          </div>
+          <DialogFooter showCloseButton>
+            <Button onClick={handleCreateFolder} disabled={!newFolderName.trim()}>作成</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Tag Dialog */}
+      <Dialog open={newTagOpen} onOpenChange={() => setNewTagOpen(false)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>新しいタグ</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input placeholder="タグ名" value={newTagName} onChange={(e) => setNewTagName(e.target.value)} autoFocus />
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">色:</span>
+              {TAG_COLORS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setNewTagColor(c)}
+                  className={`w-6 h-6 rounded-full border-2 transition-colors ${newTagColor === c ? "border-foreground" : "border-transparent"}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+          </div>
+          <DialogFooter showCloseButton>
+            <Button onClick={handleCreateTag} disabled={!newTagName.trim()}>作成</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Upload Dialog */}
       <UploadDialog
         open={uploadOpen}
+        folders={folders}
+        activeFolderId={activeFolderId}
         onClose={() => setUploadOpen(false)}
-        onUploaded={() => { setUploadOpen(false); load(); }}
+        onUploaded={() => { setUploadOpen(false); load(); loadFolders(); }}
       />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Document Detail Modal (replaces separate action buttons)
+// Folder Tree Item (recursive)
+// ---------------------------------------------------------------------------
+
+function FolderTreeItem({
+  node,
+  activeFolderId,
+  onSelect,
+  onReload,
+  allFolders,
+  depth = 0,
+}: {
+  node: FolderNode;
+  activeFolderId: string | null;
+  onSelect: (id: string) => void;
+  onReload: () => void;
+  allFolders: Folder[];
+  depth?: number;
+}) {
+  const [expanded, setExpanded] = useState(depth < 2);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(node.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const isActive = activeFolderId === node.id;
+  const hasChildren = node.children.length > 0;
+
+  async function handleRename() {
+    if (!editName.trim() || editName === node.name) { setEditing(false); return; }
+    try {
+      await updateFolder(node.id, { name: editName.trim() });
+      onReload();
+    } catch { toast.error("リネーム失敗"); }
+    setEditing(false);
+  }
+
+  async function handleDelete() {
+    if (!confirm(`フォルダ「${node.name}」を削除しますか？中の文書は未整理に移動します。`)) return;
+    try {
+      await deleteFolder(node.id);
+      onReload();
+    } catch { toast.error("削除失敗"); }
+  }
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  return (
+    <div>
+      <div
+        className={`group flex items-center gap-0.5 text-sm rounded py-0.5 ${isActive ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
+        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+      >
+        <button
+          onClick={() => hasChildren && setExpanded(!expanded)}
+          className={`p-0.5 ${hasChildren ? "" : "invisible"}`}
+        >
+          {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}
+        </button>
+        {editing ? (
+          <input
+            ref={inputRef}
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onBlur={handleRename}
+            onKeyDown={(e) => { if (e.key === "Enter") handleRename(); if (e.key === "Escape") setEditing(false); }}
+            className="flex-1 text-sm bg-background border rounded px-1 py-0"
+          />
+        ) : (
+          <>
+            <button onClick={() => onSelect(node.id)} className="flex items-center gap-1 flex-1 truncate text-left">
+              {isActive ? <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" /> : <FolderIcon className="h-3.5 w-3.5 flex-shrink-0" />}
+              <span className="truncate">{node.name}</span>
+              {node.document_count > 0 && (
+                <span className="text-xs text-muted-foreground ml-auto">{node.document_count}</span>
+              )}
+            </button>
+            <div className="hidden group-hover:flex items-center gap-0.5 ml-auto">
+              <button onClick={() => { setEditName(node.name); setEditing(true); }} className="p-0.5 hover:bg-muted rounded" title="リネーム">
+                <Pencil className="h-3 w-3 text-muted-foreground" />
+              </button>
+              <button onClick={handleDelete} className="p-0.5 hover:bg-muted rounded" title="削除">
+                <Trash2 className="h-3 w-3 text-destructive" />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+      {expanded && node.children.map((child) => (
+        <FolderTreeItem
+          key={child.id}
+          node={child}
+          activeFolderId={activeFolderId}
+          onSelect={onSelect}
+          onReload={onReload}
+          allFolders={allFolders}
+          depth={depth + 1}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Document Detail Modal
 // ---------------------------------------------------------------------------
 
 function DocumentDetailModal({
   item,
+  folders,
+  allTags,
   onClose,
   onUpdated,
+  onTagsChanged,
 }: {
   item: DocumentListItem | null;
+  folders: Folder[];
+  allTags: TagInfo[];
   onClose: () => void;
   onUpdated: () => void;
+  onTagsChanged: () => void;
 }) {
   const [doc, setDoc] = useState<Document | null>(null);
   const [tab, setTab] = useState<"view" | "edit" | "permissions">("view");
@@ -429,8 +786,15 @@ function DocumentDetailModal({
           <DialogDescription className="flex items-center gap-3 text-xs">
             <Badge variant="outline">{item.file_type}</Badge>
             <span>チャンク: {item.chunk_count}</span>
+            {item.folder_name && (
+              <span className="flex items-center gap-0.5"><FolderIcon className="h-3 w-3" />{item.folder_name}</span>
+            )}
+            {item.tags?.map((t) => (
+              <span key={t.id} className="inline-flex items-center text-xs px-1.5 rounded-full text-white" style={{ backgroundColor: t.color || "#6b7280" }}>
+                {t.name}
+              </span>
+            ))}
             {item.created_by_name && <span>登録: {item.created_by_name}</span>}
-            {item.updated_by_name && <span>更新: {item.updated_by_name}</span>}
             <span>{formatDate(item.updated_at)}</span>
           </DialogDescription>
         </DialogHeader>
@@ -450,8 +814,7 @@ function DocumentDetailModal({
           ))}
           <div className="ml-auto flex items-center gap-1 pb-1">
             <Button
-              variant="outline"
-              size="sm"
+              variant="outline" size="sm"
               onClick={async () => {
                 try {
                   const res = await reindexDocument(item.id);
@@ -463,8 +826,7 @@ function DocumentDetailModal({
               <RefreshCw className="h-3.5 w-3.5 mr-1" />再構築
             </Button>
             <Button
-              variant="destructive"
-              size="sm"
+              variant="destructive" size="sm"
               onClick={async () => {
                 if (!confirm("この文書を削除しますか？")) return;
                 try {
@@ -495,7 +857,7 @@ function DocumentDetailModal({
           )}
 
           {tab === "edit" && doc && (
-            <EditTab doc={doc} item={item} onSaved={onUpdated} />
+            <EditTab doc={doc} item={item} folders={folders} allTags={allTags} onSaved={onUpdated} onTagsChanged={onTagsChanged} />
           )}
 
           {tab === "permissions" && (
@@ -511,20 +873,60 @@ function DocumentDetailModal({
 // Edit Tab
 // ---------------------------------------------------------------------------
 
-function EditTab({ doc, item, onSaved }: { doc: Document; item: DocumentListItem; onSaved: () => void }) {
+function EditTab({
+  doc,
+  item,
+  folders,
+  allTags,
+  onSaved,
+  onTagsChanged,
+}: {
+  doc: Document;
+  item: DocumentListItem;
+  folders: Folder[];
+  allTags: TagInfo[];
+  onSaved: () => void;
+  onTagsChanged: () => void;
+}) {
   const [title, setTitle] = useState(doc.title);
   const [memo, setMemo] = useState(doc.memo ?? "");
   const [isPublic, setIsPublic] = useState(doc.is_public);
   const [searchable, setSearchable] = useState(doc.searchable);
   const [aiKnowledge, setAiKnowledge] = useState(doc.ai_knowledge);
+  const [folderId, setFolderId] = useState(doc.folder_id ?? "");
+  const [docTags, setDocTags] = useState<TagInfo[]>(doc.tags ?? []);
+  const [addTagId, setAddTagId] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const availableTags = allTags.filter((t) => !docTags.find((dt) => dt.id === t.id));
+
+  function handleAddTag() {
+    const tid = Number(addTagId);
+    if (!tid) return;
+    const tag = allTags.find((t) => t.id === tid);
+    if (tag) setDocTags((prev) => [...prev, tag]);
+    setAddTagId("");
+  }
+
+  function handleRemoveTag(id: number) {
+    setDocTags((prev) => prev.filter((t) => t.id !== id));
+  }
 
   async function handleSave() {
     setSaving(true);
     try {
-      await updateDocument(item.id, { title, memo, is_public: isPublic, searchable, ai_knowledge: aiKnowledge });
+      await updateDocument(item.id, {
+        title,
+        memo,
+        is_public: isPublic,
+        searchable,
+        ai_knowledge: aiKnowledge,
+        folder_id: folderId || null,
+        tag_ids: docTags.map((t) => t.id),
+      });
       toast.success("保存しました");
       onSaved();
+      onTagsChanged();
     } catch { toast.error("保存失敗"); }
     finally { setSaving(false); }
   }
@@ -538,6 +940,51 @@ function EditTab({ doc, item, onSaved }: { doc: Document; item: DocumentListItem
       <div>
         <label className="text-sm font-medium">メモ</label>
         <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="メモ..." rows={3} />
+      </div>
+      <div>
+        <label className="text-sm font-medium">フォルダ</label>
+        <select
+          value={folderId}
+          onChange={(e) => setFolderId(e.target.value)}
+          className="w-full h-9 rounded-md border bg-background px-3 text-sm"
+        >
+          <option value="">なし（未整理）</option>
+          {folders.map((f) => (
+            <option key={f.id} value={f.id}>{f.name}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="text-sm font-medium">タグ</label>
+        <div className="flex flex-wrap gap-1 mt-1 mb-2">
+          {docTags.map((t) => (
+            <span
+              key={t.id}
+              className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full text-white"
+              style={{ backgroundColor: t.color || "#6b7280" }}
+            >
+              {t.name}
+              <button onClick={() => handleRemoveTag(t.id)} className="hover:opacity-70">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+        {availableTags.length > 0 && (
+          <div className="flex items-center gap-2">
+            <select
+              value={addTagId}
+              onChange={(e) => setAddTagId(e.target.value)}
+              className="h-8 flex-1 rounded-md border bg-background px-3 text-sm"
+            >
+              <option value="">タグを追加...</option>
+              {availableTags.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+            <Button size="sm" variant="outline" onClick={handleAddTag} disabled={!addTagId}>追加</Button>
+          </div>
+        )}
       </div>
       <div className="flex flex-col gap-2">
         <label className="flex items-center gap-2 text-sm">
@@ -559,7 +1006,7 @@ function EditTab({ doc, item, onSaved }: { doc: Document; item: DocumentListItem
 }
 
 // ---------------------------------------------------------------------------
-// Permissions Tab (integrated with roles)
+// Permissions Tab
 // ---------------------------------------------------------------------------
 
 function PermissionsTab({ docId, isPublic }: { docId: string; docTitle: string; isPublic: boolean }) {
@@ -599,12 +1046,6 @@ function PermissionsTab({ docId, isPublic }: { docId: string; docTitle: string; 
     finally { setSaving(false); }
   }
 
-  // Group users by role for display
-  const userRoleMap = new Map<number, string>();
-  for (const u of users) {
-    if (u.role) userRoleMap.set(u.id, u.role);
-  }
-
   const availableUsers = users.filter((u) => !perms.find((p) => p.user_id === String(u.id)));
 
   return (
@@ -626,14 +1067,11 @@ function PermissionsTab({ docId, isPublic }: { docId: string; docTitle: string; 
               </Badge>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            adminロールのユーザーは全文書にアクセス可能です
-          </p>
+          <p className="text-xs text-muted-foreground mt-1">adminロールのユーザーは全文書にアクセス可能です</p>
         </div>
       )}
 
       <Separator />
-
       <h4 className="text-sm font-medium">個別権限</h4>
 
       {perms.length > 0 && (
@@ -741,7 +1179,7 @@ function BulkPermissionsDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>一括権限変更</DialogTitle>
-          <DialogDescription>{selectedIds.length}件の文書に同じ権限を設定します。既存の個別権限は上書きされます。</DialogDescription>
+          <DialogDescription>{selectedIds.length}件の文書に同じ権限を設定します。</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           {perms.length > 0 && (
@@ -795,10 +1233,145 @@ function BulkPermissionsDialog({
 }
 
 // ---------------------------------------------------------------------------
+// Bulk Folder Move Dialog
+// ---------------------------------------------------------------------------
+
+function BulkFolderDialog({
+  open,
+  folders,
+  selectedIds,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  folders: Folder[];
+  selectedIds: string[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [targetFolder, setTargetFolder] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const res = await bulkAction(selectedIds, "move_to_folder", undefined, { folder_id: targetFolder || null });
+      toast.success(`${res.processed}件を移動しました`);
+      onDone();
+    } catch { toast.error("移動失敗"); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={() => onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>一括フォルダ移動</DialogTitle>
+          <DialogDescription>{selectedIds.length}件の文書を移動します。</DialogDescription>
+        </DialogHeader>
+        <select
+          value={targetFolder}
+          onChange={(e) => setTargetFolder(e.target.value)}
+          className="w-full h-9 rounded-md border bg-background px-3 text-sm"
+        >
+          <option value="">未整理（フォルダなし）</option>
+          {folders.map((f) => (
+            <option key={f.id} value={f.id}>{f.name}</option>
+          ))}
+        </select>
+        <DialogFooter showCloseButton>
+          <Button onClick={handleSave} disabled={saving}>移動する</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Bulk Tag Dialog
+// ---------------------------------------------------------------------------
+
+function BulkTagDialog({
+  open,
+  allTags,
+  selectedIds,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  allTags: TagInfo[];
+  selectedIds: string[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set());
+  const [saving, setSaving] = useState(false);
+
+  function toggleTag(id: number) {
+    setSelectedTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleSave() {
+    if (selectedTags.size === 0) return;
+    setSaving(true);
+    try {
+      const res = await bulkAction(selectedIds, "add_tags", undefined, { tag_ids: [...selectedTags] });
+      toast.success(`${res.processed}件にタグを追加しました`);
+      setSelectedTags(new Set());
+      onDone();
+    } catch { toast.error("タグ追加失敗"); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={() => onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>一括タグ追加</DialogTitle>
+          <DialogDescription>{selectedIds.length}件の文書にタグを追加します。</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-wrap gap-2">
+          {allTags.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => toggleTag(t.id)}
+              className={`inline-flex items-center gap-1 text-sm px-2.5 py-1 rounded-full border transition-colors ${
+                selectedTags.has(t.id) ? "border-primary bg-primary/10" : "border-muted hover:border-foreground/30"
+              }`}
+            >
+              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: t.color || "#6b7280" }} />
+              {t.name}
+            </button>
+          ))}
+          {allTags.length === 0 && <p className="text-sm text-muted-foreground">タグがありません</p>}
+        </div>
+        <DialogFooter showCloseButton>
+          <Button onClick={handleSave} disabled={saving || selectedTags.size === 0}>追加する</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Upload Dialog
 // ---------------------------------------------------------------------------
 
-function UploadDialog({ open, onClose, onUploaded }: { open: boolean; onClose: () => void; onUploaded: () => void }) {
+function UploadDialog({
+  open,
+  onClose,
+  onUploaded,
+}: {
+  open: boolean;
+  folders: Folder[];
+  activeFolderId: string | null;
+  onClose: () => void;
+  onUploaded: () => void;
+}) {
   const [file, setFile] = useState<globalThis.File | null>(null);
   const [uploading, setUploading] = useState(false);
 
