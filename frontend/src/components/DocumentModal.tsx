@@ -9,8 +9,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { getDocument, type Document, type SearchResult } from "@/lib/api";
+import { ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { getDocument, getToken, type Document, type SearchResult } from "@/lib/api";
+import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -117,6 +118,38 @@ export function DocumentModal({
               <span>
                 更新: {new Date(doc.updated_at).toLocaleDateString("ja-JP")}
               </span>
+              {doc.source_path && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2"
+                  onClick={async () => {
+                    try {
+                      const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
+                      const token = getToken();
+                      const res = await fetch(`${API_BASE}/documents/${doc.id}/download`, {
+                        headers: token ? { Authorization: `Bearer ${token}` } : {},
+                      });
+                      if (!res.ok) throw new Error("Download failed");
+                      const blob = await res.blob();
+                      const cd = res.headers.get("Content-Disposition") || "";
+                      const match = cd.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
+                      const filename = match ? decodeURIComponent(match[1]) : doc.title;
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = filename;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch {
+                      toast.error("ダウンロード失敗");
+                    }
+                  }}
+                >
+                  <Download className="h-3.5 w-3.5 mr-1" />
+                  ダウンロード
+                </Button>
+              )}
             </div>
           )}
         </div>
