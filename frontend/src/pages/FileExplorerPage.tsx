@@ -693,7 +693,7 @@ export function FileExplorerPage() {
         </div>
 
         {/* Table */}
-        <Card>
+        <Card className="!py-0 !gap-0">
           <ScrollArea className="w-full">
             <Table>
               <TableHeader>
