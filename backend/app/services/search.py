@@ -92,18 +92,24 @@ async def vector_search(
 
 
 async def merged_search(
-    db: AsyncSession, query: str, limit: int = 20
-) -> list[dict]:
+    db: AsyncSession,
+    query: str,
+    limit: int = 20,
+    offset: int = 0,
+    max_candidates: int = 200,
+) -> tuple[list[dict], int]:
     """Reciprocal Rank Fusion (RRF) merge of fulltext and vector search results.
 
     RRF score = sum(1 / (k + rank_i)) for each ranking list.
     k = 60 is the standard constant.
+
+    Returns (results_page, total_count) with document-level dedup.
     """
     import asyncio
 
     ft_results, vec_results = await asyncio.gather(
-        fulltext_search(db, query, limit=limit * 2),
-        vector_search(db, query, limit=limit * 2),
+        fulltext_search(db, query, limit=max_candidates),
+        vector_search(db, query, limit=max_candidates),
     )
 
     k = 60
@@ -127,11 +133,20 @@ async def merged_search(
     # Sort by RRF score descending
     ranked_ids = sorted(scores.keys(), key=lambda cid: scores[cid], reverse=True)
 
-    results = []
-    for cid in ranked_ids[:limit]:
-        item = chunk_map[cid].copy()
-        item["rrf_score"] = scores[cid]
-        item["source"] = "merged"
-        results.append(item)
+    # Deduplicate by document — keep the highest-scoring chunk per document
+    seen_docs: set[str] = set()
+    all_results = []
+    for cid in ranked_ids:
+        item = chunk_map[cid]
+        doc_id = item["document_id"]
+        if doc_id in seen_docs:
+            continue
+        seen_docs.add(doc_id)
+        entry = item.copy()
+        entry["rrf_score"] = scores[cid]
+        entry["source"] = "merged"
+        all_results.append(entry)
 
-    return results
+    total = len(all_results)
+    page = all_results[offset : offset + limit]
+    return page, total

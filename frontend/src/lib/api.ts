@@ -75,37 +75,57 @@ export interface Role {
 }
 
 export interface SearchResult {
-  document_id: number;
-  title: string;
-  snippet: string;
-  score: number;
-  file_type: string;
-  source: string;
-  updated_at: string;
-}
-
-export interface SearchResponse {
-  results: SearchResult[];
-  total: number;
-  query: string;
-  elapsed_ms: number;
-}
-
-export interface Document {
-  id: number;
-  title: string;
+  chunk_id: string;
+  document_id: string;
+  document_title: string;
   content: string;
   file_type: string;
   source: string;
+  rrf_score?: number;
+  distance?: number;
+}
+
+export interface SearchResponse {
+  query: string;
+  mode: string;
+  page: number;
+  per_page: number;
+  total: number;
+  count: number;
+  results: SearchResult[];
+}
+
+export interface Document {
+  id: string;
+  title: string;
+  content: string;
+  file_type: string;
+  source_path: string | null;
+  is_public: boolean;
+  chunk_count: number;
   created_at: string;
   updated_at: string;
+  chunks: Array<{
+    id: string;
+    chunk_index: number;
+    content: string;
+    has_embedding: boolean;
+  }>;
+  files: Array<{
+    id: string;
+    filename: string;
+    file_size: number;
+    mime_type: string;
+  }>;
 }
 
 export interface DocumentListItem {
-  id: number;
+  id: string;
   title: string;
   file_type: string;
-  source: string;
+  source_path: string | null;
+  is_public: boolean;
+  chunk_count: number;
   updated_at: string;
 }
 
@@ -157,11 +177,26 @@ export async function refreshToken(): Promise<LoginResponse> {
 
 export async function searchDocuments(
   query: string,
-  limit = 20,
+  page = 1,
+  perPage = 20,
 ): Promise<SearchResponse> {
   return apiFetch<SearchResponse>(
-    `/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+    `/search?q=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}`,
   );
+}
+
+// Alias matching backend response shape
+export interface BackendSearchResponse {
+  query: string;
+  mode: string;
+  count: number;
+  results: Array<{
+    document_id: string;
+    document_title: string;
+    chunk_id: string;
+    content: string;
+    score: number;
+  }>;
 }
 
 export function streamAIAnswer(
@@ -174,7 +209,7 @@ export function streamAIAnswer(
   const controller = new AbortController();
   const token = getToken();
 
-  fetch(`${API_BASE}/search/ai?q=${encodeURIComponent(query)}`, {
+  fetch(`${API_BASE}/search/stream?q=${encodeURIComponent(query)}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal: controller.signal,
   })
@@ -235,7 +270,7 @@ export async function getDocuments(
   return apiFetch(`/documents?page=${page}&limit=${limit}`);
 }
 
-export async function getDocument(id: number): Promise<Document> {
+export async function getDocument(id: string): Promise<Document> {
   return apiFetch(`/documents/${id}`);
 }
 
@@ -252,7 +287,7 @@ export async function uploadDocument(file: File): Promise<Document> {
   return res.json();
 }
 
-export async function deleteDocument(id: number): Promise<void> {
+export async function deleteDocument(id: string): Promise<void> {
   return apiFetch(`/documents/${id}`, { method: "DELETE" });
 }
 
@@ -344,4 +379,30 @@ export async function getIngestStatus(): Promise<IngestStatus> {
 
 export async function getStats(): Promise<StatsResponse> {
   return apiFetch("/stats");
+}
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+export interface SystemSetting {
+  key: string;
+  value: string;
+  description: string | null;
+  placeholder: string | null;
+  secret: boolean;
+}
+
+export async function getSettings(): Promise<SystemSetting[]> {
+  return apiFetch("/settings");
+}
+
+export async function updateSetting(
+  key: string,
+  value: string,
+): Promise<SystemSetting> {
+  return apiFetch(`/settings/${key}`, {
+    method: "PUT",
+    body: JSON.stringify({ value }),
+  });
 }

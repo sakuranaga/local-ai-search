@@ -13,23 +13,38 @@ from app.services.search import fulltext_search, merged_search, vector_search
 router = APIRouter(prefix="/search", tags=["search"])
 
 
-@router.get("/")
+@router.get("")
 async def search(
     q: str = Query(..., min_length=1, description="Search query"),
-    limit: int = Query(20, ge=1, le=100),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
     mode: str = Query("merged", regex="^(fulltext|vector|merged)$"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Search documents using fulltext, vector, or merged (RRF) strategies."""
-    if mode == "fulltext":
-        results = await fulltext_search(db, q, limit=limit)
-    elif mode == "vector":
-        results = await vector_search(db, q, limit=limit)
-    else:
-        results = await merged_search(db, q, limit=limit)
+    offset = (page - 1) * per_page
 
-    return {"query": q, "mode": mode, "count": len(results), "results": results}
+    if mode == "fulltext":
+        all_results = await fulltext_search(db, q, limit=per_page + offset)
+        total = len(all_results)
+        results = all_results[offset : offset + per_page]
+    elif mode == "vector":
+        all_results = await vector_search(db, q, limit=per_page + offset)
+        total = len(all_results)
+        results = all_results[offset : offset + per_page]
+    else:
+        results, total = await merged_search(db, q, limit=per_page, offset=offset)
+
+    return {
+        "query": q,
+        "mode": mode,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "count": len(results),
+        "results": results,
+    }
 
 
 @router.get("/stream")

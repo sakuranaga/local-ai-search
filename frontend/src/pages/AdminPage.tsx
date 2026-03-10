@@ -29,11 +29,14 @@ import {
   triggerWikiSync,
   triggerDirectoryIngest,
   getIngestStatus,
+  getSettings,
+  updateSetting,
   type User,
   type Role,
   type IngestStatus,
+  type SystemSetting,
 } from "@/lib/api";
-import { Plus, Trash2, RefreshCw, FolderInput } from "lucide-react";
+import { Plus, Trash2, RefreshCw, FolderInput, Settings, Save } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -383,6 +386,146 @@ function IngestTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Settings Tab
+// ---------------------------------------------------------------------------
+
+const SETTING_GROUPS: Record<string, { label: string; keys: string[] }> = {
+  llm: {
+    label: "LLM (チャット/回答生成)",
+    keys: ["llm_url", "llm_model", "llm_api_key"],
+  },
+  embed: {
+    label: "Embedding (ベクトル検索)",
+    keys: ["embed_url", "embed_model", "embed_api_key", "embed_dimensions"],
+  },
+  search: {
+    label: "検索設定",
+    keys: ["search_top_k", "ai_max_search_rounds"],
+  },
+  ingest: {
+    label: "取り込み設定",
+    keys: ["chunk_size", "chunk_overlap"],
+  },
+};
+
+function SettingsTab() {
+  const [settings, setSettings] = useState<SystemSetting[]>([]);
+  const [edited, setEdited] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    getSettings()
+      .then((s) => {
+        setSettings(s);
+        setEdited({});
+      })
+      .catch(() => toast.error("設定の取得に失敗"));
+  }, []);
+
+  useEffect(load, [load]);
+
+  function getValue(key: string): string {
+    if (key in edited) return edited[key];
+    const s = settings.find((s) => s.key === key);
+    return s?.value ?? "";
+  }
+
+  function handleChange(key: string, value: string) {
+    setEdited((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSave(key: string) {
+    setSaving(key);
+    try {
+      await updateSetting(key, getValue(key));
+      toast.success("保存しました");
+      setEdited((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      load();
+    } catch {
+      toast.error("保存に失敗しました");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  async function handleSaveAll() {
+    const keys = Object.keys(edited);
+    if (keys.length === 0) return;
+    setSaving("all");
+    try {
+      for (const key of keys) {
+        await updateSetting(key, edited[key]);
+      }
+      toast.success(`${keys.length}件の設定を保存しました`);
+      setEdited({});
+      load();
+    } catch {
+      toast.error("保存に失敗しました");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {Object.entries(SETTING_GROUPS).map(([groupKey, group]) => (
+        <Card key={groupKey}>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              {group.label}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {group.keys.map((key) => {
+              const setting = settings.find((s) => s.key === key);
+              const isEdited = key in edited;
+              return (
+                <div key={key} className="flex items-center gap-2">
+                  <div className="min-w-[180px]">
+                    <label className="text-sm font-medium">{key}</label>
+                    {setting?.description && (
+                      <p className="text-xs text-muted-foreground">{setting.description}</p>
+                    )}
+                  </div>
+                  <Input
+                    type={setting?.secret ? "password" : "text"}
+                    placeholder={setting?.placeholder ?? ""}
+                    value={getValue(key)}
+                    onChange={(e) => handleChange(key, e.target.value)}
+                    className={`flex-1 ${isEdited ? "border-orange-400" : ""}`}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleSave(key)}
+                    disabled={!isEdited || saving === key}
+                  >
+                    <Save className={`h-4 w-4 ${isEdited ? "text-orange-500" : "text-muted-foreground"}`} />
+                  </Button>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ))}
+      {Object.keys(edited).length > 0 && (
+        <div className="flex justify-end">
+          <Button onClick={handleSaveAll} disabled={saving === "all"}>
+            <Save className="h-4 w-4 mr-2" />
+            変更を一括保存 ({Object.keys(edited).length}件)
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Admin Page
 // ---------------------------------------------------------------------------
 
@@ -392,10 +535,14 @@ export function AdminPage() {
       <h1 className="text-xl font-bold mb-4">管理</h1>
       <Tabs defaultValue="users">
         <TabsList>
+          <TabsTrigger value="settings">モデル設定</TabsTrigger>
           <TabsTrigger value="users">ユーザー管理</TabsTrigger>
           <TabsTrigger value="roles">ロール管理</TabsTrigger>
           <TabsTrigger value="ingest">文書取り込み</TabsTrigger>
         </TabsList>
+        <TabsContent value="settings" className="mt-4">
+          <SettingsTab />
+        </TabsContent>
         <TabsContent value="users" className="mt-4">
           <UsersTab />
         </TabsContent>
