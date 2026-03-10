@@ -102,7 +102,12 @@ export interface Document {
   file_type: string;
   source_path: string | null;
   is_public: boolean;
+  searchable: boolean;
+  ai_knowledge: boolean;
   chunk_count: number;
+  memo: string | null;
+  created_by_name: string | null;
+  updated_by_name: string | null;
   created_at: string;
   updated_at: string;
   chunks: Array<{
@@ -125,8 +130,28 @@ export interface DocumentListItem {
   file_type: string;
   source_path: string | null;
   is_public: boolean;
+  searchable: boolean;
+  ai_knowledge: boolean;
   chunk_count: number;
+  memo: string | null;
+  created_by_name: string | null;
+  updated_by_name: string | null;
+  created_at: string;
   updated_at: string;
+}
+
+export interface DocumentListResponse {
+  items: DocumentListItem[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface DocumentPermissionEntry {
+  user_id: string;
+  username: string | null;
+  can_read: boolean;
+  can_write: boolean;
 }
 
 export interface IngestStatus {
@@ -301,15 +326,36 @@ export function streamChat(
 // Documents
 // ---------------------------------------------------------------------------
 
-export async function getDocuments(
-  page = 1,
-  limit = 50,
-): Promise<{ items: DocumentListItem[]; total: number }> {
-  return apiFetch(`/documents?page=${page}&limit=${limit}`);
+export async function getDocuments(params: {
+  page?: number;
+  per_page?: number;
+  sort_by?: string;
+  sort_dir?: string;
+  file_type?: string;
+  q?: string;
+} = {}): Promise<DocumentListResponse> {
+  const p = new URLSearchParams();
+  if (params.page) p.set("page", String(params.page));
+  if (params.per_page) p.set("per_page", String(params.per_page));
+  if (params.sort_by) p.set("sort_by", params.sort_by);
+  if (params.sort_dir) p.set("sort_dir", params.sort_dir);
+  if (params.file_type) p.set("file_type", params.file_type);
+  if (params.q) p.set("q", params.q);
+  return apiFetch(`/documents?${p.toString()}`);
 }
 
 export async function getDocument(id: string): Promise<Document> {
   return apiFetch(`/documents/${id}`);
+}
+
+export async function updateDocument(
+  id: string,
+  data: { title?: string; memo?: string; is_public?: boolean; searchable?: boolean; ai_knowledge?: boolean },
+): Promise<Document> {
+  return apiFetch(`/documents/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
 }
 
 export async function uploadDocument(file: File): Promise<Document> {
@@ -327,6 +373,42 @@ export async function uploadDocument(file: File): Promise<Document> {
 
 export async function deleteDocument(id: string): Promise<void> {
   return apiFetch(`/documents/${id}`, { method: "DELETE" });
+}
+
+export async function bulkDeleteDocuments(ids: string[]): Promise<{ deleted: number }> {
+  return apiFetch("/documents/bulk-delete", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+export async function bulkAction(
+  ids: string[],
+  action: string,
+  permissions?: DocumentPermissionEntry[],
+): Promise<{ action: string; processed: number }> {
+  return apiFetch("/documents/bulk-action", {
+    method: "POST",
+    body: JSON.stringify({ ids, action, permissions }),
+  });
+}
+
+export async function getDocumentPermissions(id: string): Promise<DocumentPermissionEntry[]> {
+  return apiFetch(`/documents/${id}/permissions`);
+}
+
+export async function setDocumentPermissions(
+  id: string,
+  permissions: DocumentPermissionEntry[],
+): Promise<void> {
+  return apiFetch(`/documents/${id}/permissions`, {
+    method: "PUT",
+    body: JSON.stringify({ permissions }),
+  });
+}
+
+export async function reindexDocument(id: string): Promise<{ chunk_count: number }> {
+  return apiFetch(`/documents/${id}/reindex`, { method: "POST" });
 }
 
 // ---------------------------------------------------------------------------

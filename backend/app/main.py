@@ -38,6 +38,15 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    # Migrate: add new columns to documents table if they don't exist
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS memo TEXT DEFAULT ''"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS created_by_id UUID REFERENCES users(id) ON DELETE SET NULL"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS updated_by_id UUID REFERENCES users(id) ON DELETE SET NULL"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS searchable BOOLEAN DEFAULT TRUE"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS ai_knowledge BOOLEAN DEFAULT TRUE"))
+        logger.info("Document table migration columns verified")
+
     async with engine.begin() as conn:
         try:
             await conn.execute(

@@ -50,7 +50,7 @@ class User(Base):
     )
 
     roles: Mapped[list["UserRole"]] = relationship(back_populates="user", lazy="selectin")
-    documents: Mapped[list["Document"]] = relationship(back_populates="owner")
+    documents: Mapped[list["Document"]] = relationship(back_populates="owner", foreign_keys="[Document.owner_id]")
 
 
 class Role(Base):
@@ -106,6 +106,15 @@ class Document(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)
+    searchable: Mapped[bool] = mapped_column(Boolean, default=True)
+    ai_knowledge: Mapped[bool] = mapped_column(Boolean, default=True)
+    memo: Mapped[str] = mapped_column(Text, nullable=True, default="")
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -113,7 +122,9 @@ class Document(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    owner: Mapped["User"] = relationship(back_populates="documents")
+    owner: Mapped["User"] = relationship(back_populates="documents", foreign_keys=[owner_id])
+    created_by: Mapped["User | None"] = relationship(foreign_keys=[created_by_id])
+    updated_by: Mapped["User | None"] = relationship(foreign_keys=[updated_by_id])
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
     )

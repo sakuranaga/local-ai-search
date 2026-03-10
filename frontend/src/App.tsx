@@ -4,6 +4,7 @@ import { LoginPage } from "@/pages/LoginPage";
 import { SearchPage } from "@/pages/SearchPage";
 import { AdminPage } from "@/pages/AdminPage";
 import { DocumentPage } from "@/pages/DocumentPage";
+import { FileExplorerPage } from "@/pages/FileExplorerPage";
 import { Toaster } from "@/components/ui/sonner";
 import {
   DropdownMenu,
@@ -13,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
-import { Search, Settings, LogOut } from "lucide-react";
+import { Search, Settings, LogOut, FolderOpen } from "lucide-react";
 import { type FormEvent, type ReactNode, useState, useEffect } from "react";
 
 function AuthGuard({ children }: { children: ReactNode }) {
@@ -80,6 +81,10 @@ function NavBar() {
             </Avatar>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem onClick={() => navigate("/files")}>
+              <FolderOpen className="h-4 w-4 mr-2" />
+              文書管理
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate("/admin")}>
               <Settings className="h-4 w-4 mr-2" />
               管理
@@ -126,6 +131,16 @@ export default function App() {
             <AuthGuard>
               <AppLayout>
                 <AdminPage />
+              </AppLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/files"
+          element={
+            <AuthGuard>
+              <AppLayout>
+                <FileExplorerPage />
               </AppLayout>
             </AuthGuard>
           }
