@@ -157,25 +157,21 @@ export function SearchPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-56px)]">
-      {/* Result count */}
-      {total > 0 && (
-        <div className="px-4 pt-3 pb-1">
-          <p className="text-xs text-muted-foreground">
-            {total}件中 {(page - 1) * PER_PAGE + 1}〜{Math.min(page * PER_PAGE, total)}件目
-          </p>
-        </div>
-      )}
-
-      {/* Two-column results */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-5 gap-4 px-4 pb-4 pt-2 min-h-0">
+      {/* Two-column layout */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-5 gap-4 px-4 pt-3 pb-4 min-h-0">
+        {/* Left: results + pagination */}
         <div className="lg:col-span-3 flex flex-col min-h-0">
+          {total > 0 && (
+            <p className="text-xs text-muted-foreground pb-2">
+              {total}件中 {(page - 1) * PER_PAGE + 1}〜{Math.min(page * PER_PAGE, total)}件目
+            </p>
+          )}
           <div className="flex-1 min-h-0">
             <ResultList
               results={results}
               onSelect={(r) => navigate(`/documents/${r.document_id}`)}
             />
           </div>
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-center gap-2 py-3 border-t">
               <Button
@@ -219,6 +215,7 @@ export function SearchPage() {
             </div>
           )}
         </div>
+        {/* Right: AI answer */}
         <div className="lg:col-span-2">
           <AIAnswer
             text={aiText}
