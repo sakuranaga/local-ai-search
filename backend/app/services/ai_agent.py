@@ -340,9 +340,16 @@ async def run_agent(
             tools=None if is_last_round else TOOLS,
         )
 
-        choice = response.get("choices", [{}])[0]
+        choices = response.get("choices", [])
+        if not choices:
+            logger.warning("LLM returned empty choices in round %d", round_num)
+            break
+        choice = choices[0]
         message = choice.get("message", {})
         finish_reason = choice.get("finish_reason", "stop")
+        logger.debug("Round %d: finish_reason=%s, has_content=%s, has_tool_calls=%s",
+                      round_num, finish_reason, bool(message.get("content")),
+                      bool(message.get("tool_calls")))
 
         # Check for tool calls (structured or embedded in text)
         tool_calls = message.get("tool_calls")
@@ -361,6 +368,17 @@ async def run_agent(
             if content:
                 conv_messages.append({"role": "assistant", "content": content})
                 for token in _chunk_text_for_streaming(content):
+                    yield {"type": "token", "content": token}
+                break
+
+            # LLM returned empty content after tool rounds — force final answer
+            if round_num > 1:
+                logger.warning("LLM returned empty content after tool rounds, forcing final answer")
+                conv_messages.append({
+                    "role": "user",
+                    "content": "これまでに収集した情報を元に、ユーザーの質問に回答してください。",
+                })
+                async for token in stream_chat_raw(conv_messages):
                     yield {"type": "token", "content": token}
             break
 
