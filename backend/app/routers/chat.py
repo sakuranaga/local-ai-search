@@ -75,7 +75,7 @@ async def chat_stream(
         )
 
         if should_search:
-            results, _ = await merged_search(db, last_user_msg, limit=5, offset=0)
+            results, _ = await merged_search(db, last_user_msg, limit=5, offset=0, require_ai_knowledge=True)
             # Deduplicate against existing context
             existing_chunk_ids = {c.chunk_id for c in body.context}
             for r in results:

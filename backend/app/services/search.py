@@ -8,7 +8,8 @@ from app.services.embedding import get_embedding
 
 
 async def fulltext_search(
-    db: AsyncSession, query: str, limit: int = 20
+    db: AsyncSession, query: str, limit: int = 20,
+    require_searchable: bool = False, require_ai_knowledge: bool = False,
 ) -> list[dict]:
     """Full-text search using SQL LIKE with pg_bigm GIN index acceleration.
 
@@ -29,8 +30,12 @@ async def fulltext_search(
         .join(Document, Chunk.document_id == Document.id)
         .where(Chunk.content.ilike(like_pattern))
         .where(Document.deleted_at.is_(None))
-        .limit(limit)
     )
+    if require_searchable:
+        stmt = stmt.where(Document.searchable.is_(True))
+    if require_ai_knowledge:
+        stmt = stmt.where(Document.ai_knowledge.is_(True))
+    stmt = stmt.limit(limit)
 
     result = await db.execute(stmt)
     rows = result.all()
@@ -50,7 +55,8 @@ async def fulltext_search(
 
 
 async def vector_search(
-    db: AsyncSession, query: str, limit: int = 20
+    db: AsyncSession, query: str, limit: int = 20,
+    require_searchable: bool = False, require_ai_knowledge: bool = False,
 ) -> list[dict]:
     """Semantic search using pgvector cosine distance (<=>)."""
     query_embedding = await get_embedding(query)
@@ -71,9 +77,12 @@ async def vector_search(
         .join(Document, Chunk.document_id == Document.id)
         .where(Chunk.embedding.is_not(None))
         .where(Document.deleted_at.is_(None))
-        .order_by(distance)
-        .limit(limit)
     )
+    if require_searchable:
+        stmt = stmt.where(Document.searchable.is_(True))
+    if require_ai_knowledge:
+        stmt = stmt.where(Document.ai_knowledge.is_(True))
+    stmt = stmt.order_by(distance).limit(limit)
 
     result = await db.execute(stmt)
     rows = result.all()
@@ -99,6 +108,8 @@ async def merged_search(
     limit: int = 20,
     offset: int = 0,
     max_candidates: int = 200,
+    require_searchable: bool = False,
+    require_ai_knowledge: bool = False,
 ) -> tuple[list[dict], int]:
     """Reciprocal Rank Fusion (RRF) merge of fulltext and vector search results.
 
@@ -110,8 +121,8 @@ async def merged_search(
     import asyncio
 
     ft_results, vec_results = await asyncio.gather(
-        fulltext_search(db, query, limit=max_candidates),
-        vector_search(db, query, limit=max_candidates),
+        fulltext_search(db, query, limit=max_candidates, require_searchable=require_searchable, require_ai_knowledge=require_ai_knowledge),
+        vector_search(db, query, limit=max_candidates, require_searchable=require_searchable, require_ai_knowledge=require_ai_knowledge),
     )
 
     k = 60

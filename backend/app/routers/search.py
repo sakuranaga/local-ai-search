@@ -26,15 +26,15 @@ async def search(
     offset = (page - 1) * per_page
 
     if mode == "fulltext":
-        all_results = await fulltext_search(db, q, limit=per_page + offset)
+        all_results = await fulltext_search(db, q, limit=per_page + offset, require_searchable=True)
         total = len(all_results)
         results = all_results[offset : offset + per_page]
     elif mode == "vector":
-        all_results = await vector_search(db, q, limit=per_page + offset)
+        all_results = await vector_search(db, q, limit=per_page + offset, require_searchable=True)
         total = len(all_results)
         results = all_results[offset : offset + per_page]
     else:
-        results, total = await merged_search(db, q, limit=per_page, offset=offset)
+        results, total = await merged_search(db, q, limit=per_page, offset=offset, require_searchable=True)
 
     return {
         "query": q,
@@ -61,7 +61,7 @@ async def search_stream(
     endpoint is integrated.
     """
     # First, get search results for context
-    results = await merged_search(db, q, limit=limit)
+    results, _ = await merged_search(db, q, limit=limit, require_searchable=True)
 
     async def event_generator():
         # Send context chunks
