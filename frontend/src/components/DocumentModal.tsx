@@ -81,35 +81,37 @@ export function DocumentModal({
             <DialogTitle className="text-base leading-snug line-clamp-2">
               {current?.document_title ?? "文書"}
             </DialogTitle>
-            <span className="text-xs text-muted-foreground shrink-0">
-              {currentIndex + 1} / {results.length}
-            </span>
+            <div className="flex items-center gap-1 shrink-0">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                disabled={!hasPrev}
+                onClick={goPrev}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-xs text-muted-foreground min-w-[3rem] text-center">
+                {currentIndex + 1} / {results.length}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                disabled={!hasNext}
+                onClick={goNext}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           <DialogDescription className="sr-only">文書詳細</DialogDescription>
         </DialogHeader>
 
-        {/* Navigation buttons */}
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!hasPrev}
-            onClick={goPrev}
-          >
-            <ChevronLeft className="h-4 w-4 mr-1" />
-            前へ
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!hasNext}
-            onClick={goNext}
-          >
-            次へ
-            <ChevronRight className="h-4 w-4 ml-1" />
-          </Button>
+        {/* Metadata bar */}
+        <div className="flex items-center gap-2 w-full">
           {doc && (
-            <div className="flex gap-2 ml-auto text-xs text-muted-foreground items-center">
+            <div className="flex gap-2 text-xs text-muted-foreground items-center w-full">
               <Badge variant="outline" className="text-xs font-normal">
                 {doc.file_type}
               </Badge>
@@ -118,6 +120,7 @@ export function DocumentModal({
               <span>
                 更新: {new Date(doc.updated_at).toLocaleDateString("ja-JP")}
               </span>
+              <span className="flex-1" />
               {doc.source_path && (
                 <Button
                   variant="outline"
