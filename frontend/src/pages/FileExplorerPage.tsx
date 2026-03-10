@@ -461,28 +461,26 @@ export function FileExplorerPage() {
           <span className="text-sm text-muted-foreground ml-auto">{total.toLocaleString()}件</span>
         </div>
 
-        {/* Bulk actions */}
-        {selected.size > 0 && (
-          <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
-            <span className="text-sm font-medium">{selected.size}件選択中</span>
-            <Button variant="destructive" size="sm" onClick={() => setBulkActionOpen("delete")}>
-              <Trash2 className="h-3.5 w-3.5 mr-1" />削除
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setBulkActionOpen("reindex")}>
-              <RefreshCw className="h-3.5 w-3.5 mr-1" />ベクトル再構築
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setBulkActionOpen("permissions")}>
-              <Shield className="h-3.5 w-3.5 mr-1" />権限変更
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setBulkActionOpen("move_folder")}>
-              <FolderIcon className="h-3.5 w-3.5 mr-1" />フォルダ移動
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setBulkActionOpen("add_tags")}>
-              <TagIcon className="h-3.5 w-3.5 mr-1" />タグ追加
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>選択解除</Button>
-          </div>
-        )}
+        {/* Bulk actions — always visible */}
+        <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
+          <span className="text-sm font-medium w-20">{selected.size > 0 ? `${selected.size}件選択中` : "\u00A0"}</span>
+          <Button variant="destructive" size="sm" disabled={selected.size === 0} onClick={() => setBulkActionOpen("delete")}>
+            <Trash2 className="h-3.5 w-3.5 mr-1" />削除
+          </Button>
+          <Button variant="outline" size="sm" disabled={selected.size === 0} onClick={() => setBulkActionOpen("reindex")}>
+            <RefreshCw className="h-3.5 w-3.5 mr-1" />ベクトル再構築
+          </Button>
+          <Button variant="outline" size="sm" disabled={selected.size === 0} onClick={() => setBulkActionOpen("permissions")}>
+            <Shield className="h-3.5 w-3.5 mr-1" />権限変更
+          </Button>
+          <Button variant="outline" size="sm" disabled={selected.size === 0} onClick={() => setBulkActionOpen("move_folder")}>
+            <FolderIcon className="h-3.5 w-3.5 mr-1" />フォルダ移動
+          </Button>
+          <Button variant="outline" size="sm" disabled={selected.size === 0} onClick={() => setBulkActionOpen("add_tags")}>
+            <TagIcon className="h-3.5 w-3.5 mr-1" />タグ追加
+          </Button>
+          {selected.size > 0 && <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>選択解除</Button>}
+        </div>
 
         {/* Table */}
         <Card>
