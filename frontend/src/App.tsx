@@ -97,10 +97,12 @@ function NavBar() {
                 {currentUser.display_name || currentUser.username}
               </div>
             )}
-            <DropdownMenuItem onClick={() => navigate("/admin")}>
-              <Settings className="h-4 w-4 mr-2" />
-              管理
-            </DropdownMenuItem>
+            {currentUser?.roles.includes("admin") && (
+              <DropdownMenuItem onClick={() => navigate("/admin")}>
+                <Settings className="h-4 w-4 mr-2" />
+                管理
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => logout()}>
               <LogOut className="h-4 w-4 mr-2" />
               ログアウト

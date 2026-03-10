@@ -42,7 +42,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/data/storage
-      - PLACEHOLDER_HOME:/hostPLACEHOLDER_HOME:ro
+      - .:/host/project:ro
     # ports:
     #   - "8000:8000"
     command: >
