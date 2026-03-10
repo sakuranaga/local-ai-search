@@ -101,6 +101,7 @@ async def list_folders(
             func.count(Document.id).label("doc_count"),
         )
         .where(Document.folder_id.is_not(None))
+        .where(Document.deleted_at.is_(None))
         .group_by(Document.folder_id)
         .subquery()
     )
@@ -195,7 +196,7 @@ async def update_folder(
 
     doc_count = (
         await db.execute(
-            select(func.count(Document.id)).where(Document.folder_id == folder_id)
+            select(func.count(Document.id)).where(Document.folder_id == folder_id, Document.deleted_at.is_(None))
         )
     ).scalar() or 0
 
