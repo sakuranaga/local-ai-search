@@ -64,7 +64,7 @@ export function ResultList({ results, onSelect }: ResultListProps) {
                 </div>
               </div>
               <p className="text-sm text-muted-foreground line-clamp-3 mt-1">
-                {truncateContent(result.content)}
+                {result.document_summary || truncateContent(result.content)}
               </p>
             </CardContent>
           </Card>
