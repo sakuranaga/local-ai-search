@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import engine, get_db
 from app.deps import get_current_user
 from app.models import Base, Chunk, Document, User
-from app.routers import auth, chat, documents, ingest, roles, search, settings, users
+from app.routers import auth, chat, documents, folders, ingest, roles, search, settings, tags, users
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,6 +45,8 @@ async def init_db():
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS updated_by_id UUID REFERENCES users(id) ON DELETE SET NULL"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS searchable BOOLEAN DEFAULT TRUE"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS ai_knowledge BOOLEAN DEFAULT TRUE"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS folder_id UUID REFERENCES folders(id) ON DELETE SET NULL"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_folder_id ON documents(folder_id)"))
         logger.info("Document table migration columns verified")
 
     async with engine.begin() as conn:
@@ -93,6 +95,8 @@ app.include_router(ingest.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(roles.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
+app.include_router(folders.router, prefix="/api")
+app.include_router(tags.router, prefix="/api")
 
 
 @app.get("/api/health")

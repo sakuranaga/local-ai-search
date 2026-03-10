@@ -92,6 +92,59 @@ class UserRole(Base):
     role: Mapped["Role"] = relationship(back_populates="user_roles", lazy="selectin")
 
 
+class Folder(Base):
+    __tablename__ = "folders"
+    __table_args__ = (
+        UniqueConstraint("parent_id", "name", name="uq_folder_parent_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("folders.id", ondelete="CASCADE"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    parent: Mapped["Folder | None"] = relationship(
+        remote_side="Folder.id", back_populates="children"
+    )
+    children: Mapped[list["Folder"]] = relationship(back_populates="parent")
+    documents: Mapped[list["Document"]] = relationship(back_populates="folder")
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    color: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class DocumentTag(Base):
+    __tablename__ = "document_tags"
+    __table_args__ = (
+        UniqueConstraint("document_id", "tag_id", name="uq_doc_tag"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    tag_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("tags.id", ondelete="CASCADE"), nullable=False
+    )
+
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -104,6 +157,9 @@ class Document(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("folders.id", ondelete="SET NULL"), nullable=True
     )
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)
     searchable: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -123,8 +179,10 @@ class Document(Base):
     )
 
     owner: Mapped["User"] = relationship(back_populates="documents", foreign_keys=[owner_id])
+    folder: Mapped["Folder | None"] = relationship(back_populates="documents")
     created_by: Mapped["User | None"] = relationship(foreign_keys=[created_by_id])
     updated_by: Mapped["User | None"] = relationship(foreign_keys=[updated_by_id])
+    document_tags: Mapped[list["DocumentTag"]] = relationship(cascade="all, delete-orphan")
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
     )
