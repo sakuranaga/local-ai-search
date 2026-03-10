@@ -25,6 +25,11 @@ _NON_JAPANESE_RE = re.compile(r"^[a-zA-Z0-9\-_./:#@&?=%+]+$")
 # Pattern to detect if text contains Japanese characters
 _JAPANESE_RE = re.compile(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]")
 
+# Katakana long-vowel mark
+_KATAKANA_RE = re.compile(r"[\u30A0-\u30FF]+")
+# Threshold: split katakana compound nouns longer than this
+_KATAKANA_SPLIT_THRESHOLD = 5
+
 
 @lru_cache(maxsize=1)
 def _get_tokenizer() -> JanomeTokenizer:
@@ -32,12 +37,50 @@ def _get_tokenizer() -> JanomeTokenizer:
     return JanomeTokenizer()
 
 
+def _split_long_katakana(surface: str) -> list[str]:
+    """Split long katakana compound words by re-tokenizing with Janome.
+
+    Janome sometimes merges unknown katakana compounds into a single token
+    (e.g. "ホスラブサーバー"). We re-tokenize the surface itself — if Janome
+    can split it further, we use the sub-tokens. Otherwise we also try
+    splitting at katakana long-vowel mark (ー) boundaries as a heuristic.
+    """
+    if len(surface) <= _KATAKANA_SPLIT_THRESHOLD:
+        return [surface]
+    if not _KATAKANA_RE.fullmatch(surface.replace("ー", "")):
+        return [surface]
+
+    tokenizer = _get_tokenizer()
+    # Re-tokenize the katakana surface alone — sometimes Janome splits better in isolation
+    sub_tokens = [t.surface for t in tokenizer.tokenize(surface) if len(t.surface) >= _MIN_TOKEN_LEN]
+    if len(sub_tokens) > 1:
+        return sub_tokens
+
+    # Heuristic: split before common katakana suffixes
+    # e.g. ホスラブサーバー → ホスラブ + サーバー
+    _KATAKANA_SUFFIXES = [
+        "サーバー", "サーバ", "サービス", "システム", "センター", "ネットワーク",
+        "プロジェクト", "マネージャー", "マネージャ", "コントローラー", "コントローラ",
+        "データベース", "インターフェース", "アプリケーション", "クライアント",
+        "プロバイダー", "プロバイダ", "モニター", "モニタ", "ストレージ",
+        "ドメイン", "ポート", "ホスト", "メール", "ファイル", "フォルダ",
+    ]
+    for suffix in _KATAKANA_SUFFIXES:
+        if surface.endswith(suffix) and len(surface) > len(suffix):
+            prefix = surface[:-len(suffix)]
+            if len(prefix) >= _MIN_TOKEN_LEN:
+                return [prefix, suffix]
+
+    # No split found — return original
+    return [surface]
+
+
 def extract_nouns(text: str) -> list[str]:
     """Extract meaningful nouns from Japanese text.
 
     Examples:
-        "ホスラブサーバーへのログイン方法" -> ["ホスラブサーバー", "ログイン", "方法"]
-        "データセンターの入局方法" -> ["データセンター", "入局", "方法"]
+        "ホスラブサーバーへのログイン方法" -> ["ホスラブ", "サーバー", "ログイン", "方法"]
+        "データセンターの入局方法" -> ["データ", "センター", "入局", "方法"]
     """
     tokenizer = _get_tokenizer()
     nouns: list[str] = []
@@ -56,11 +99,13 @@ def extract_nouns(text: str) -> list[str]:
         surface = token.surface.strip()
         if len(surface) < _MIN_TOKEN_LEN:
             continue
-        if surface in seen:
-            continue
 
-        seen.add(surface)
-        nouns.append(surface)
+        # Try splitting long katakana compound words
+        sub_words = _split_long_katakana(surface)
+        for w in sub_words:
+            if w not in seen and len(w) >= _MIN_TOKEN_LEN:
+                seen.add(w)
+                nouns.append(w)
 
     return nouns
 
