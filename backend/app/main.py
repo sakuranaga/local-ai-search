@@ -1,0 +1,86 @@
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+
+from app.db import engine
+from app.models import Base
+from app.routers import auth, documents, ingest, search, users
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+_db_initialized = False
+
+
+async def init_db():
+    global _db_initialized
+    if _db_initialized:
+        return
+    logger.info("Initializing database...")
+
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        logger.info("pgvector extension enabled")
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_bigm"))
+            logger.info("pg_bigm extension enabled")
+    except Exception as e:
+        logger.warning(f"pg_bigm extension not available: {e}. LIKE queries will work but without GIN acceleration.")
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_chunks_content_bigm "
+                    "ON chunks USING gin (content gin_bigm_ops)"
+                )
+            )
+        except Exception:
+            pass
+
+    _db_initialized = True
+    logger.info("Database tables created/verified")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+    await engine.dispose()
+    logger.info("Database connections closed")
+
+
+app = FastAPI(
+    title="Local AI Search",
+    description="Self-hosted AI-powered document search with RAG",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth.router, prefix="/api")
+app.include_router(users.router, prefix="/api")
+app.include_router(search.router, prefix="/api")
+app.include_router(documents.router, prefix="/api")
+app.include_router(ingest.router, prefix="/api")
+
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok", "service": "local-ai-search"}
