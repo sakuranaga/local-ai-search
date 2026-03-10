@@ -1,6 +1,6 @@
 services:
   db:
-    image: pgvector/pgvector:pg18
+    build: ./db
     restart: unless-stopped
     env_file: .env
     environment:
