@@ -17,7 +17,10 @@ async def fulltext_search(
     pg_bigm automatically accelerates LIKE queries through GIN indexes,
     so a plain LIKE is sufficient -- no special operators needed.
     """
-    like_pattern = f"%{query}%"
+    # Split query into words for AND matching
+    words = query.split()
+    if not words:
+        return []
 
     stmt = (
         select(
@@ -29,9 +32,10 @@ async def fulltext_search(
             Document.file_type,
         )
         .join(Document, Chunk.document_id == Document.id)
-        .where(Chunk.content.ilike(like_pattern))
         .where(Document.deleted_at.is_(None))
     )
+    for word in words:
+        stmt = stmt.where(Chunk.content.ilike(f"%{word}%"))
     if require_searchable:
         stmt = stmt.where(Document.searchable.is_(True))
     if require_ai_knowledge:
