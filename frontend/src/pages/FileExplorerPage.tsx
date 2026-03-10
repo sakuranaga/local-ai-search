@@ -1362,7 +1362,7 @@ function PermissionsTab({ docId, isPublic }: { docId: string; docTitle: string; 
               return (
                 <TableRow key={p.user_id}>
                   <TableCell className="text-sm">{p.username ?? p.user_id}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{user?.role ?? "-"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{user?.roles?.[0] ?? "-"}</TableCell>
                   <TableCell className="text-center">
                     <input type="checkbox" checked={p.can_read} onChange={() => handleToggle(p.user_id, "can_read")} />
                   </TableCell>
@@ -1390,7 +1390,7 @@ function PermissionsTab({ docId, isPublic }: { docId: string; docTitle: string; 
           >
             <option value="">ユーザーを追加...</option>
             {availableUsers.map((u) => (
-              <option key={u.id} value={u.id}>{u.username}{u.role ? ` (${u.role})` : ""}</option>
+              <option key={u.id} value={u.id}>{u.username}{u.roles?.[0] ? ` (${u.roles[0]})` : ""}</option>
             ))}
           </select>
           <Button size="sm" onClick={handleAdd} disabled={!addUserId}>追加</Button>

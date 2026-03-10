@@ -60,11 +60,13 @@ export interface LoginResponse {
 }
 
 export interface User {
-  id: number;
+  id: string;
   username: string;
+  email: string;
   display_name: string;
-  role: string;
+  avatar_url: string | null;
   is_active: boolean;
+  roles: string[];
   created_at: string;
 }
 
@@ -450,8 +452,9 @@ export async function getUsers(): Promise<User[]> {
 export async function createUser(data: {
   username: string;
   password: string;
-  display_name: string;
-  role: string;
+  email?: string;
+  display_name?: string;
+  role?: string;
 }): Promise<User> {
   return apiFetch("/users", {
     method: "POST",
@@ -460,21 +463,24 @@ export async function createUser(data: {
 }
 
 export async function updateUser(
-  id: number,
+  id: string,
   data: Partial<{
+    username: string;
+    email: string;
     display_name: string;
+    avatar_url: string | null;
     role: string;
     is_active: boolean;
     password: string;
   }>,
 ): Promise<User> {
   return apiFetch(`/users/${id}`, {
-    method: "PATCH",
+    method: "PUT",
     body: JSON.stringify(data),
   });
 }
 
-export async function deleteUser(id: number): Promise<void> {
+export async function deleteUser(id: string): Promise<void> {
   return apiFetch(`/users/${id}`, { method: "DELETE" });
 }
 

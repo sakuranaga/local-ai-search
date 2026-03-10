@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,21 +16,28 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 class UserCreate(BaseModel):
     username: str
-    email: str
+    email: str = ""
     password: str
+    display_name: str = ""
+    role: str = ""  # convenience: assign a single role by name
 
 
 class UserUpdate(BaseModel):
     username: str | None = None
     email: str | None = None
+    display_name: str | None = None
+    avatar_url: str | None = None
     password: str | None = None
     is_active: bool | None = None
+    role: str | None = None  # convenience: reassign role by name
 
 
 class UserResponse(BaseModel):
     id: str
     username: str
     email: str
+    display_name: str
+    avatar_url: str | None
     is_active: bool
     roles: list[str]
     created_at: datetime
@@ -42,6 +49,19 @@ class RoleAssignment(BaseModel):
     role_ids: list[int]
 
 
+def _user_response(u: User) -> UserResponse:
+    return UserResponse(
+        id=str(u.id),
+        username=u.username,
+        email=u.email,
+        display_name=u.display_name or "",
+        avatar_url=u.avatar_url,
+        is_active=u.is_active,
+        roles=[ur.role.name for ur in u.roles],
+        created_at=u.created_at,
+    )
+
+
 @router.get("", response_model=list[UserResponse])
 async def list_users(
     db: AsyncSession = Depends(get_db),
@@ -49,17 +69,7 @@ async def list_users(
 ):
     result = await db.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
-    return [
-        UserResponse(
-            id=str(u.id),
-            username=u.username,
-            email=u.email,
-            is_active=u.is_active,
-            roles=[ur.role.name for ur in u.roles],
-            created_at=u.created_at,
-        )
-        for u in users
-    ]
+    return [_user_response(u) for u in users]
 
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -68,10 +78,10 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_permission("admin")),
 ):
-    # Check for existing user
+    email = body.email or f"{body.username}@local"
     existing = await db.execute(
         select(User).where(
-            (User.username == body.username) | (User.email == body.email)
+            (User.username == body.username) | (User.email == email)
         )
     )
     if existing.scalar_one_or_none():
@@ -82,21 +92,23 @@ async def create_user(
 
     user = User(
         username=body.username,
-        email=body.email,
+        email=email,
+        display_name=body.display_name or body.username,
         hashed_password=hash_password(body.password),
     )
     db.add(user)
     await db.flush()
-    await db.refresh(user)
 
-    return UserResponse(
-        id=str(user.id),
-        username=user.username,
-        email=user.email,
-        is_active=user.is_active,
-        roles=[],
-        created_at=user.created_at,
-    )
+    # Assign role by name if provided
+    if body.role:
+        role_result = await db.execute(select(Role).where(Role.name == body.role))
+        role = role_result.scalar_one_or_none()
+        if role:
+            db.add(UserRole(user_id=user.id, role_id=role.id))
+            await db.flush()
+
+    await db.refresh(user)
+    return _user_response(user)
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -109,14 +121,7 @@ async def get_user(
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    return UserResponse(
-        id=str(user.id),
-        username=user.username,
-        email=user.email,
-        is_active=user.is_active,
-        roles=[ur.role.name for ur in user.roles],
-        created_at=user.created_at,
-    )
+    return _user_response(user)
 
 
 @router.put("/{user_id}", response_model=UserResponse)
@@ -135,22 +140,27 @@ async def update_user(
         user.username = body.username
     if body.email is not None:
         user.email = body.email
+    if body.display_name is not None:
+        user.display_name = body.display_name
+    if body.avatar_url is not None:
+        user.avatar_url = body.avatar_url if body.avatar_url else None
     if body.password is not None:
         user.hashed_password = hash_password(body.password)
     if body.is_active is not None:
         user.is_active = body.is_active
 
+    # Reassign role by name
+    if body.role is not None:
+        await db.execute(delete(UserRole).where(UserRole.user_id == user_id))
+        if body.role:
+            role_result = await db.execute(select(Role).where(Role.name == body.role))
+            role = role_result.scalar_one_or_none()
+            if role:
+                db.add(UserRole(user_id=user.id, role_id=role.id))
+
     await db.flush()
     await db.refresh(user)
-
-    return UserResponse(
-        id=str(user.id),
-        username=user.username,
-        email=user.email,
-        is_active=user.is_active,
-        roles=[ur.role.name for ur in user.roles],
-        created_at=user.created_at,
-    )
+    return _user_response(user)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -178,30 +188,16 @@ async def assign_roles(
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Validate that all role IDs exist
     roles_result = await db.execute(select(Role).where(Role.id.in_(body.role_ids)))
     found_roles = {r.id for r in roles_result.scalars().all()}
     missing = set(body.role_ids) - found_roles
     if missing:
-        raise HTTPException(
-            status_code=400, detail=f"Role IDs not found: {missing}"
-        )
+        raise HTTPException(status_code=400, detail=f"Role IDs not found: {missing}")
 
-    # Remove existing roles
     await db.execute(delete(UserRole).where(UserRole.user_id == user_id))
-
-    # Add new roles
     for role_id in body.role_ids:
         db.add(UserRole(user_id=user_id, role_id=role_id))
 
     await db.flush()
     await db.refresh(user)
-
-    return UserResponse(
-        id=str(user.id),
-        username=user.username,
-        email=user.email,
-        is_active=user.is_active,
-        roles=[ur.role.name for ur in user.roles],
-        created_at=user.created_at,
-    )
+    return _user_response(user)
