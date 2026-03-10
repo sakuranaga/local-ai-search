@@ -7,20 +7,29 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sparkles, Send, Trash2, User } from "lucide-react";
+import { Sparkles, Send, Trash2, User, Search, FileText, TextSearch, Hash, Loader2 } from "lucide-react";
 import {
   streamChat,
   type ChatMessage,
   type ChatSource,
   type ChatContext,
+  type ToolStep,
 } from "@/lib/api";
 
 const CHAT_CACHE_KEY = "las_chat_cache";
+
+interface ToolStepDisplay {
+  round: number;
+  name: string;
+  query: string;
+  summary?: string;
+}
 
 interface DisplayMessage {
   role: "user" | "assistant";
   content: string;
   sources?: ChatSource[];
+  toolSteps?: ToolStepDisplay[];
 }
 
 interface ChatCache {
@@ -46,6 +55,34 @@ function saveChatCache(cache: ChatCache) {
 
 export function clearChatCache() {
   sessionStorage.removeItem(CHAT_CACHE_KEY);
+}
+
+const TOOL_LABELS: Record<string, { label: string; icon: typeof Search }> = {
+  search: { label: "検索", icon: Search },
+  grep: { label: "テキスト検索", icon: TextSearch },
+  search_by_title: { label: "タイトル検索", icon: FileText },
+  read_document: { label: "文書読込", icon: FileText },
+  count_results: { label: "件数確認", icon: Hash },
+};
+
+function ToolStepLine({ step, isActive }: { step: ToolStepDisplay; isActive: boolean }) {
+  const info = TOOL_LABELS[step.name] || { label: step.name, icon: Search };
+  const Icon = info.icon;
+
+  return (
+    <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+      {isActive && !step.summary ? (
+        <Loader2 className="h-3 w-3 mt-0.5 shrink-0 animate-spin" />
+      ) : (
+        <Icon className="h-3 w-3 mt-0.5 shrink-0" />
+      )}
+      <span>
+        <span className="font-medium">{info.label}</span>
+        {step.query && <span className="ml-1">「{step.query}」</span>}
+        {step.summary && <span className="ml-1 text-foreground/60">→ {step.summary}</span>}
+      </span>
+    </div>
+  );
 }
 
 interface ChatPanelProps {
@@ -83,7 +120,7 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
   const lastInitialQueryRef = useRef(canRestore ? initialQuery! : "");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll to bottom — target the viewport inside ScrollArea
+  // Auto-scroll to bottom
   useEffect(() => {
     const root = scrollRef.current;
     if (!root) return;
@@ -107,7 +144,7 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
     (userText: string, history: DisplayMessage[], currentContext: ChatContext[]) => {
       const userMsg: DisplayMessage = { role: "user", content: userText };
       const newMessages = [...history, userMsg];
-      setMessages([...newMessages, { role: "assistant", content: "" }]);
+      setMessages([...newMessages, { role: "assistant", content: "", toolSteps: [] }]);
       setIsStreaming(true);
 
       abortRef.current?.abort();
@@ -122,19 +159,21 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
       abortRef.current = streamChat(
         chatMessages,
         currentContext,
+        // onToken
         (token) => {
           accumulated += token;
           setMessages((prev) => {
             const updated = [...prev];
             updated[updated.length - 1] = {
-              role: "assistant",
+              ...updated[updated.length - 1],
               content: accumulated,
             };
             return updated;
           });
         },
-        (ctx, sources) => {
-          setRagContext(ctx);
+        // onContext
+        (_ctx, sources) => {
+          setRagContext(_ctx);
           setMessages((prev) => {
             const updated = [...prev];
             updated[updated.length - 1] = {
@@ -144,8 +183,44 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
             return updated;
           });
         },
+        // onDone
         () => setIsStreaming(false),
+        // onError
         () => setIsStreaming(false),
+        // onToolEvent
+        (step: ToolStep) => {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = { ...updated[updated.length - 1] };
+            const steps = [...(last.toolSteps || [])];
+
+            if (step.summary) {
+              // This is a tool_result — update the last step with matching name/round
+              let idx = -1;
+              for (let i = steps.length - 1; i >= 0; i--) {
+                if (steps[i].name === step.name && steps[i].round === step.round && !steps[i].summary) {
+                  idx = i;
+                  break;
+                }
+              }
+              if (idx >= 0) {
+                steps[idx] = { ...steps[idx], summary: step.summary };
+              }
+            } else {
+              // This is a tool_call — add new step
+              const query = step.arguments.query || step.arguments.pattern || step.arguments.id || "";
+              steps.push({
+                round: step.round,
+                name: step.name,
+                query,
+              });
+            }
+
+            last.toolSteps = steps;
+            updated[updated.length - 1] = last;
+            return updated;
+          });
+        },
       );
     },
     [],
@@ -161,7 +236,7 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
     }
   }, [initialQuery, sendMessage]);
 
-  // Stop streaming when query is cleared, but keep messages
+  // Stop streaming when query is cleared
   useEffect(() => {
     if (!initialQuery) {
       abortRef.current?.abort();
@@ -240,21 +315,40 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
                     : "bg-muted"
                 }`}
               >
-                {msg.role === "assistant" ? (
-                  <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-pre:my-1">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                    {isStreaming && idx === messages.length - 1 && <LoadingDots />}
-                  </div>
-                ) : (
+                {msg.role === "assistant" && (
+                  <>
+                    {/* Tool steps */}
+                    {msg.toolSteps && msg.toolSteps.length > 0 && (
+                      <div className="mb-2 space-y-1 pb-2 border-b border-border/50">
+                        {msg.toolSteps.map((step, i) => (
+                          <ToolStepLine
+                            key={i}
+                            step={step}
+                            isActive={isStreaming && idx === messages.length - 1}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {/* Show loading when tool steps are happening but no content yet */}
+                    {isStreaming && idx === messages.length - 1 && !msg.content && msg.toolSteps && msg.toolSteps.length > 0 && msg.toolSteps[msg.toolSteps.length - 1].summary && (
+                      <LoadingDots />
+                    )}
+                    <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-pre:my-1">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                      {isStreaming && idx === messages.length - 1 && msg.content && <LoadingDots />}
+                    </div>
+                  </>
+                )}
+                {msg.role === "user" && (
                   <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                 )}
                 {msg.sources && msg.sources.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-border/50">
                     <p className="text-xs text-muted-foreground mb-1">参照元:</p>
                     <div className="flex flex-wrap gap-1">
-                      {msg.sources.map((s) => (
+                      {msg.sources.map((s, i) => (
                         <Badge
-                          key={s.chunk_id}
+                          key={s.document_id + i}
                           variant="secondary"
                           className="cursor-pointer hover:bg-accent text-[10px] px-1.5 py-0"
                           onClick={() => onSourceClick ? onSourceClick(s.document_id) : navigate(`/documents/${s.document_id}`)}

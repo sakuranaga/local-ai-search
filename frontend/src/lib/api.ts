@@ -253,7 +253,7 @@ export interface ChatMessage {
 export interface ChatSource {
   document_id: string;
   title: string;
-  chunk_id: string;
+  chunk_id?: string;
 }
 
 export interface ChatContext {
@@ -263,6 +263,13 @@ export interface ChatContext {
   chunk_id: string;
 }
 
+export interface ToolStep {
+  round: number;
+  name: string;
+  arguments: Record<string, string>;
+  summary?: string;
+}
+
 export function streamChat(
   messages: ChatMessage[],
   context: ChatContext[],
@@ -270,6 +277,7 @@ export function streamChat(
   onContext: (ctx: ChatContext[], sources: ChatSource[]) => void,
   onDone: () => void,
   onError: (err: Error) => void,
+  onToolEvent?: (step: ToolStep) => void,
 ): AbortController {
   const controller = new AbortController();
   const token = getToken();
@@ -310,21 +318,28 @@ export function streamChat(
               const parsed = JSON.parse(payload);
               if (parsed.type === "token") {
                 onToken(parsed.content);
+              } else if (parsed.type === "tool_call") {
+                onToolEvent?.({
+                  round: parsed.round,
+                  name: parsed.name,
+                  arguments: parsed.arguments,
+                });
+              } else if (parsed.type === "tool_result") {
+                onToolEvent?.({
+                  round: parsed.round,
+                  name: parsed.name,
+                  arguments: {},
+                  summary: parsed.summary,
+                });
+              } else if (parsed.type === "sources") {
+                const sources: ChatSource[] = parsed.sources;
+                onContext([], sources);
               } else if (parsed.type === "context") {
                 const ctx: ChatContext[] = parsed.context;
                 const sources: ChatSource[] = ctx.map((c: ChatContext) => ({
                   document_id: c.document_id,
                   title: c.title,
                   chunk_id: c.chunk_id,
-                }));
-                onContext(ctx, sources);
-              } else if (parsed.type === "sources") {
-                const sources: ChatSource[] = parsed.sources;
-                const ctx: ChatContext[] = sources.map((s: ChatSource) => ({
-                  content: "",
-                  document_id: s.document_id,
-                  title: s.title,
-                  chunk_id: s.chunk_id,
                 }));
                 onContext(ctx, sources);
               }

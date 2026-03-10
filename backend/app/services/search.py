@@ -178,3 +178,78 @@ async def merged_search(
     total = len(all_results)
     page = all_results[offset : offset + limit]
     return page, total
+
+
+async def title_search(
+    db: AsyncSession, query: str, limit: int = 10,
+    require_ai_knowledge: bool = False,
+) -> list[dict]:
+    """Search documents by title/filename using ILIKE."""
+    words = query.split()
+    if not words:
+        return []
+
+    stmt = (
+        select(
+            Document.id,
+            Document.title,
+            Document.file_type,
+        )
+        .where(Document.deleted_at.is_(None))
+    )
+    for word in words:
+        stmt = stmt.where(Document.title.ilike(f"%{word}%"))
+    if require_ai_knowledge:
+        stmt = stmt.where(Document.ai_knowledge.is_(True))
+    stmt = stmt.order_by(Document.updated_at.desc()).limit(limit)
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return [
+        {
+            "document_id": str(row.id),
+            "title": row.title,
+            "file_type": row.file_type,
+        }
+        for row in rows
+    ]
+
+
+async def grep_search(
+    db: AsyncSession, pattern: str, limit: int = 10,
+    require_ai_knowledge: bool = False,
+) -> list[dict]:
+    """Exact text pattern search across all chunk content."""
+    if not pattern.strip():
+        return []
+
+    stmt = (
+        select(
+            Chunk.id,
+            Chunk.document_id,
+            Chunk.content,
+            Document.title.label("document_title"),
+            Document.file_type,
+        )
+        .join(Document, Chunk.document_id == Document.id)
+        .where(Chunk.content.ilike(f"%{pattern}%"))
+        .where(Document.deleted_at.is_(None))
+    )
+    if require_ai_knowledge:
+        stmt = stmt.where(Document.ai_knowledge.is_(True))
+    stmt = stmt.limit(limit)
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return [
+        {
+            "chunk_id": str(row.id),
+            "document_id": str(row.document_id),
+            "document_title": row.document_title,
+            "file_type": row.file_type,
+            "content": row.content[:300],
+        }
+        for row in rows
+    ]
