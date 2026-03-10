@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { SearchBar } from "@/components/SearchBar";
 import { ResultList } from "@/components/ResultList";
 import { AIAnswer } from "@/components/AIAnswer";
 import { Badge } from "@/components/ui/badge";
@@ -45,24 +44,28 @@ export function SearchPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  const urlQ = searchParams.get("q") ?? "";
+  const urlPage = Number(searchParams.get("page")) || 1;
+
   const cached = useRef(loadCache());
-  const initialQ = searchParams.get("q") ?? cached.current?.query ?? "";
-  const initialPage = Number(searchParams.get("page")) || cached.current?.page || 1;
 
-  const [query, setQuery] = useState(initialQ);
-  const [page, setPage] = useState(initialPage);
-  const [results, setResults] = useState<SearchResult[]>(cached.current?.results ?? []);
-  const [total, setTotal] = useState(cached.current?.total ?? 0);
-  const [isSearching, setIsSearching] = useState(false);
+  const [query, setQuery] = useState(urlQ || cached.current?.query || "");
+  const [page, setPage] = useState(urlQ ? urlPage : cached.current?.page || 1);
+  const [results, setResults] = useState<SearchResult[]>(
+    urlQ ? [] : cached.current?.results ?? [],
+  );
+  const [total, setTotal] = useState(urlQ ? 0 : cached.current?.total ?? 0);
+  const [, setIsSearching] = useState(false);
 
-  const [aiText, setAiText] = useState(cached.current?.aiText ?? "");
+  const [aiText, setAiText] = useState(urlQ ? "" : cached.current?.aiText ?? "");
   const [aiSources, setAiSources] = useState<Array<{ document_id: number; title: string }>>(
-    cached.current?.aiSources ?? [],
+    urlQ ? [] : cached.current?.aiSources ?? [],
   );
   const [aiLoading, setAiLoading] = useState(false);
 
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const lastSearchRef = useRef("");
 
   useEffect(() => {
     getStats().then(setStats).catch(() => {});
@@ -81,10 +84,6 @@ export function SearchPage() {
       setPage(p);
       setResults([]);
       setIsSearching(true);
-
-      const params: Record<string, string> = { q };
-      if (p > 1) params.page = String(p);
-      setSearchParams(params, { replace: true });
 
       try {
         const data = await searchDocuments(q, p, PER_PAGE);
@@ -111,17 +110,42 @@ export function SearchPage() {
         );
       }
     },
-    [setSearchParams],
+    [],
   );
 
-  const doSearch = useCallback(
-    (q: string) => fetchPage(q, 1, true),
-    [fetchPage],
-  );
+  // Clear state when query is removed (e.g. logo click)
+  useEffect(() => {
+    if (!urlQ) {
+      setQuery("");
+      setPage(1);
+      setResults([]);
+      setTotal(0);
+      setAiText("");
+      setAiSources([]);
+      setAiLoading(false);
+      abortRef.current?.abort();
+      lastSearchRef.current = "";
+    }
+  }, [urlQ]);
+
+  // React to URL query param changes (from NavBar search)
+  useEffect(() => {
+    if (!urlQ) return;
+    const key = `${urlQ}:${urlPage}`;
+    if (key === lastSearchRef.current) return;
+    lastSearchRef.current = key;
+
+    const isNewQuery = urlQ !== query;
+    fetchPage(urlQ, urlPage, isNewQuery);
+  }, [urlQ, urlPage, fetchPage, query]);
 
   const goToPage = useCallback(
-    (p: number) => fetchPage(query, p, false),
-    [fetchPage, query],
+    (p: number) => {
+      const params: Record<string, string> = { q: query };
+      if (p > 1) params.page = String(p);
+      setSearchParams(params, { replace: true });
+    },
+    [query, setSearchParams],
   );
 
   const totalPages = Math.ceil(total / PER_PAGE);
@@ -132,19 +156,18 @@ export function SearchPage() {
   }, []);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)]">
-      {/* Search bar area */}
-      <div className="pt-8 pb-6 px-4">
-        <SearchBar initialQuery={query} onSearch={doSearch} isLoading={isSearching} />
-        {total > 0 && (
-          <p className="text-xs text-muted-foreground text-center mt-2">
+    <div className="flex flex-col h-[calc(100vh-56px)]">
+      {/* Result count */}
+      {total > 0 && (
+        <div className="px-4 pt-3 pb-1">
+          <p className="text-xs text-muted-foreground">
             {total}件中 {(page - 1) * PER_PAGE + 1}〜{Math.min(page * PER_PAGE, total)}件目
           </p>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Two-column results */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-5 gap-4 px-4 pb-4 min-h-0">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-5 gap-4 px-4 pb-4 pt-2 min-h-0">
         <div className="lg:col-span-3 flex flex-col min-h-0">
           <div className="flex-1 min-h-0">
             <ResultList
