@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useSearchParams } from "react-router-dom";
-import { getToken, logout } from "@/lib/api";
+import { getToken, getMe, logout, type User } from "@/lib/api";
 import { LoginPage } from "@/pages/LoginPage";
 import { SearchPage } from "@/pages/SearchPage";
 import { AdminPage } from "@/pages/AdminPage";
@@ -12,7 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Search, Settings, LogOut, FolderOpen } from "lucide-react";
 import { type FormEvent, type ReactNode, useState, useEffect } from "react";
@@ -28,6 +28,11 @@ function NavBar() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [searchValue, setSearchValue] = useState(searchParams.get("q") ?? "");
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    getMe().then(setCurrentUser).catch(() => {});
+  }, []);
 
   // Sync input with URL query param changes (e.g. browser back)
   useEffect(() => {
@@ -69,22 +74,30 @@ function NavBar() {
         </div>
       </form>
 
-      <div className="flex items-center gap-2 shrink-0 ml-auto">
+      <div className="flex items-center gap-3 shrink-0 ml-auto">
+        {currentUser && (currentUser.roles.includes("admin") || currentUser.roles.includes("editor")) && (
+          <Link to="/files" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <FolderOpen className="h-4 w-4" />
+            <span className="hidden sm:inline">文書管理</span>
+          </Link>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={<button className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" />}
           >
             <Avatar className="h-8 w-8 cursor-pointer">
+              {currentUser?.avatar_url && <AvatarImage src={currentUser.avatar_url} alt="" />}
               <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-                U
+                {(currentUser?.display_name || currentUser?.username || "U").charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuItem onClick={() => navigate("/files")}>
-              <FolderOpen className="h-4 w-4 mr-2" />
-              文書管理
-            </DropdownMenuItem>
+          <DropdownMenuContent align="end" className="w-44">
+            {currentUser && (
+              <div className="px-2 py-1.5 text-sm font-medium border-b mb-1">
+                {currentUser.display_name || currentUser.username}
+              </div>
+            )}
             <DropdownMenuItem onClick={() => navigate("/admin")}>
               <Settings className="h-4 w-4 mr-2" />
               管理
