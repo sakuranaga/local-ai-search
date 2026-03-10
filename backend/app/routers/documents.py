@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
@@ -256,6 +256,7 @@ async def list_documents(
         .outerjoin(UpdatedByUser, Document.updated_by_id == UpdatedByUser.id)
         .outerjoin(Folder, Document.folder_id == Folder.id)
         .where(visibility_filter)
+        .where(Document.deleted_at.is_(None))
     )
 
     # Filters
@@ -431,6 +432,122 @@ async def upload_document(
 
 
 # ---------------------------------------------------------------------------
+# Trash (soft-deleted documents) — must be before /{document_id} routes
+# ---------------------------------------------------------------------------
+
+
+class TrashItem(BaseModel):
+    id: str
+    title: str
+    file_type: str
+    deleted_at: datetime
+
+
+class TrashActionRequest(BaseModel):
+    ids: list[str]
+
+
+@router.get("/trash/list", response_model=list[TrashItem])
+async def list_trash(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List soft-deleted documents (trash)."""
+    is_admin = _is_admin(current_user)
+    stmt = select(Document).where(Document.deleted_at.is_not(None))
+    if not is_admin:
+        stmt = stmt.where(Document.owner_id == current_user.id)
+    stmt = stmt.order_by(Document.deleted_at.desc())
+    result = await db.execute(stmt)
+    docs = result.scalars().all()
+    return [
+        TrashItem(id=str(d.id), title=d.title, file_type=d.file_type, deleted_at=d.deleted_at)
+        for d in docs
+    ]
+
+
+@router.post("/trash/restore")
+async def restore_from_trash(
+    body: TrashActionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Restore documents from trash."""
+    restored = 0
+    for doc_id_str in body.ids:
+        try:
+            doc_id = uuid.UUID(doc_id_str)
+        except ValueError:
+            continue
+        result = await db.execute(select(Document).where(Document.id == doc_id, Document.deleted_at.is_not(None)))
+        doc = result.scalar_one_or_none()
+        if doc is None:
+            continue
+        if not _is_admin(current_user) and doc.owner_id != current_user.id:
+            continue
+        doc.deleted_at = None
+        restored += 1
+    await db.flush()
+    return {"restored": restored}
+
+
+@router.post("/trash/purge")
+async def purge_from_trash(
+    body: TrashActionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Permanently delete documents from trash."""
+    purged = 0
+    for doc_id_str in body.ids:
+        try:
+            doc_id = uuid.UUID(doc_id_str)
+        except ValueError:
+            continue
+        result = await db.execute(select(Document).where(Document.id == doc_id, Document.deleted_at.is_not(None)))
+        doc = result.scalar_one_or_none()
+        if doc is None:
+            continue
+        if not _is_admin(current_user) and doc.owner_id != current_user.id:
+            continue
+        files_result = await db.execute(select(File).where(File.document_id == doc.id))
+        for f in files_result.scalars().all():
+            try:
+                Path(f.storage_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        await db.delete(doc)
+        purged += 1
+    await db.flush()
+    return {"purged": purged}
+
+
+@router.post("/trash/empty")
+async def empty_trash(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Permanently delete all documents in trash."""
+    stmt = select(Document).where(Document.deleted_at.is_not(None))
+    if not _is_admin(current_user):
+        stmt = stmt.where(Document.owner_id == current_user.id)
+    result = await db.execute(stmt)
+    docs = result.scalars().all()
+    purged = 0
+    for doc in docs:
+        files_result = await db.execute(select(File).where(File.document_id == doc.id))
+        for f in files_result.scalars().all():
+            try:
+                Path(f.storage_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        await db.delete(doc)
+        purged += 1
+    await db.flush()
+    return {"purged": purged}
+
+
+# ---------------------------------------------------------------------------
 # 3. GET /documents/{id}
 # ---------------------------------------------------------------------------
 
@@ -442,7 +559,7 @@ async def get_document(
     current_user: User = Depends(get_current_user),
 ):
     """Get full document details including chunks and files."""
-    result = await db.execute(select(Document).where(Document.id == document_id))
+    result = await db.execute(select(Document).where(Document.id == document_id, Document.deleted_at.is_(None)))
     doc = result.scalar_one_or_none()
 
     if doc is None:
@@ -533,7 +650,7 @@ async def update_document(
     current_user: User = Depends(get_current_user),
 ):
     """Update document metadata. Requires ownership, write permission, or admin."""
-    result = await db.execute(select(Document).where(Document.id == document_id))
+    result = await db.execute(select(Document).where(Document.id == document_id, Document.deleted_at.is_(None)))
     doc = result.scalar_one_or_none()
 
     if doc is None:
@@ -613,8 +730,8 @@ async def delete_document(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Delete a document and its associated chunks and files."""
-    result = await db.execute(select(Document).where(Document.id == document_id))
+    """Soft-delete a document (move to trash)."""
+    result = await db.execute(select(Document).where(Document.id == document_id, Document.deleted_at.is_(None)))
     doc = result.scalar_one_or_none()
 
     if doc is None:
@@ -623,15 +740,7 @@ async def delete_document(
     if not await _check_doc_access(doc, current_user, need_write=True, db=db):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Delete associated files from disk
-    files_result = await db.execute(select(File).where(File.document_id == doc.id))
-    for f in files_result.scalars().all():
-        try:
-            Path(f.storage_path).unlink(missing_ok=True)
-        except OSError:
-            pass
-
-    await db.delete(doc)
+    doc.deleted_at = datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -645,8 +754,9 @@ async def bulk_delete_documents(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Delete multiple documents. Returns count of successfully deleted docs."""
+    """Soft-delete multiple documents (move to trash)."""
     deleted = 0
+    now = datetime.now(timezone.utc)
 
     for doc_id_str in body.ids:
         try:
@@ -654,7 +764,7 @@ async def bulk_delete_documents(
         except ValueError:
             continue
 
-        result = await db.execute(select(Document).where(Document.id == doc_id))
+        result = await db.execute(select(Document).where(Document.id == doc_id, Document.deleted_at.is_(None)))
         doc = result.scalar_one_or_none()
         if doc is None:
             continue
@@ -662,15 +772,7 @@ async def bulk_delete_documents(
         if not await _check_doc_access(doc, current_user, need_write=True, db=db):
             continue
 
-        # Delete associated files from disk
-        files_result = await db.execute(select(File).where(File.document_id == doc.id))
-        for f in files_result.scalars().all():
-            try:
-                Path(f.storage_path).unlink(missing_ok=True)
-            except OSError:
-                pass
-
-        await db.delete(doc)
+        doc.deleted_at = now
         deleted += 1
 
     await db.flush()
@@ -694,24 +796,19 @@ async def bulk_action(
     """
     if body.action == "delete":
         deleted = 0
+        now = datetime.now(timezone.utc)
         for doc_id_str in body.ids:
             try:
                 doc_id = uuid.UUID(doc_id_str)
             except ValueError:
                 continue
-            result = await db.execute(select(Document).where(Document.id == doc_id))
+            result = await db.execute(select(Document).where(Document.id == doc_id, Document.deleted_at.is_(None)))
             doc = result.scalar_one_or_none()
             if doc is None:
                 continue
             if not await _check_doc_access(doc, current_user, need_write=True, db=db):
                 continue
-            files_result = await db.execute(select(File).where(File.document_id == doc.id))
-            for f in files_result.scalars().all():
-                try:
-                    Path(f.storage_path).unlink(missing_ok=True)
-                except OSError:
-                    pass
-            await db.delete(doc)
+            doc.deleted_at = now
             deleted += 1
         await db.flush()
         return {"action": "delete", "processed": deleted}

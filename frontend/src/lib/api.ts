@@ -446,6 +446,39 @@ export async function reindexDocument(id: string): Promise<{ chunk_count: number
 }
 
 // ---------------------------------------------------------------------------
+// Trash
+// ---------------------------------------------------------------------------
+
+export interface TrashItem {
+  id: string;
+  title: string;
+  file_type: string;
+  deleted_at: string;
+}
+
+export async function getTrash(): Promise<TrashItem[]> {
+  return apiFetch("/documents/trash/list");
+}
+
+export async function restoreFromTrash(ids: string[]): Promise<{ restored: number }> {
+  return apiFetch("/documents/trash/restore", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+export async function purgeFromTrash(ids: string[]): Promise<{ purged: number }> {
+  return apiFetch("/documents/trash/purge", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+export async function emptyTrash(): Promise<{ purged: number }> {
+  return apiFetch("/documents/trash/empty", { method: "POST" });
+}
+
+// ---------------------------------------------------------------------------
 // Users
 // ---------------------------------------------------------------------------
 

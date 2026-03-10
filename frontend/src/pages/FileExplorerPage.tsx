@@ -48,6 +48,7 @@ import {
   X,
   Tag as TagIcon,
   Pencil,
+  Undo2,
 } from "lucide-react";
 import {
   getDocuments,
@@ -69,6 +70,11 @@ import {
   createTag,
   updateTag,
   deleteTag,
+  getTrash,
+  restoreFromTrash,
+  purgeFromTrash,
+  emptyTrash,
+  type TrashItem,
   type DocumentListItem,
   type DocumentPermissionEntry,
   type Document,
@@ -167,6 +173,11 @@ export function FileExplorerPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [bulkActionOpen, setBulkActionOpen] = useState<string | null>(null);
 
+  // Trash
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
+  const [trashSelected, setTrashSelected] = useState<Set<string>>(new Set());
+
   // File drop upload
   const [fileDragOver, setFileDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -181,6 +192,12 @@ export function FileExplorerPage() {
   const loadTags = useCallback(async () => {
     try {
       setAllTags(await getTags());
+    } catch { /* ignore */ }
+  }, []);
+
+  const loadTrash = useCallback(async () => {
+    try {
+      setTrashItems(await getTrash());
     } catch { /* ignore */ }
   }, []);
 
@@ -214,7 +231,7 @@ export function FileExplorerPage() {
   }, [page, perPage, sortBy, sortDir, filterType, filterQ, activeFolderId, activeTag]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { loadFolders(); loadTags(); }, []);
+  useEffect(() => { loadFolders(); loadTags(); loadTrash(); }, []);
 
   const totalPages = Math.ceil(total / perPage);
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
@@ -274,12 +291,13 @@ export function FileExplorerPage() {
   async function handleBulkAction(action: string, extra?: Record<string, unknown>) {
     try {
       const res = await bulkAction([...selected], action, undefined, extra);
-      toast.success(`${res.processed}件処理しました`);
+      toast.success(`${res.processed}件${action === "delete" ? "ゴミ箱に移動しました" : "処理しました"}`);
       setSelected(new Set());
       setBulkActionOpen(null);
       load();
       loadFolders();
       loadTags();
+      if (action === "delete") loadTrash();
     } catch { toast.error("処理に失敗しました"); }
   }
 
@@ -437,18 +455,18 @@ export function FileExplorerPage() {
           </div>
           <div className="space-y-0.5">
             <button
-              onClick={() => { setActiveFolderId(null); setPage(1); }}
+              onClick={() => { setActiveFolderId(null); setPage(1); setShowTrash(false); }}
               className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${activeFolderId === null ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
             >
               <FolderIcon className="h-3.5 w-3.5" />すべて
             </button>
-            <DropTarget folderId={null} onDrop={handleDropOnFolder} label="未整理" isActive={activeFolderId === "unfiled"} onClick={() => { setActiveFolderId("unfiled"); setPage(1); }} icon={<FileText className="h-3.5 w-3.5" />} />
+            <DropTarget folderId={null} onDrop={handleDropOnFolder} label="未整理" isActive={activeFolderId === "unfiled"} onClick={() => { setActiveFolderId("unfiled"); setPage(1); setShowTrash(false); }} icon={<FileText className="h-3.5 w-3.5" />} />
             {folderTree.map((node) => (
               <FolderTreeItem
                 key={node.id}
                 node={node}
                 activeFolderId={activeFolderId}
-                onSelect={(id) => { setActiveFolderId(id); setPage(1); }}
+                onSelect={(id) => { setActiveFolderId(id); setPage(1); setShowTrash(false); }}
                 onReload={() => { loadFolders(); load(); }}
                 onDrop={handleDropOnFolder}
                 allFolders={folders}
@@ -481,7 +499,7 @@ export function FileExplorerPage() {
                 key={tag.id}
                 tag={tag}
                 isActive={activeTag === tag.name}
-                onSelect={() => { setActiveTag(activeTag === tag.name ? null : tag.name); setPage(1); }}
+                onSelect={() => { setActiveTag(activeTag === tag.name ? null : tag.name); setPage(1); setShowTrash(false); }}
                 onDeleted={() => {
                   setAllTags((prev) => prev.filter((t) => t.id !== tag.id));
                   if (activeTag === tag.name) setActiveTag(null);
@@ -496,18 +514,126 @@ export function FileExplorerPage() {
             ))}
           </div>
         </div>
+
+        {/* Trash */}
+        <Separator />
+        <button
+          onClick={() => { setShowTrash(true); loadTrash(); }}
+          className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${showTrash ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted text-muted-foreground"}`}
+        >
+          <Trash2 className="h-3.5 w-3.5" />ゴミ箱
+          {trashItems.length > 0 && (
+            <span className="ml-auto text-xs text-muted-foreground">{trashItems.length}</span>
+          )}
+        </button>
       </div>
 
       {/* Main content */}
       <div className="flex-1 min-w-0 space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold">文書管理</h1>
-          <Button onClick={() => setUploadOpen(true)}>
-            <Upload className="h-4 w-4 mr-2" />アップロード
-          </Button>
+          <h1 className="text-xl font-bold">{showTrash ? "ゴミ箱" : "文書管理"}</h1>
+          {showTrash ? (
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => { setShowTrash(false); setTrashSelected(new Set()); }}>
+                <ChevronLeft className="h-4 w-4 mr-1" />戻る
+              </Button>
+              {trashItems.length > 0 && (
+                <Button variant="destructive" size="sm" onClick={async () => {
+                  if (!confirm("ゴミ箱を空にしますか？この操作は取り消せません。")) return;
+                  try {
+                    const res = await emptyTrash();
+                    toast.success(`${res.purged}件を完全に削除しました`);
+                    loadTrash();
+                  } catch { toast.error("削除に失敗しました"); }
+                }}>
+                  <Trash2 className="h-4 w-4 mr-1" />ゴミ箱を空にする
+                </Button>
+              )}
+            </div>
+          ) : (
+            <Button onClick={() => setUploadOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />アップロード
+            </Button>
+          )}
         </div>
 
+        {showTrash ? (
+          /* Trash view */
+          <div>
+            {trashItems.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">ゴミ箱は空です</p>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 p-2 bg-muted rounded-lg mb-3">
+                  <span className="text-sm font-medium w-20">{trashSelected.size > 0 ? `${trashSelected.size}件選択中` : "\u00A0"}</span>
+                  <Button variant="outline" size="sm" disabled={trashSelected.size === 0} onClick={async () => {
+                    try {
+                      const res = await restoreFromTrash([...trashSelected]);
+                      toast.success(`${res.restored}件を復元しました`);
+                      setTrashSelected(new Set());
+                      loadTrash();
+                      load();
+                      loadFolders();
+                    } catch { toast.error("復元に失敗しました"); }
+                  }}>
+                    <Undo2 className="h-3.5 w-3.5 mr-1" />復元
+                  </Button>
+                  <Button variant="destructive" size="sm" disabled={trashSelected.size === 0} onClick={async () => {
+                    if (!confirm("選択した文書を完全に削除しますか？この操作は取り消せません。")) return;
+                    try {
+                      const res = await purgeFromTrash([...trashSelected]);
+                      toast.success(`${res.purged}件を完全に削除しました`);
+                      setTrashSelected(new Set());
+                      loadTrash();
+                    } catch { toast.error("削除に失敗しました"); }
+                  }}>
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />完全に削除
+                  </Button>
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10">
+                        <input
+                          type="checkbox"
+                          checked={trashSelected.size === trashItems.length && trashItems.length > 0}
+                          onChange={(e) => setTrashSelected(e.target.checked ? new Set(trashItems.map((t) => t.id)) : new Set())}
+                        />
+                      </TableHead>
+                      <TableHead>タイトル</TableHead>
+                      <TableHead className="w-20">種別</TableHead>
+                      <TableHead className="w-36">削除日時</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {trashItems.map((t) => (
+                      <TableRow key={t.id}>
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            checked={trashSelected.has(t.id)}
+                            onChange={(e) => {
+                              setTrashSelected((prev) => {
+                                const next = new Set(prev);
+                                e.target.checked ? next.add(t.id) : next.delete(t.id);
+                                return next;
+                              });
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell className="text-sm">{t.title}</TableCell>
+                        <TableCell><Badge variant="outline" className="text-[10px]">{t.file_type}</Badge></TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{formatDate(t.deleted_at)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </>
+            )}
+          </div>
+        ) : (
+        <>
         {/* Filters */}
         <div className="flex items-center gap-3">
           <form
@@ -539,7 +665,7 @@ export function FileExplorerPage() {
         <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
           <span className="text-sm font-medium w-20">{selected.size > 0 ? `${selected.size}件選択中` : "\u00A0"}</span>
           <Button variant="destructive" size="sm" disabled={selected.size === 0} onClick={() => setBulkActionOpen("delete")}>
-            <Trash2 className="h-3.5 w-3.5 mr-1" />削除
+            <Trash2 className="h-3.5 w-3.5 mr-1" />ゴミ箱に移動
           </Button>
           <Button variant="outline" size="sm" disabled={selected.size === 0} onClick={() => setBulkActionOpen("reindex")}>
             <RefreshCw className="h-3.5 w-3.5 mr-1" />ベクトル再構築
@@ -694,6 +820,8 @@ export function FileExplorerPage() {
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
+        </>
+        )}
       </div>
 
       {/* Detail Modal */}
@@ -710,11 +838,11 @@ export function FileExplorerPage() {
       <Dialog open={bulkActionOpen === "delete"} onOpenChange={() => setBulkActionOpen(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>一括削除の確認</DialogTitle>
-            <DialogDescription>{selected.size}件の文書を削除します。この操作は取り消せません。</DialogDescription>
+            <DialogTitle>ゴミ箱に移動</DialogTitle>
+            <DialogDescription>{selected.size}件の文書をゴミ箱に移動します。ゴミ箱から復元できます。</DialogDescription>
           </DialogHeader>
           <DialogFooter showCloseButton>
-            <Button variant="destructive" onClick={() => handleBulkAction("delete")}>削除する</Button>
+            <Button variant="destructive" onClick={() => { handleBulkAction("delete"); loadTrash(); }}>ゴミ箱に移動</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
