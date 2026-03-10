@@ -19,9 +19,16 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ContextChunk(BaseModel):
+    content: str
+    document_id: str
+    title: str
+    chunk_id: str
+
+
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
-    use_search: bool = True
+    context: list[ContextChunk] = []  # Carried-over RAG context from previous turns
 
 
 @router.post("/stream")
@@ -30,42 +37,75 @@ async def chat_stream(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """SSE endpoint for chat with optional RAG context.
+    """SSE endpoint for chat with RAG context.
 
-    If use_search is True, the latest user message is used to search
-    for relevant document chunks that are injected as context.
+    On the first message, searches for context. On follow-ups, reuses
+    the carried-over context and optionally supplements with new search
+    results if the question seems to be a new topic.
     """
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
 
-    # Get the latest user message for search
-    context_chunks: list[str] | None = None
-    sources: list[dict] = []
+    # Carried-over context from frontend
+    existing_context = [c.content for c in body.context]
+    existing_sources = [
+        {"document_id": c.document_id, "title": c.title, "chunk_id": c.chunk_id}
+        for c in body.context
+    ]
 
-    if body.use_search and messages:
-        last_user_msg = next(
-            (m["content"] for m in reversed(messages) if m["role"] == "user"),
-            None,
+    new_sources: list[dict] = []
+    new_context: list[str] = []
+
+    # Search for additional context based on latest user message
+    last_user_msg = next(
+        (m["content"] for m in reversed(messages) if m["role"] == "user"),
+        None,
+    )
+
+    is_first_message = len(messages) == 1
+    if last_user_msg:
+        # First message: always search. Follow-ups: search if message
+        # looks like a new question (> 5 chars and not a simple follow-up)
+        should_search = is_first_message or (
+            len(last_user_msg) > 5
+            and not any(
+                last_user_msg.strip().startswith(p)
+                for p in ("もっと", "詳しく", "具体的", "例えば", "なぜ", "はい", "いいえ",
+                          "続き", "要約", "まとめ", "ありがとう", "OK", "ok", "わかり")
+            )
         )
-        if last_user_msg:
+
+        if should_search:
             results, _ = await merged_search(db, last_user_msg, limit=5, offset=0)
-            if results:
-                context_chunks = [r["content"] for r in results]
-                sources = [
-                    {
+            # Deduplicate against existing context
+            existing_chunk_ids = {c.chunk_id for c in body.context}
+            for r in results:
+                if r["chunk_id"] not in existing_chunk_ids:
+                    new_context.append(r["content"])
+                    new_sources.append({
                         "document_id": r["document_id"],
                         "title": r["document_title"],
                         "chunk_id": r["chunk_id"],
-                    }
-                    for r in results
-                ]
+                    })
+
+    # Merge all context
+    all_context = existing_context + new_context
+    all_sources = existing_sources + new_sources
+
+    # Build full context entries with content for frontend caching
+    all_context_entries = [
+        {"content": c, "document_id": s["document_id"], "title": s["title"], "chunk_id": s["chunk_id"]}
+        for c, s in zip(all_context, all_sources)
+    ] if len(all_context) == len(all_sources) else []
 
     async def event_generator():
-        # Send sources first
-        if sources:
-            yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+        # Send context (sources + content) so frontend can carry it forward
+        if all_context_entries:
+            yield f"data: {json.dumps({'type': 'context', 'context': all_context_entries})}\n\n"
+        elif all_sources:
+            yield f"data: {json.dumps({'type': 'sources', 'sources': all_sources})}\n\n"
 
         # Stream LLM response
-        async for token in stream_chat(messages, context_chunks):
+        async for token in stream_chat(messages, all_context if all_context else None):
             yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
 
         yield "data: [DONE]\n\n"

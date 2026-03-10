@@ -10,7 +10,10 @@ import {
   streamChat,
   type ChatMessage,
   type ChatSource,
+  type ChatContext,
 } from "@/lib/api";
+
+const CHAT_CACHE_KEY = "las_chat_cache";
 
 interface DisplayMessage {
   role: "user" | "assistant";
@@ -18,8 +21,32 @@ interface DisplayMessage {
   sources?: ChatSource[];
 }
 
+interface ChatCache {
+  query: string;
+  messages: DisplayMessage[];
+  context: ChatContext[];
+}
+
+function loadChatCache(): ChatCache | null {
+  try {
+    const raw = sessionStorage.getItem(CHAT_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveChatCache(cache: ChatCache) {
+  try {
+    sessionStorage.setItem(CHAT_CACHE_KEY, JSON.stringify(cache));
+  } catch {}
+}
+
+export function clearChatCache() {
+  sessionStorage.removeItem(CHAT_CACHE_KEY);
+}
+
 interface ChatPanelProps {
-  /** Initial query from search — triggers automatic first message */
   initialQuery?: string;
 }
 
@@ -35,12 +62,22 @@ function LoadingDots() {
 
 export function ChatPanel({ initialQuery }: ChatPanelProps) {
   const navigate = useNavigate();
-  const [messages, setMessages] = useState<DisplayMessage[]>([]);
+
+  const cached = useRef(loadChatCache());
+  const canRestore = cached.current && cached.current.messages.length > 0 &&
+    (!initialQuery || cached.current.query === initialQuery);
+
+  const [messages, setMessages] = useState<DisplayMessage[]>(
+    canRestore ? cached.current!.messages : [],
+  );
+  const [ragContext, setRagContext] = useState<ChatContext[]>(
+    canRestore ? cached.current!.context ?? [] : [],
+  );
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const lastInitialQueryRef = useRef("");
+  const lastInitialQueryRef = useRef(canRestore ? initialQuery! : "");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom
@@ -49,8 +86,19 @@ export function ChatPanel({ initialQuery }: ChatPanelProps) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  // Persist to sessionStorage when not streaming
+  useEffect(() => {
+    if (!isStreaming && messages.length > 0 && (initialQuery || lastInitialQueryRef.current)) {
+      saveChatCache({
+        query: initialQuery || lastInitialQueryRef.current,
+        messages,
+        context: ragContext,
+      });
+    }
+  }, [messages, isStreaming, initialQuery, ragContext]);
+
   const sendMessage = useCallback(
-    (userText: string, history: DisplayMessage[]) => {
+    (userText: string, history: DisplayMessage[], currentContext: ChatContext[]) => {
       const userMsg: DisplayMessage = { role: "user", content: userText };
       const newMessages = [...history, userMsg];
       setMessages([...newMessages, { role: "assistant", content: "" }]);
@@ -64,11 +112,10 @@ export function ChatPanel({ initialQuery }: ChatPanelProps) {
       }));
 
       let accumulated = "";
-      let sources: ChatSource[] = [];
 
       abortRef.current = streamChat(
         chatMessages,
-        true,
+        currentContext,
         (token) => {
           accumulated += token;
           setMessages((prev) => {
@@ -76,18 +123,17 @@ export function ChatPanel({ initialQuery }: ChatPanelProps) {
             updated[updated.length - 1] = {
               role: "assistant",
               content: accumulated,
-              sources,
             };
             return updated;
           });
         },
-        (s) => {
-          sources = s;
+        (ctx, sources) => {
+          setRagContext(ctx);
           setMessages((prev) => {
             const updated = [...prev];
             updated[updated.length - 1] = {
               ...updated[updated.length - 1],
-              sources: s,
+              sources,
             };
             return updated;
           });
@@ -104,17 +150,16 @@ export function ChatPanel({ initialQuery }: ChatPanelProps) {
     if (initialQuery && initialQuery !== lastInitialQueryRef.current) {
       lastInitialQueryRef.current = initialQuery;
       setMessages([]);
-      sendMessage(initialQuery, []);
+      setRagContext([]);
+      sendMessage(initialQuery, [], []);
     }
   }, [initialQuery, sendMessage]);
 
-  // Clear when no query
+  // Stop streaming when query is cleared, but keep messages
   useEffect(() => {
     if (!initialQuery) {
       abortRef.current?.abort();
-      setMessages([]);
-      setInput("");
-      lastInitialQueryRef.current = "";
+      setIsStreaming(false);
     }
   }, [initialQuery]);
 
@@ -127,7 +172,7 @@ export function ChatPanel({ initialQuery }: ChatPanelProps) {
     const text = input.trim();
     if (!text || isStreaming) return;
     setInput("");
-    sendMessage(text, messages);
+    sendMessage(text, messages, ragContext);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -140,11 +185,13 @@ export function ChatPanel({ initialQuery }: ChatPanelProps) {
   function handleClear() {
     abortRef.current?.abort();
     setMessages([]);
+    setRagContext([]);
     setInput("");
     lastInitialQueryRef.current = "";
+    clearChatCache();
   }
 
-  if (!initialQuery && messages.length === 0) {
+  if (messages.length === 0) {
     return (
       <Card className="h-full border-dashed">
         <CardContent className="flex flex-col items-center justify-center h-full min-h-48 text-muted-foreground gap-2">
