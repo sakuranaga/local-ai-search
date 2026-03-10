@@ -15,7 +15,7 @@ export function DocumentPage() {
 
   useEffect(() => {
     if (!id) return;
-    getDocument(Number(id))
+    getDocument(id)
       .then(setDoc)
       .catch(() => setError("文書の取得に失敗しました"));
   }, [id]);
@@ -51,7 +51,8 @@ export function DocumentPage() {
             <Badge variant="outline">{doc.file_type}</Badge>
           </div>
           <div className="flex gap-3 text-xs text-muted-foreground">
-            <span>ソース: {doc.source}</span>
+            {doc.source_path && <span>ソース: {doc.source_path}</span>}
+            <span>チャンク数: {doc.chunk_count}</span>
             <span>更新: {new Date(doc.updated_at).toLocaleDateString("ja-JP")}</span>
           </div>
         </CardHeader>

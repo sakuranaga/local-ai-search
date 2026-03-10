@@ -1,0 +1,87 @@
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db import get_db
+from app.deps import get_current_user, require_permission
+from app.models import SystemSetting, User
+from app.services.settings import DEFAULTS
+
+router = APIRouter(prefix="/settings", tags=["settings"])
+
+
+class SettingItem(BaseModel):
+    key: str
+    value: str
+    description: str | None = None
+    placeholder: str | None = None
+    secret: bool = False
+
+
+class SettingUpdate(BaseModel):
+    value: str
+
+
+@router.get("", response_model=list[SettingItem])
+async def list_settings(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("admin")),
+):
+    result = await db.execute(select(SystemSetting))
+    db_settings = {row.key: row for row in result.scalars().all()}
+
+    items = []
+    for key, default in DEFAULTS.items():
+        is_secret = default.get("secret", False)
+        raw_value = db_settings[key].value if key in db_settings else default["value"]
+        if is_secret and raw_value:
+            display_value = "••••••••" + raw_value[-4:]
+        else:
+            display_value = raw_value
+        items.append(SettingItem(
+            key=key,
+            value=display_value,
+            description=default["description"],
+            placeholder=default.get("placeholder"),
+            secret=is_secret,
+        ))
+    return items
+
+
+@router.put("/{key}", response_model=SettingItem)
+async def update_setting(
+    key: str,
+    body: SettingUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("admin")),
+):
+    if key not in DEFAULTS:
+        raise HTTPException(status_code=400, detail=f"Unknown setting: {key}")
+
+    result = await db.execute(
+        select(SystemSetting).where(SystemSetting.key == key)
+    )
+    row = result.scalar_one_or_none()
+
+    if row:
+        row.value = body.value
+    else:
+        row = SystemSetting(
+            key=key,
+            value=body.value,
+            description=DEFAULTS[key]["description"],
+        )
+        db.add(row)
+
+    await db.flush()
+
+    is_secret = DEFAULTS[key].get("secret", False)
+    display_value = ("••••••••" + body.value[-4:]) if is_secret and body.value else body.value
+    return SettingItem(
+        key=key,
+        value=display_value,
+        description=DEFAULTS[key]["description"],
+        placeholder=DEFAULTS[key].get("placeholder"),
+        secret=is_secret,
+    )

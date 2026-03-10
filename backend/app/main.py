@@ -2,13 +2,15 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import engine
-from app.models import Base
-from app.routers import auth, documents, ingest, search, users
+from app.db import engine, get_db
+from app.deps import get_current_user
+from app.models import Base, Chunk, Document, User
+from app.routers import auth, documents, ingest, search, settings, users
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -79,8 +81,19 @@ app.include_router(users.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(ingest.router, prefix="/api")
+app.include_router(settings.router, prefix="/api")
 
 
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "local-ai-search"}
+
+
+@app.get("/api/stats")
+async def stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    doc_count = await db.scalar(select(func.count()).select_from(Document))
+    chunk_count = await db.scalar(select(func.count()).select_from(Chunk))
+    return {"total_documents": doc_count or 0, "total_chunks": chunk_count or 0}
