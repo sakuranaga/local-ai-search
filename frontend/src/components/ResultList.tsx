@@ -39,11 +39,11 @@ export function ResultList({ results, onSelect }: ResultListProps) {
 
   return (
     <ScrollArea className="h-[calc(100vh-280px)]">
-      <div className="space-y-3 pr-3">
+      <div className="space-y-3 px-3">
         {results.map((result, idx) => (
           <Card
             key={result.chunk_id ?? idx}
-            className="cursor-pointer hover:bg-accent/50 transition-colors"
+            className="cursor-pointer hover:bg-accent/50 transition-colors !py-0 !gap-0"
             onClick={() => onSelect(result)}
           >
             <CardContent className="p-4">
