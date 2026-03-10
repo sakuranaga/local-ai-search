@@ -247,6 +247,15 @@ export interface BackendSearchResponse {
   }>;
 }
 
+export interface ChatStatus {
+  model: string;
+  available: boolean;
+}
+
+export async function getChatStatus(): Promise<ChatStatus> {
+  return apiFetch("/chat/status");
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
