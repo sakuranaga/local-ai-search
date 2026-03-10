@@ -219,6 +219,10 @@ export async function refreshToken(): Promise<LoginResponse> {
   return apiFetch<LoginResponse>("/auth/refresh", { method: "POST" });
 }
 
+export async function getMe(): Promise<User> {
+  return apiFetch<User>("/auth/me");
+}
+
 // ---------------------------------------------------------------------------
 // Search
 // ---------------------------------------------------------------------------

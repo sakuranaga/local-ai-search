@@ -43,6 +43,8 @@ class UserResponse(BaseModel):
     id: str
     username: str
     email: str
+    display_name: str
+    avatar_url: str | None
     is_active: bool
     roles: list[str]
     created_at: datetime
@@ -112,6 +114,8 @@ async def me(current_user: User = Depends(get_current_user)):
         id=str(current_user.id),
         username=current_user.username,
         email=current_user.email,
+        display_name=current_user.display_name or "",
+        avatar_url=current_user.avatar_url,
         is_active=current_user.is_active,
         roles=role_names,
         created_at=current_user.created_at,
