@@ -224,12 +224,33 @@ export function FileExplorerPage() {
     return sortDir === "asc" ? <ArrowUp className="h-3 w-3 ml-1" /> : <ArrowDown className="h-3 w-3 ml-1" />;
   }
 
-  function toggleSelect(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+  const lastClickedIdx = useRef<number | null>(null);
+
+  function toggleSelect(id: string, e?: React.MouseEvent) {
+    const idx = items.findIndex((i) => i.id === id);
+
+    if (e?.shiftKey && lastClickedIdx.current !== null && idx !== -1) {
+      // Shift+click: range select/deselect (Gmail-style)
+      // The action matches what would happen to the clicked item
+      const willSelect = !selected.has(id);
+      const start = Math.min(lastClickedIdx.current, idx);
+      const end = Math.max(lastClickedIdx.current, idx);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (let i = start; i <= end; i++) {
+          if (willSelect) next.add(items[i].id);
+          else next.delete(items[i].id);
+        }
+        return next;
+      });
+    } else {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+      });
+    }
+    lastClickedIdx.current = idx;
   }
 
   function toggleSelectAll() {
@@ -469,8 +490,10 @@ export function FileExplorerPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-10">
-                    <input type="checkbox" checked={items.length > 0 && selected.size === items.length} onChange={toggleSelectAll} />
+                  <TableHead className="w-10 px-0 cursor-pointer select-none" onClick={toggleSelectAll}>
+                    <div className="flex items-center justify-center px-3">
+                      <input type="checkbox" checked={items.length > 0 && selected.size === items.length} readOnly className="pointer-events-none" />
+                    </div>
                   </TableHead>
                   <TableHead className="cursor-pointer select-none" onClick={() => handleSort("title")}>
                     <span className="flex items-center">タイトル <SortIcon col="title" /></span>
@@ -492,8 +515,13 @@ export function FileExplorerPage() {
                     onDragStart={(e) => handleDragStart(e, item.id)}
                     className={`cursor-pointer ${selected.has(item.id) ? "bg-muted/50" : "hover:bg-muted/30"}`}
                   >
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)} />
+                    <TableCell
+                      className="cursor-pointer select-none px-0"
+                      onClick={(e) => { e.stopPropagation(); toggleSelect(item.id, e); }}
+                    >
+                      <div className="flex items-center justify-center w-full h-full py-2 px-3">
+                        <input type="checkbox" checked={selected.has(item.id)} readOnly className="pointer-events-none" />
+                      </div>
                     </TableCell>
                     <TableCell onClick={() => setDetailDoc(item)}>
                       <span className="font-medium text-sm max-w-[400px] truncate block hover:underline">
@@ -563,18 +591,37 @@ export function FileExplorerPage() {
           </ScrollArea>
         </Card>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
-            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
+        {/* Pagination — always visible */}
+        <div className="flex items-center justify-center gap-2 py-3 border-t">
+          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          {Array.from({ length: totalPages }, (_, i) => i + 1)
+            .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
+            .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+              if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("...");
+              acc.push(p);
+              return acc;
+            }, [])
+            .map((item, idx) =>
+              item === "..." ? (
+                <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground">…</span>
+              ) : (
+                <Button
+                  key={item}
+                  variant={item === page ? "default" : "outline"}
+                  size="sm"
+                  className="min-w-[36px]"
+                  onClick={() => setPage(item as number)}
+                >
+                  {item}
+                </Button>
+              ),
+            )}
+          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Detail Modal */}
