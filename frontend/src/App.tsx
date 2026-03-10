@@ -3,7 +3,6 @@ import { getToken, getMe, logout, type User } from "@/lib/api";
 import { LoginPage } from "@/pages/LoginPage";
 import { SearchPage } from "@/pages/SearchPage";
 import { AdminPage } from "@/pages/AdminPage";
-import { DocumentPage } from "@/pages/DocumentPage";
 import { FileExplorerPage } from "@/pages/FileExplorerPage";
 import { Toaster } from "@/components/ui/sonner";
 import {
@@ -154,16 +153,6 @@ export default function App() {
             <AuthGuard>
               <AppLayout>
                 <FileExplorerPage />
-              </AppLayout>
-            </AuthGuard>
-          }
-        />
-        <Route
-          path="/documents/:id"
-          element={
-            <AuthGuard>
-              <AppLayout>
-                <DocumentPage />
               </AppLayout>
             </AuthGuard>
           }
