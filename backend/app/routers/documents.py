@@ -369,18 +369,48 @@ async def upload_document(
         storage_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Failed to parse file: {e}")
 
-    # Create the document record
-    doc = Document(
-        title=file.filename,
-        source_path=str(storage_path),
-        file_type=file_type,
-        content=text_content,
-        owner_id=current_user.id,
-        is_public=True,
-        created_by_id=current_user.id,
-        updated_by_id=current_user.id,
+    # Check for existing document with the same title (duplicate prevention)
+    existing_result = await db.execute(
+        select(Document).where(
+            Document.title == file.filename,
+            Document.deleted_at.is_(None),
+        )
     )
-    db.add(doc)
+    existing_doc = existing_result.scalar_one_or_none()
+
+    if existing_doc:
+        # Update existing document instead of creating a new one
+        doc = existing_doc
+
+        # Remove old file from disk and DB
+        old_files = await db.execute(select(File).where(File.document_id == doc.id))
+        for old_f in old_files.scalars().all():
+            try:
+                Path(old_f.storage_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+            await db.delete(old_f)
+
+        # Remove old chunks
+        await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
+
+        doc.source_path = str(storage_path)
+        doc.file_type = file_type
+        doc.content = text_content
+        doc.updated_by_id = current_user.id
+    else:
+        # Create new document record
+        doc = Document(
+            title=file.filename,
+            source_path=str(storage_path),
+            file_type=file_type,
+            content=text_content,
+            owner_id=current_user.id,
+            is_public=True,
+            created_by_id=current_user.id,
+            updated_by_id=current_user.id,
+        )
+        db.add(doc)
     await db.flush()
 
     # Create file record
