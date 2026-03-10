@@ -42,7 +42,7 @@ class RoleAssignment(BaseModel):
     role_ids: list[int]
 
 
-@router.get("/", response_model=list[UserResponse])
+@router.get("", response_model=list[UserResponse])
 async def list_users(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_permission("admin")),
@@ -62,7 +62,7 @@ async def list_users(
     ]
 
 
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: UserCreate,
     db: AsyncSession = Depends(get_db),

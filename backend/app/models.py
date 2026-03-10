@@ -89,7 +89,7 @@ class UserRole(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="roles")
-    role: Mapped["Role"] = relationship(back_populates="user_roles")
+    role: Mapped["Role"] = relationship(back_populates="user_roles", lazy="selectin")
 
 
 class Document(Base):
