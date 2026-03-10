@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { getToken, logout } from "@/lib/api";
 import { LoginPage } from "@/pages/LoginPage";
 import { SearchPage } from "@/pages/SearchPage";
@@ -12,8 +12,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
 import { Search, Settings, LogOut } from "lucide-react";
-import type { ReactNode } from "react";
+import { type FormEvent, type ReactNode, useState, useEffect } from "react";
 
 function AuthGuard({ children }: { children: ReactNode }) {
   if (!getToken()) {
@@ -24,16 +25,50 @@ function AuthGuard({ children }: { children: ReactNode }) {
 
 function NavBar() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [searchValue, setSearchValue] = useState(searchParams.get("q") ?? "");
+
+  // Sync input with URL query param changes (e.g. browser back)
+  useEffect(() => {
+    setSearchValue(searchParams.get("q") ?? "");
+  }, [searchParams]);
+
+  function handleSearch(e: FormEvent) {
+    e.preventDefault();
+    const q = searchValue.trim();
+    if (q) {
+      navigate(`/?q=${encodeURIComponent(q)}`);
+    }
+  }
 
   return (
-    <header className="h-16 border-b flex items-center justify-between px-4 bg-background/80 backdrop-blur-sm sticky top-0 z-50">
-      <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-        <Search className="h-5 w-5 text-primary" />
+    <header className="h-14 border-b flex items-center gap-4 px-4 bg-background/80 backdrop-blur-sm sticky top-0 z-50">
+      <Link
+        to="/"
+        className="flex items-center gap-2 hover:opacity-80 transition-opacity shrink-0"
+        onClick={() => {
+          setSearchValue("");
+          sessionStorage.removeItem("las_search_cache");
+        }}
+      >
         <span className="font-bold text-lg tracking-tight">LAS</span>
         <span className="text-xs text-muted-foreground hidden sm:inline">Local AI Search</span>
       </Link>
 
-      <div className="flex items-center gap-2">
+      <form onSubmit={handleSearch} className="max-w-xl ml-4 w-full">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="文書を検索..."
+            value={searchValue}
+            onChange={(e) => setSearchValue(e.target.value)}
+            className="h-9 pl-9 pr-3 text-sm rounded-lg"
+          />
+        </div>
+      </form>
+
+      <div className="flex items-center gap-2 shrink-0 ml-auto">
         <DropdownMenu>
           <DropdownMenuTrigger
             render={<button className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" />}
