@@ -118,7 +118,7 @@ export function DocumentModal({
               {doc.source_path && <span>{doc.source_path}</span>}
               <span>チャンク: {doc.chunk_count}</span>
               <span>
-                更新: {new Date(doc.updated_at).toLocaleDateString("ja-JP")}
+                更新:{new Date(doc.updated_at).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
               </span>
               <span className="flex-1" />
               {doc.source_path && (

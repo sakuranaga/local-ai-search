@@ -38,6 +38,7 @@ async def fulltext_search(
             Document.title.label("document_title"),
             Document.file_type,
             Document.summary.label("document_summary"),
+            Document.updated_at.label("document_updated_at"),
             match_count,
         )
         .join(Document, Chunk.document_id == Document.id)
@@ -62,6 +63,7 @@ async def fulltext_search(
             "document_title": row.document_title,
             "document_summary": row.document_summary,
             "file_type": row.file_type,
+            "updated_at": row.document_updated_at.isoformat() if row.document_updated_at else None,
             "source": "fulltext",
         }
         for row in rows
@@ -91,6 +93,7 @@ async def vector_search(
             Document.title.label("document_title"),
             Document.file_type,
             Document.summary.label("document_summary"),
+            Document.updated_at.label("document_updated_at"),
             distance,
         )
         .join(Document, Chunk.document_id == Document.id)
@@ -116,6 +119,7 @@ async def vector_search(
             "document_title": row.document_title,
             "document_summary": row.document_summary,
             "file_type": row.file_type,
+            "updated_at": row.document_updated_at.isoformat() if row.document_updated_at else None,
             "distance": float(row.distance),
             "source": "vector",
         }
