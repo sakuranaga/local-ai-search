@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import { ResultList } from "@/components/ResultList";
 import { ChatPanel } from "@/components/ChatPanel";
+import { DocumentModal } from "@/components/DocumentModal";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   searchDocuments,
   getStats,
+  getPublicSetting,
   type SearchResult,
   type StatsResponse,
 } from "@/lib/api";
@@ -38,8 +43,9 @@ function saveCache(cache: SearchCache) {
 }
 
 export function SearchPage() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalIndex, setModalIndex] = useState(0);
 
   const urlQ = searchParams.get("q") ?? "";
   const urlPage = Number(searchParams.get("page")) || 1;
@@ -54,10 +60,12 @@ export function SearchPage() {
   const [total, setTotal] = useState(urlQ ? 0 : cached.current?.total ?? 0);
 
   const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [welcomeMessage, setWelcomeMessage] = useState("");
   const lastSearchRef = useRef("");
 
   useEffect(() => {
     getStats().then(setStats).catch(() => {});
+    getPublicSetting("welcome_message").then((s) => setWelcomeMessage(s.value)).catch(() => {});
   }, []);
 
   // Persist search results to sessionStorage
@@ -116,12 +124,28 @@ export function SearchPage() {
 
   const totalPages = Math.ceil(total / PER_PAGE);
 
+  const showWelcome = !urlQ && results.length === 0;
+
   return (
     <div className="flex flex-col h-[calc(100vh-56px)]">
       {/* Two-column layout */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-5 gap-4 px-4 pt-3 pb-4 min-h-0">
-        {/* Left: results + pagination */}
+        {/* Left: welcome or results + pagination */}
         <div className="lg:col-span-3 flex flex-col min-h-0">
+          {showWelcome ? (
+            <div className="flex-1 min-h-0 overflow-y-auto pt-4">
+              <Card className="max-w-2xl">
+                <CardContent className="prose dark:prose-invert max-w-none p-6">
+                  {welcomeMessage ? (
+                    <ReactMarkdown remarkPlugins={[remarkBreaks]}>{welcomeMessage}</ReactMarkdown>
+                  ) : (
+                    <p className="text-muted-foreground">検索バーにキーワードを入力して検索を開始してください。</p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+          <>
           {total > 0 && (
             <p className="text-xs text-muted-foreground pb-2">
               {total}件中 {(page - 1) * PER_PAGE + 1}〜{Math.min(page * PER_PAGE, total)}件目
@@ -130,7 +154,11 @@ export function SearchPage() {
           <div className="flex-1 min-h-0">
             <ResultList
               results={results}
-              onSelect={(r) => navigate(`/documents/${r.document_id}`)}
+              onSelect={(r) => {
+                const idx = results.findIndex((x) => x.chunk_id === r.chunk_id);
+                setModalIndex(idx >= 0 ? idx : 0);
+                setModalOpen(true);
+              }}
             />
           </div>
           {totalPages > 1 && (
@@ -175,10 +203,19 @@ export function SearchPage() {
               </Button>
             </div>
           )}
+          </>
+          )}
         </div>
         {/* Right: AI chat */}
         <div className="lg:col-span-2 min-h-0">
-          <ChatPanel initialQuery={urlQ || undefined} />
+          <ChatPanel
+            initialQuery={urlQ || undefined}
+            onSourceClick={(docId) => {
+              const idx = results.findIndex((r) => r.document_id === docId);
+              setModalIndex(idx >= 0 ? idx : 0);
+              setModalOpen(true);
+            }}
+          />
         </div>
       </div>
 
@@ -193,6 +230,14 @@ export function SearchPage() {
           </Badge>
         </div>
       )}
+
+      <DocumentModal
+        results={results}
+        currentIndex={modalIndex}
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        onNavigate={setModalIndex}
+      />
     </div>
   );
 }

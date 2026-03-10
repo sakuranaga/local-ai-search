@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -48,6 +49,7 @@ export function clearChatCache() {
 
 interface ChatPanelProps {
   initialQuery?: string;
+  onSourceClick?: (documentId: string) => void;
 }
 
 function LoadingDots() {
@@ -60,7 +62,7 @@ function LoadingDots() {
   );
 }
 
-export function ChatPanel({ initialQuery }: ChatPanelProps) {
+export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
   const navigate = useNavigate();
 
   const cached = useRef(loadChatCache());
@@ -80,10 +82,13 @@ export function ChatPanel({ initialQuery }: ChatPanelProps) {
   const lastInitialQueryRef = useRef(canRestore ? initialQuery! : "");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom — target the viewport inside ScrollArea
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    const root = scrollRef.current;
+    if (!root) return;
+    const viewport = root.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement | null;
+    const el = viewport ?? root;
+    el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   // Persist to sessionStorage when not streaming
@@ -234,12 +239,14 @@ export function ChatPanel({ initialQuery }: ChatPanelProps) {
                     : "bg-muted"
                 }`}
               >
-                <p className="whitespace-pre-wrap leading-relaxed">
-                  {msg.content}
-                  {msg.role === "assistant" && isStreaming && idx === messages.length - 1 && (
-                    <LoadingDots />
-                  )}
-                </p>
+                {msg.role === "assistant" ? (
+                  <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-pre:my-1">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    {isStreaming && idx === messages.length - 1 && <LoadingDots />}
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                )}
                 {msg.sources && msg.sources.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-border/50">
                     <p className="text-xs text-muted-foreground mb-1">参照元:</p>
@@ -249,7 +256,7 @@ export function ChatPanel({ initialQuery }: ChatPanelProps) {
                           key={s.chunk_id}
                           variant="secondary"
                           className="cursor-pointer hover:bg-accent text-[10px] px-1.5 py-0"
-                          onClick={() => navigate(`/documents/${s.document_id}`)}
+                          onClick={() => onSourceClick ? onSourceClick(s.document_id) : navigate(`/documents/${s.document_id}`)}
                         >
                           {s.title}
                         </Badge>

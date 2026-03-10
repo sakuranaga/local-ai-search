@@ -23,6 +23,24 @@ class SettingUpdate(BaseModel):
     value: str
 
 
+# Public settings readable by any authenticated user
+PUBLIC_KEYS = {"welcome_message"}
+
+
+@router.get("/public/{key}")
+async def get_public_setting(
+    key: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get a single public setting (available to all authenticated users)."""
+    if key not in PUBLIC_KEYS:
+        raise HTTPException(status_code=404, detail="Setting not found")
+    from app.services.settings import get_setting
+    value = await get_setting(db, key)
+    return {"key": key, "value": value}
+
+
 @router.get("", response_model=list[SettingItem])
 async def list_settings(
     db: AsyncSession = Depends(get_db),
