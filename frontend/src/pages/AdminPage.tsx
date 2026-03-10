@@ -37,17 +37,13 @@ import {
   getRoles,
   createRole,
   deleteRole,
-  triggerWikiSync,
-  triggerDirectoryIngest,
-  getIngestStatus,
   getSettings,
   updateSetting,
   type User,
   type Role,
-  type IngestStatus,
   type SystemSetting,
 } from "@/lib/api";
-import { Plus, Trash2, RefreshCw, FolderInput, Settings, Save, Pencil } from "lucide-react";
+import { Plus, Trash2, Settings, Save, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -421,120 +417,6 @@ function RolesTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Ingest Tab
-// ---------------------------------------------------------------------------
-
-function IngestTab() {
-  const [dirPath, setDirPath] = useState("");
-  const [status, setStatus] = useState<IngestStatus | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [ingesting, setIngesting] = useState(false);
-
-  async function handleWikiSync() {
-    setSyncing(true);
-    try {
-      const s = await triggerWikiSync();
-      setStatus(s);
-      toast.success("Wiki同期を開始しました");
-    } catch {
-      toast.error("Wiki同期に失敗しました");
-    } finally {
-      setSyncing(false);
-    }
-  }
-
-  async function handleDirectoryIngest() {
-    if (!dirPath.trim()) return;
-    setIngesting(true);
-    try {
-      const s = await triggerDirectoryIngest(dirPath.trim());
-      setStatus(s);
-      toast.success("ディレクトリ取り込みを開始しました");
-    } catch {
-      toast.error("取り込みに失敗しました");
-    } finally {
-      setIngesting(false);
-    }
-  }
-
-  async function handleRefreshStatus() {
-    try {
-      const s = await getIngestStatus();
-      setStatus(s);
-    } catch {
-      toast.error("ステータス取得に失敗");
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Wiki同期</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Button onClick={handleWikiSync} disabled={syncing}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "同期中..." : "Wiki同期を実行"}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">ディレクトリ取り込み</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <Input
-              placeholder="/path/to/documents"
-              value={dirPath}
-              onChange={(e) => setDirPath(e.target.value)}
-              className="flex-1"
-            />
-            <Button onClick={handleDirectoryIngest} disabled={ingesting}>
-              <FolderInput className="h-4 w-4 mr-2" />
-              {ingesting ? "取り込み中..." : "取り込み"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">取り込みステータス</CardTitle>
-          <Button variant="ghost" size="sm" onClick={handleRefreshStatus}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {status ? (
-            <div className="space-y-2 text-sm">
-              <p>
-                状態: <Badge variant="secondary">{status.status}</Badge>
-              </p>
-              <p>処理済み文書: {status.documents_processed}</p>
-              {status.errors.length > 0 && (
-                <div>
-                  <p className="text-destructive">エラー:</p>
-                  <ul className="list-disc list-inside text-destructive text-xs">
-                    {status.errors.map((e, i) => (
-                      <li key={i}>{e}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">ステータスを取得するにはリフレッシュしてください</p>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Settings Tab
 // ---------------------------------------------------------------------------
 
@@ -750,7 +632,6 @@ export function AdminPage() {
           <TabsTrigger value="settings">設定</TabsTrigger>
           <TabsTrigger value="users">ユーザー管理</TabsTrigger>
           <TabsTrigger value="roles">ロール管理</TabsTrigger>
-          <TabsTrigger value="ingest">文書取り込み</TabsTrigger>
           <TabsTrigger value="welcome">ウェルカム</TabsTrigger>
         </TabsList>
         <TabsContent value="settings" className="mt-4">
@@ -761,9 +642,6 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="roles" className="mt-4">
           <RolesTab />
-        </TabsContent>
-        <TabsContent value="ingest" className="mt-4">
-          <IngestTab />
         </TabsContent>
         <TabsContent value="welcome" className="mt-4">
           <WelcomeTab />

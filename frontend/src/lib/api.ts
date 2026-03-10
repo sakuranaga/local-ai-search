@@ -177,12 +177,6 @@ export interface DocumentPermissionEntry {
   can_write: boolean;
 }
 
-export interface IngestStatus {
-  status: string;
-  documents_processed: number;
-  errors: string[];
-}
-
 export interface StatsResponse {
   total_documents: number;
   total_chunks: number;
@@ -546,23 +540,6 @@ export async function deleteRole(id: number): Promise<void> {
 // ---------------------------------------------------------------------------
 // Ingest
 // ---------------------------------------------------------------------------
-
-export async function triggerWikiSync(): Promise<IngestStatus> {
-  return apiFetch("/ingest/wiki-sync", { method: "POST" });
-}
-
-export async function triggerDirectoryIngest(
-  path: string,
-): Promise<IngestStatus> {
-  return apiFetch("/ingest/directory", {
-    method: "POST",
-    body: JSON.stringify({ path }),
-  });
-}
-
-export async function getIngestStatus(): Promise<IngestStatus> {
-  return apiFetch("/ingest/status");
-}
 
 // ---------------------------------------------------------------------------
 // Stats
