@@ -30,6 +30,7 @@ async def fulltext_search(
             Chunk.content,
             Document.title.label("document_title"),
             Document.file_type,
+            Document.summary.label("document_summary"),
         )
         .join(Document, Chunk.document_id == Document.id)
         .where(Document.deleted_at.is_(None))
@@ -52,6 +53,7 @@ async def fulltext_search(
             "chunk_index": row.chunk_index,
             "content": row.content,
             "document_title": row.document_title,
+            "document_summary": row.document_summary,
             "file_type": row.file_type,
             "source": "fulltext",
         }
@@ -81,6 +83,7 @@ async def vector_search(
             Chunk.content,
             Document.title.label("document_title"),
             Document.file_type,
+            Document.summary.label("document_summary"),
             distance,
         )
         .join(Document, Chunk.document_id == Document.id)
@@ -104,6 +107,7 @@ async def vector_search(
             "chunk_index": row.chunk_index,
             "content": row.content,
             "document_title": row.document_title,
+            "document_summary": row.document_summary,
             "file_type": row.file_type,
             "distance": float(row.distance),
             "source": "vector",

@@ -14,6 +14,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.models import Chunk, Document, DocumentPermission, DocumentTag, File, Folder, Tag, User
 from app.services.embedding import get_embeddings
+from app.services.llm import generate_summary
 from app.services.parser import chunk_text, parse_file
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -32,6 +33,7 @@ class TagInfo(BaseModel):
 class DocumentListItem(BaseModel):
     id: str
     title: str
+    summary: str | None = None
     source_path: str | None
     file_type: str
     is_public: bool
@@ -243,6 +245,7 @@ async def list_documents(
             Document.is_public,
             Document.searchable,
             Document.ai_knowledge,
+            Document.summary,
             Document.memo,
             Document.folder_id,
             Folder.name.label("folder_name"),
@@ -310,6 +313,7 @@ async def list_documents(
         DocumentListItem(
             id=str(row.id),
             title=row.title,
+            summary=row.summary,
             source_path=row.source_path,
             file_type=row.file_type,
             is_public=row.is_public,
@@ -442,12 +446,21 @@ async def upload_document(
         )
         db.add(chunk)
 
+    # Generate AI summary (non-blocking — failure is OK)
+    try:
+        summary = await generate_summary(text_content, file.filename)
+        if summary:
+            doc.summary = summary
+    except Exception:
+        pass
+
     await db.flush()
     await db.refresh(doc)
 
     return DocumentListItem(
         id=str(doc.id),
         title=doc.title,
+        summary=doc.summary,
         source_path=doc.source_path,
         file_type=doc.file_type,
         is_public=doc.is_public,

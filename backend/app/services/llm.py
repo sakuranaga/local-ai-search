@@ -25,6 +25,53 @@ def _build_headers(api_key: str) -> dict[str, str]:
     return headers
 
 
+async def generate_summary(content: str, title: str = "") -> str:
+    """Generate a short summary of document content using LLM.
+
+    Returns a 1-2 sentence summary in Japanese, or empty string on failure.
+    """
+    # Truncate content to avoid overwhelming the LLM
+    max_chars = 3000
+    truncated = content[:max_chars] if len(content) > max_chars else content
+
+    messages = [
+        {
+            "role": "system",
+            "content": "あなたは文書要約アシスタントです。与えられた文書の内容を日本語で1〜2文（100文字以内）で簡潔に要約してください。要約のみを出力し、それ以外は何も出力しないでください。",
+        },
+        {
+            "role": "user",
+            "content": f"タイトル: {title}\n\n内容:\n{truncated}",
+        },
+    ]
+
+    url, model, api_key = await _get_llm_config()
+    if not url:
+        return ""
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as client:
+            response = await client.post(
+                f"{url}/chat/completions",
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "stream": False,
+                    "temperature": 0.3,
+                    "max_tokens": 200,
+                },
+                headers=_build_headers(api_key),
+            )
+            if response.status_code != 200:
+                logger.warning(f"Summary generation failed: {response.status_code}")
+                return ""
+            data = response.json()
+            return data["choices"][0]["message"]["content"].strip()
+    except Exception:
+        logger.exception("Summary generation error")
+        return ""
+
+
 async def chat_completion(
     messages: list[dict],
     tools: list[dict] | None = None,
