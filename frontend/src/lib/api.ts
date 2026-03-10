@@ -90,6 +90,7 @@ export interface SearchResult {
 
 export interface SearchResponse {
   query: string;
+  tokens: string[];
   mode: string;
   page: number;
   per_page: number;

@@ -1,11 +1,12 @@
 import uuid
 
-from sqlalchemy import func, literal_column, select, text
+from sqlalchemy import case, func, literal_column, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Chunk, Document
 from app.services.embedding import get_embedding
 from app.services.settings import get_setting
+from app.services.tokenizer import tokenize_query
 
 
 async def fulltext_search(
@@ -17,10 +18,16 @@ async def fulltext_search(
     pg_bigm automatically accelerates LIKE queries through GIN indexes,
     so a plain LIKE is sufficient -- no special operators needed.
     """
-    # Split query into words for AND matching
-    words = query.split()
+    # Tokenize query: extract nouns for Japanese, fallback to whitespace split
+    words = tokenize_query(query)
     if not words:
         return []
+
+    # Build OR conditions and count matching words for ranking
+    like_conditions = [Chunk.content.ilike(f"%{word}%") for word in words]
+    match_count = sum(
+        case((Chunk.content.ilike(f"%{w}%"), 1), else_=0) for w in words
+    ).label("match_count")
 
     stmt = (
         select(
@@ -31,17 +38,17 @@ async def fulltext_search(
             Document.title.label("document_title"),
             Document.file_type,
             Document.summary.label("document_summary"),
+            match_count,
         )
         .join(Document, Chunk.document_id == Document.id)
         .where(Document.deleted_at.is_(None))
+        .where(or_(*like_conditions))
     )
-    for word in words:
-        stmt = stmt.where(Chunk.content.ilike(f"%{word}%"))
     if require_searchable:
         stmt = stmt.where(Document.searchable.is_(True))
     if require_ai_knowledge:
         stmt = stmt.where(Document.ai_knowledge.is_(True))
-    stmt = stmt.limit(limit)
+    stmt = stmt.order_by(match_count.desc()).limit(limit)
 
     result = await db.execute(stmt)
     rows = result.all()

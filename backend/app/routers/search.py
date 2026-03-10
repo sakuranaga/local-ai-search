@@ -9,6 +9,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.models import User
 from app.services.search import fulltext_search, merged_search, vector_search
+from app.services.tokenizer import tokenize_query
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -38,6 +39,7 @@ async def search(
 
     return {
         "query": q,
+        "tokens": tokenize_query(q),
         "mode": mode,
         "page": page,
         "per_page": per_page,
