@@ -39,7 +39,7 @@ export function ResultList({ results, onSelect }: ResultListProps) {
 
   return (
     <ScrollArea className="h-[calc(100vh-280px)]">
-      <div className="space-y-3 px-3">
+      <div className="space-y-3 px-3 py-px">
         {results.map((result, idx) => (
           <Card
             key={result.chunk_id ?? idx}
