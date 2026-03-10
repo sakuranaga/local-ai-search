@@ -32,7 +32,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://las:${POSTGRES_PASSWORD}@db:5432/las
       REDIS_URL: redis://redis:6379/0
-      STORAGE_DIR: /data/storage
+      STORAGE_PATH: /data/storage
     depends_on:
       db:
         condition: service_healthy
@@ -41,7 +41,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - las_storage:/data/storage
+      - ./data:/data/storage
       - PLACEHOLDER_HOME:/hostPLACEHOLDER_HOME:ro
     # ports:
     #   - "8000:8000"
@@ -67,4 +67,3 @@ services:
 volumes:
   las_db:
   las_redis:
-  las_storage:

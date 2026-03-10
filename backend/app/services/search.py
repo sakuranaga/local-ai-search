@@ -28,6 +28,7 @@ async def fulltext_search(
         )
         .join(Document, Chunk.document_id == Document.id)
         .where(Chunk.content.ilike(like_pattern))
+        .where(Document.deleted_at.is_(None))
         .limit(limit)
     )
 
@@ -69,6 +70,7 @@ async def vector_search(
         )
         .join(Document, Chunk.document_id == Document.id)
         .where(Chunk.embedding.is_not(None))
+        .where(Document.deleted_at.is_(None))
         .order_by(distance)
         .limit(limit)
     )
