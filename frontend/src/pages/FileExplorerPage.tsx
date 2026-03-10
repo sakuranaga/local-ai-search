@@ -66,6 +66,8 @@ import {
   deleteFolder,
   getTags,
   createTag,
+  updateTag,
+  deleteTag,
   type DocumentListItem,
   type DocumentPermissionEntry,
   type Document,
@@ -319,10 +321,10 @@ export function FileExplorerPage() {
   async function handleCreateTag() {
     if (!newTagName.trim()) return;
     try {
-      await createTag({ name: newTagName.trim(), color: newTagColor });
+      const tag = await createTag({ name: newTagName.trim(), color: newTagColor });
+      setAllTags((prev) => [...prev, { ...tag, document_count: 0 } as TagInfo & { document_count?: number }].sort((a, b) => a.name.localeCompare(b.name)));
       setNewTagName("");
       setNewTagOpen(false);
-      loadTags();
     } catch { toast.error("タグ作成失敗"); }
   }
 
@@ -380,15 +382,22 @@ export function FileExplorerPage() {
               </button>
             )}
             {allTags.map((tag) => (
-              <button
+              <SidebarTagItem
                 key={tag.id}
-                onClick={() => { setActiveTag(activeTag === tag.name ? null : tag.name); setPage(1); }}
-                className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${activeTag === tag.name ? "bg-primary/10 font-medium" : "hover:bg-muted"}`}
-              >
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color || "#6b7280" }} />
-                <span className="truncate flex-1">{tag.name}</span>
-                <span className="text-xs text-muted-foreground">{(tag as TagInfo & { document_count?: number }).document_count ?? ""}</span>
-              </button>
+                tag={tag}
+                isActive={activeTag === tag.name}
+                onSelect={() => { setActiveTag(activeTag === tag.name ? null : tag.name); setPage(1); }}
+                onDeleted={() => {
+                  setAllTags((prev) => prev.filter((t) => t.id !== tag.id));
+                  if (activeTag === tag.name) setActiveTag(null);
+                  load();
+                }}
+                onRenamed={(updated) => {
+                  setAllTags((prev) => prev.map((t) => t.id === updated.id ? updated : t));
+                  if (activeTag === tag.name) setActiveTag(updated.name);
+                  load();
+                }}
+              />
             ))}
           </div>
         </div>
@@ -688,6 +697,85 @@ export function FileExplorerPage() {
         onClose={() => setUploadOpen(false)}
         onUploaded={() => { setUploadOpen(false); load(); loadFolders(); }}
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar Tag Item (with rename / delete)
+// ---------------------------------------------------------------------------
+
+function SidebarTagItem({
+  tag,
+  isActive,
+  onSelect,
+  onDeleted,
+  onRenamed,
+}: {
+  tag: TagInfo & { document_count?: number };
+  isActive: boolean;
+  onSelect: () => void;
+  onDeleted: () => void;
+  onRenamed: (updated: TagInfo) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(tag.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  async function handleRename() {
+    if (!editName.trim() || editName === tag.name) { setEditing(false); return; }
+    try {
+      const updated = await updateTag(tag.id, { name: editName.trim() });
+      onRenamed(updated);
+    } catch { toast.error("リネーム失敗"); }
+    setEditing(false);
+  }
+
+  return (
+    <div className={`group flex items-center text-sm rounded ${isActive ? "bg-primary/10 font-medium" : "hover:bg-muted"}`}>
+      {editing ? (
+        <input
+          ref={inputRef}
+          value={editName}
+          onChange={(e) => setEditName(e.target.value)}
+          onBlur={handleRename}
+          onKeyDown={(e) => { if (e.key === "Enter") handleRename(); if (e.key === "Escape") setEditing(false); }}
+          className="flex-1 text-sm bg-background border rounded px-2 py-0.5 mx-1"
+        />
+      ) : (
+        <>
+          <button onClick={onSelect} className="flex items-center gap-1 flex-1 min-w-0 px-2 py-1">
+            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color || "#6b7280" }} />
+            <span className="truncate">{tag.name}</span>
+            <span className="text-xs text-muted-foreground ml-auto">{tag.document_count ?? ""}</span>
+          </button>
+          <div className="hidden group-hover:flex items-center gap-0.5 mr-0.5">
+            <button
+              onClick={(e) => { e.stopPropagation(); setEditName(tag.name); setEditing(true); }}
+              className="p-0.5 hover:bg-muted rounded" title="リネーム"
+            >
+              <Pencil className="h-3 w-3 text-muted-foreground" />
+            </button>
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (!confirm(`タグ「${tag.name}」を削除しますか？`)) return;
+                try {
+                  await deleteTag(tag.id);
+                  onDeleted();
+                } catch { toast.error("タグ削除失敗"); }
+              }}
+              className="p-0.5 hover:bg-muted rounded" title="削除"
+            >
+              <Trash2 className="h-3 w-3 text-destructive" />
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1024,16 +1112,29 @@ function EditTab({
 
   const availableTags = allTags.filter((t) => !docTags.find((dt) => dt.id === t.id));
 
+  async function saveTagsNow(newTags: TagInfo[]) {
+    try {
+      await updateDocument(item.id, { tag_ids: newTags.map((t) => t.id) });
+      onTagsChanged();
+    } catch { toast.error("タグ更新失敗"); }
+  }
+
   function handleAddTag() {
     const tid = Number(addTagId);
     if (!tid) return;
     const tag = allTags.find((t) => t.id === tid);
-    if (tag) setDocTags((prev) => [...prev, tag]);
+    if (tag) {
+      const newTags = [...docTags, tag];
+      setDocTags(newTags);
+      saveTagsNow(newTags);
+    }
     setAddTagId("");
   }
 
   function handleRemoveTag(id: number) {
-    setDocTags((prev) => prev.filter((t) => t.id !== id));
+    const newTags = docTags.filter((t) => t.id !== id);
+    setDocTags(newTags);
+    saveTagsNow(newTags);
   }
 
   async function handleSave() {
