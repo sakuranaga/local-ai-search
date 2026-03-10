@@ -6,6 +6,7 @@ to find information, then generates a final answer with streaming.
 
 import json
 import logging
+import re
 from typing import AsyncIterator
 
 from sqlalchemy import func, select
@@ -234,6 +235,72 @@ async def _execute_tool(
 
 
 # ---------------------------------------------------------------------------
+# Parse tool calls from text (some models output them inline)
+# ---------------------------------------------------------------------------
+
+# Pattern: <tool_call> ... </tool_call> with JSON or XML-style params inside
+_TOOL_CALL_RE = re.compile(
+    r"<tool_call>\s*(?:<function=(\w+)>\s*<parameter=(\w+)>\s*(.*?)\s*</parameter>\s*</function>|"
+    r"\{.*?\})\s*</tool_call>",
+    re.DOTALL,
+)
+
+# Also handle JSON-style tool calls: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
+_TOOL_CALL_JSON_RE = re.compile(
+    r"<tool_call>\s*(\{.*?\})\s*</tool_call>",
+    re.DOTALL,
+)
+
+
+def _extract_tool_calls_from_text(content: str) -> tuple[list[dict], str]:
+    """Extract tool calls embedded in text content.
+
+    Returns (tool_calls_list, cleaned_text_without_tool_calls).
+    """
+    tool_calls = []
+    cleaned = content
+
+    # Try XML-style: <tool_call><function=name><parameter=key>value</parameter></function></tool_call>
+    xml_pattern = re.compile(
+        r"<tool_call>\s*<function=(\w+)>\s*(.*?)\s*</function>\s*</tool_call>",
+        re.DOTALL,
+    )
+    for match in xml_pattern.finditer(content):
+        func_name = match.group(1)
+        params_text = match.group(2)
+        # Parse <parameter=key>value</parameter> pairs
+        args = {}
+        for pm in re.finditer(r"<parameter=(\w+)>\s*(.*?)\s*</parameter>", params_text, re.DOTALL):
+            args[pm.group(1)] = pm.group(2).strip()
+        if func_name:
+            tool_calls.append({
+                "id": f"text_call_{len(tool_calls)}",
+                "type": "function",
+                "function": {"name": func_name, "arguments": json.dumps(args)},
+            })
+        cleaned = cleaned.replace(match.group(0), "")
+
+    # Try JSON-style: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
+    if not tool_calls:
+        for match in _TOOL_CALL_JSON_RE.finditer(content):
+            try:
+                data = json.loads(match.group(1))
+                name = data.get("name", "")
+                arguments = data.get("arguments", {})
+                if name:
+                    tool_calls.append({
+                        "id": f"text_call_{len(tool_calls)}",
+                        "type": "function",
+                        "function": {"name": name, "arguments": json.dumps(arguments)},
+                    })
+                cleaned = cleaned.replace(match.group(0), "")
+            except json.JSONDecodeError:
+                continue
+
+    return tool_calls, cleaned.strip()
+
+
+# ---------------------------------------------------------------------------
 # Agent loop
 # ---------------------------------------------------------------------------
 
@@ -277,15 +344,21 @@ async def run_agent(
         message = choice.get("message", {})
         finish_reason = choice.get("finish_reason", "stop")
 
-        # Check for tool calls
+        # Check for tool calls (structured or embedded in text)
         tool_calls = message.get("tool_calls")
+        content = message.get("content", "")
+
+        # Some models embed tool calls in text instead of using tool_calls field
+        if not tool_calls and content and "<tool_call>" in content:
+            text_tool_calls, cleaned_content = _extract_tool_calls_from_text(content)
+            if text_tool_calls:
+                tool_calls = text_tool_calls
+                content = cleaned_content
+                message = {**message, "content": content, "tool_calls": tool_calls}
 
         if not tool_calls or finish_reason == "stop":
             # No tool calls — this is the final answer
-            content = message.get("content", "")
             if content:
-                # Stream the final answer token by token for smooth display
-                # Re-call with streaming for better UX
                 conv_messages.append({"role": "assistant", "content": content})
                 for token in _chunk_text_for_streaming(content):
                     yield {"type": "token", "content": token}
