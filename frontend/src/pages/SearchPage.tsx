@@ -108,13 +108,14 @@ export function SearchPage() {
   }, [urlQ]);
 
   // React to URL query param changes (from NavBar search)
+  const urlT = searchParams.get("_t") ?? "";
   useEffect(() => {
     if (!urlQ) return;
-    const key = `${urlQ}:${urlPage}`;
+    const key = `${urlQ}:${urlPage}:${urlT}`;
     if (key === lastSearchRef.current) return;
     lastSearchRef.current = key;
     fetchPage(urlQ, urlPage);
-  }, [urlQ, urlPage, fetchPage]);
+  }, [urlQ, urlPage, urlT, fetchPage]);
 
   const goToPage = useCallback(
     (p: number) => {
