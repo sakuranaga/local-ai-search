@@ -130,12 +130,12 @@ export function SearchPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-56px)]">
       {/* Two-column layout */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-5 gap-4 px-4 pt-3 pb-4 min-h-0">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-5 gap-4 px-4 pt-4 pb-4 min-h-0">
         {/* Left: welcome or results + pagination */}
         <div className="lg:col-span-3 flex flex-col min-h-0">
           {showWelcome ? (
-            <div className="flex-1 min-h-0 overflow-y-auto pt-4">
-              <Card className="max-w-2xl">
+            <div className="flex-1 min-h-0 overflow-y-auto p-px">
+              <Card className="h-full">
                 <CardContent className="prose dark:prose-invert max-w-none p-6">
                   {welcomeMessage ? (
                     <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{welcomeMessage}</ReactMarkdown>
