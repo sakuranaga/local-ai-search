@@ -59,6 +59,7 @@ export function SearchPage() {
     urlQ ? [] : cached.current?.results ?? [],
   );
   const [total, setTotal] = useState(urlQ ? 0 : cached.current?.total ?? 0);
+  const [tokens, setTokens] = useState<string[]>([]);
 
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [welcomeMessage, setWelcomeMessage] = useState("");
@@ -86,6 +87,7 @@ export function SearchPage() {
         const data = await searchDocuments(q, p, PER_PAGE);
         setResults(data.results);
         setTotal(data.total);
+        setTokens(data.tokens ?? []);
       } catch {
         setResults([]);
         setTotal(0);
@@ -148,9 +150,21 @@ export function SearchPage() {
           ) : (
           <>
           {total > 0 && (
-            <p className="text-xs text-muted-foreground pb-2">
-              {total}件中 {(page - 1) * PER_PAGE + 1}〜{Math.min(page * PER_PAGE, total)}件目
-            </p>
+            <div className="flex items-center gap-2 pb-2 flex-wrap">
+              <p className="text-xs text-muted-foreground">
+                {total}件中 {(page - 1) * PER_PAGE + 1}〜{Math.min(page * PER_PAGE, total)}件目
+              </p>
+              {tokens.length > 0 && tokens.join(" ") !== query && (
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-muted-foreground">検索語:</span>
+                  {tokens.map((t) => (
+                    <Badge key={t} variant="secondary" className="text-xs font-normal">
+                      {t}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           <div className="flex-1 min-h-0">
             <ResultList
