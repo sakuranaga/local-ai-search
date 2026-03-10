@@ -49,6 +49,7 @@ import {
   Tag as TagIcon,
   Pencil,
   Undo2,
+  Download,
 } from "lucide-react";
 import {
   getDocuments,
@@ -1285,6 +1286,31 @@ function DocumentDetailModal({
             </button>
           ))}
           <div className="ml-auto flex items-center gap-1 pb-1">
+            {item.source_path && (
+              <Button
+                variant="outline" size="sm"
+                onClick={async () => {
+                  try {
+                    const token = localStorage.getItem("las_token");
+                    const res = await fetch(`/api/documents/${item.id}/download`, {
+                      headers: token ? { Authorization: `Bearer ${token}` } : {},
+                    });
+                    if (!res.ok) throw new Error("Download failed");
+                    const blob = await res.blob();
+                    const disposition = res.headers.get("content-disposition");
+                    const filenameMatch = disposition?.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
+                    const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : item.title;
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = filename;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  } catch { toast.error("ダウンロード失敗"); }
+                }}
+              >
+                <Download className="h-3.5 w-3.5 mr-1" />ダウンロード
+              </Button>
+            )}
             <Button
               variant="outline" size="sm"
               onClick={async () => {

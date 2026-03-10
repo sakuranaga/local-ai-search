@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -545,6 +546,37 @@ async def empty_trash(
         purged += 1
     await db.flush()
     return {"purged": purged}
+
+
+# ---------------------------------------------------------------------------
+# Download file
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{document_id}/download")
+async def download_document_file(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Download the original uploaded file for a document."""
+    result = await db.execute(select(Document).where(Document.id == document_id, Document.deleted_at.is_(None)))
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not await _check_doc_access(doc, current_user, need_write=False, db=db):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    files_result = await db.execute(select(File).where(File.document_id == doc.id))
+    file_record = files_result.scalars().first()
+    if file_record is None or not Path(file_record.storage_path).exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    return FileResponse(
+        path=file_record.storage_path,
+        filename=file_record.filename,
+        media_type=file_record.mime_type or "application/octet-stream",
+    )
 
 
 # ---------------------------------------------------------------------------
