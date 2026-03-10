@@ -38,7 +38,7 @@ export function ResultList({ results, onSelect }: ResultListProps) {
   }
 
   return (
-    <ScrollArea className="h-[calc(100vh-280px)]">
+    <ScrollArea className="h-full">
       <div className="space-y-3 px-3 py-px">
         {results.map((result, idx) => (
           <Card
