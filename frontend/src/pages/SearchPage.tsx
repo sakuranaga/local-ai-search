@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ResultList } from "@/components/ResultList";
-import { AIAnswer } from "@/components/AIAnswer";
+import { ChatPanel } from "@/components/ChatPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   searchDocuments,
-  streamAIAnswer,
   getStats,
   type SearchResult,
   type StatsResponse,
@@ -21,8 +20,6 @@ interface SearchCache {
   page: number;
   results: SearchResult[];
   total: number;
-  aiText: string;
-  aiSources: Array<{ document_id: number; title: string }>;
 }
 
 function loadCache(): SearchCache | null {
@@ -55,35 +52,26 @@ export function SearchPage() {
     urlQ ? [] : cached.current?.results ?? [],
   );
   const [total, setTotal] = useState(urlQ ? 0 : cached.current?.total ?? 0);
-  const [, setIsSearching] = useState(false);
-
-  const [aiText, setAiText] = useState(urlQ ? "" : cached.current?.aiText ?? "");
-  const [aiSources, setAiSources] = useState<Array<{ document_id: number; title: string }>>(
-    urlQ ? [] : cached.current?.aiSources ?? [],
-  );
-  const [aiLoading, setAiLoading] = useState(false);
 
   const [stats, setStats] = useState<StatsResponse | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const lastSearchRef = useRef("");
 
   useEffect(() => {
     getStats().then(setStats).catch(() => {});
   }, []);
 
-  // Persist state to sessionStorage
+  // Persist search results to sessionStorage
   useEffect(() => {
     if (query) {
-      saveCache({ query, page, results, total, aiText, aiSources });
+      saveCache({ query, page, results, total });
     }
-  }, [query, page, results, total, aiText, aiSources]);
+  }, [query, page, results, total]);
 
   const fetchPage = useCallback(
-    async (q: string, p: number, withAI: boolean) => {
+    async (q: string, p: number) => {
       setQuery(q);
       setPage(p);
       setResults([]);
-      setIsSearching(true);
 
       try {
         const data = await searchDocuments(q, p, PER_PAGE);
@@ -92,22 +80,6 @@ export function SearchPage() {
       } catch {
         setResults([]);
         setTotal(0);
-      } finally {
-        setIsSearching(false);
-      }
-
-      if (withAI) {
-        setAiText("");
-        setAiSources([]);
-        setAiLoading(true);
-        abortRef.current?.abort();
-        abortRef.current = streamAIAnswer(
-          q,
-          (chunk) => setAiText((prev) => prev + chunk),
-          (sources) => setAiSources(sources),
-          () => setAiLoading(false),
-          () => setAiLoading(false),
-        );
       }
     },
     [],
@@ -120,10 +92,6 @@ export function SearchPage() {
       setPage(1);
       setResults([]);
       setTotal(0);
-      setAiText("");
-      setAiSources([]);
-      setAiLoading(false);
-      abortRef.current?.abort();
       lastSearchRef.current = "";
     }
   }, [urlQ]);
@@ -134,10 +102,8 @@ export function SearchPage() {
     const key = `${urlQ}:${urlPage}`;
     if (key === lastSearchRef.current) return;
     lastSearchRef.current = key;
-
-    const isNewQuery = urlQ !== query;
-    fetchPage(urlQ, urlPage, isNewQuery);
-  }, [urlQ, urlPage, fetchPage, query]);
+    fetchPage(urlQ, urlPage);
+  }, [urlQ, urlPage, fetchPage]);
 
   const goToPage = useCallback(
     (p: number) => {
@@ -149,11 +115,6 @@ export function SearchPage() {
   );
 
   const totalPages = Math.ceil(total / PER_PAGE);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => abortRef.current?.abort();
-  }, []);
 
   return (
     <div className="flex flex-col h-[calc(100vh-56px)]">
@@ -215,14 +176,9 @@ export function SearchPage() {
             </div>
           )}
         </div>
-        {/* Right: AI answer */}
-        <div className="lg:col-span-2">
-          <AIAnswer
-            text={aiText}
-            sources={aiSources}
-            isLoading={aiLoading}
-            hasQuery={query.length > 0}
-          />
+        {/* Right: AI chat */}
+        <div className="lg:col-span-2 min-h-0">
+          <ChatPanel initialQuery={urlQ || undefined} />
         </div>
       </div>
 

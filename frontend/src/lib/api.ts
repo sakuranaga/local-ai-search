@@ -199,22 +199,39 @@ export interface BackendSearchResponse {
   }>;
 }
 
-export function streamAIAnswer(
-  query: string,
-  onChunk: (text: string) => void,
-  onSources: (sources: Array<{ document_id: number; title: string }>) => void,
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatSource {
+  document_id: string;
+  title: string;
+  chunk_id: string;
+}
+
+export function streamChat(
+  messages: ChatMessage[],
+  useSearch: boolean,
+  onToken: (text: string) => void,
+  onSources: (sources: ChatSource[]) => void,
   onDone: () => void,
   onError: (err: Error) => void,
 ): AbortController {
   const controller = new AbortController();
   const token = getToken();
 
-  fetch(`${API_BASE}/search/stream?q=${encodeURIComponent(query)}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  fetch(`${API_BASE}/chat/stream`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ messages, use_search: useSearch }),
     signal: controller.signal,
   })
     .then(async (res) => {
-      if (!res.ok) throw new Error(`AI stream error: ${res.status}`);
+      if (!res.ok) throw new Error(`Chat stream error: ${res.status}`);
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No reader");
 
@@ -238,14 +255,13 @@ export function streamAIAnswer(
             }
             try {
               const parsed = JSON.parse(payload);
-              if (parsed.type === "chunk") {
-                onChunk(parsed.text);
+              if (parsed.type === "token") {
+                onToken(parsed.content);
               } else if (parsed.type === "sources") {
                 onSources(parsed.sources);
               }
             } catch {
-              // plain text chunk
-              onChunk(payload);
+              onToken(payload);
             }
           }
         }
