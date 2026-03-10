@@ -13,6 +13,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { getDocument, type Document, type SearchResult } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 
 interface DocumentModalProps {
   results: SearchResult[];
@@ -130,7 +131,7 @@ export function DocumentModal({
           {error && <p className="text-destructive text-sm p-4">{error}</p>}
           {doc && (
             <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-headings:my-3 prose-pre:my-2 prose-pre:overflow-x-auto prose-code:text-xs p-1">
-              <ReactMarkdown remarkPlugins={[remarkBreaks]}>{doc.content}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{doc.content}</ReactMarkdown>
             </div>
           )}
         </div>

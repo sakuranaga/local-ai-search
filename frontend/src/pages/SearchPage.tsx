@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 import { ResultList } from "@/components/ResultList";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentModal } from "@/components/DocumentModal";
@@ -137,7 +138,7 @@ export function SearchPage() {
               <Card className="max-w-2xl">
                 <CardContent className="prose dark:prose-invert max-w-none p-6">
                   {welcomeMessage ? (
-                    <ReactMarkdown remarkPlugins={[remarkBreaks]}>{welcomeMessage}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{welcomeMessage}</ReactMarkdown>
                   ) : (
                     <p className="text-muted-foreground">検索バーにキーワードを入力して検索を開始してください。</p>
                   )}
