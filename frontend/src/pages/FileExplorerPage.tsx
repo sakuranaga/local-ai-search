@@ -156,6 +156,7 @@ export function FileExplorerPage() {
 
   // Folder state
   const [folders, setFolders] = useState<Folder[]>([]);
+  const [allDocCount, setAllDocCount] = useState(0);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null); // null = all, "unfiled" = no folder
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -185,7 +186,11 @@ export function FileExplorerPage() {
 
   const loadFolders = useCallback(async () => {
     try {
-      setFolders(await getFolders());
+      const f = await getFolders();
+      setFolders(f);
+      // Fetch total doc count for sidebar
+      const countData = await getDocuments({ page: 1, per_page: 1 });
+      setAllDocCount(countData.total);
     } catch { /* ignore */ }
   }, []);
 
@@ -235,6 +240,8 @@ export function FileExplorerPage() {
 
   const totalPages = Math.ceil(total / perPage);
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
+  const folderDocTotal = useMemo(() => folders.reduce((s, f) => s + f.document_count, 0), [folders]);
+  const unfiledCount = Math.max(0, allDocCount - folderDocTotal);
 
   function handleSort(col: string) {
     if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -456,11 +463,13 @@ export function FileExplorerPage() {
           <div className="space-y-0.5">
             <button
               onClick={() => { setActiveFolderId(null); setPage(1); setShowTrash(false); }}
-              className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${activeFolderId === null ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
+              className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${activeFolderId === null && !showTrash ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
             >
-              <FolderIcon className="h-3.5 w-3.5" />すべて
+              <FolderIcon className="h-3.5 w-3.5" />
+              <span className="truncate">すべて</span>
+              <span className="ml-auto text-xs text-muted-foreground">{allDocCount}</span>
             </button>
-            <DropTarget folderId={null} onDrop={handleDropOnFolder} label="未整理" isActive={activeFolderId === "unfiled"} onClick={() => { setActiveFolderId("unfiled"); setPage(1); setShowTrash(false); }} icon={<FileText className="h-3.5 w-3.5" />} />
+            <DropTarget folderId={null} onDrop={handleDropOnFolder} label="未整理" count={unfiledCount} isActive={activeFolderId === "unfiled" && !showTrash} onClick={() => { setActiveFolderId("unfiled"); setPage(1); setShowTrash(false); }} icon={<FileText className="h-3.5 w-3.5" />} />
             {folderTree.map((node) => (
               <FolderTreeItem
                 key={node.id}
@@ -1035,6 +1044,7 @@ function DropTarget({
   folderId,
   onDrop,
   label,
+  count,
   isActive,
   onClick,
   icon,
@@ -1042,6 +1052,7 @@ function DropTarget({
   folderId: string | null;
   onDrop: (folderId: string | null, docIds: string[]) => void;
   label: string;
+  count?: number;
   isActive: boolean;
   onClick: () => void;
   icon: React.ReactNode;
@@ -1065,7 +1076,9 @@ function DropTarget({
         dragOver ? "bg-primary/20 ring-2 ring-primary/40" : isActive ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"
       }`}
     >
-      {icon}{label}
+      {icon}
+      <span className="truncate">{label}</span>
+      {count != null && <span className="ml-auto text-xs text-muted-foreground">{count}</span>}
     </button>
   );
 }
@@ -1147,10 +1160,10 @@ function FolderTreeItem({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDropOnThis}
-        className={`group flex items-center gap-0.5 text-sm rounded py-0.5 transition-colors ${
+        className={`group flex items-center gap-0.5 text-sm rounded py-0.5 pr-2 transition-colors ${
           dragOver ? "bg-primary/20 ring-2 ring-primary/40" : isActive ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"
         }`}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        style={{ paddingLeft: `${depth * 12 + 2}px` }}
       >
         <button
           onClick={() => hasChildren && setExpanded(!expanded)}
