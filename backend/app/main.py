@@ -112,6 +112,6 @@ async def stats(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    doc_count = await db.scalar(select(func.count()).select_from(Document))
+    doc_count = await db.scalar(select(func.count()).select_from(Document).where(Document.deleted_at.is_(None)))
     chunk_count = await db.scalar(select(func.count()).select_from(Chunk))
     return {"total_documents": doc_count or 0, "total_chunks": chunk_count or 0}

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import DocumentTag, Tag, User
+from app.models import Document, DocumentTag, Tag, User
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -47,6 +47,8 @@ async def list_tags(
             DocumentTag.tag_id,
             func.count(DocumentTag.document_id).label("doc_count"),
         )
+        .join(Document, DocumentTag.document_id == Document.id)
+        .where(Document.deleted_at.is_(None))
         .group_by(DocumentTag.tag_id)
         .subquery()
     )
@@ -109,7 +111,9 @@ async def update_tag(
 
     doc_count = (
         await db.execute(
-            select(func.count(DocumentTag.id)).where(DocumentTag.tag_id == tag_id)
+            select(func.count(DocumentTag.id))
+            .join(Document, DocumentTag.document_id == Document.id)
+            .where(DocumentTag.tag_id == tag_id, Document.deleted_at.is_(None))
         )
     ).scalar() or 0
 
