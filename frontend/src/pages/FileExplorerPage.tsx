@@ -167,6 +167,11 @@ export function FileExplorerPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [bulkActionOpen, setBulkActionOpen] = useState<string | null>(null);
 
+  // File drop upload
+  const [fileDragOver, setFileDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const dragCounter = useRef(0);
+
   const loadFolders = useCallback(async () => {
     try {
       setFolders(await getFolders());
@@ -350,8 +355,76 @@ export function FileExplorerPage() {
     } catch { toast.error("タグ作成失敗"); }
   }
 
+  function hasFiles(e: React.DragEvent) {
+    return e.dataTransfer.types.includes("Files");
+  }
+
+  function handleFileDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    if (!hasFiles(e)) return;
+    dragCounter.current++;
+    if (dragCounter.current === 1) setFileDragOver(true);
+  }
+
+  function handleFileDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    if (!hasFiles(e)) return;
+    dragCounter.current--;
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setFileDragOver(false);
+    }
+  }
+
+  function handleFileDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    if (hasFiles(e)) e.dataTransfer.dropEffect = "copy";
+  }
+
+  async function handleFileDrop(e: React.DragEvent) {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setFileDragOver(false);
+    if (!hasFiles(e)) return;
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    setUploading(true);
+    let success = 0;
+    let failed = 0;
+    for (const file of files) {
+      try {
+        await uploadDocument(file);
+        success++;
+      } catch {
+        failed++;
+      }
+    }
+    setUploading(false);
+    if (success > 0) toast.success(`${success}件アップロードしました`);
+    if (failed > 0) toast.error(`${failed}件失敗しました`);
+    if (success > 0) { load(); loadFolders(); }
+  }
+
   return (
-    <div className="max-w-[1600px] mx-auto p-4 flex gap-4">
+    <div
+      className="max-w-[1600px] mx-auto p-4 flex gap-4 relative"
+      onDragEnter={handleFileDragEnter}
+      onDragLeave={handleFileDragLeave}
+      onDragOver={handleFileDragOver}
+      onDrop={handleFileDrop}
+    >
+      {/* File drop overlay */}
+      {(fileDragOver || uploading) && (
+        <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center rounded-lg border-2 border-dashed border-primary m-4 pointer-events-none">
+          <div className="text-center">
+            <Upload className="h-12 w-12 text-primary mx-auto mb-3" />
+            <p className="text-lg font-medium">{uploading ? "アップロード中..." : "ファイルをドロップしてアップロード"}</p>
+            <p className="text-sm text-muted-foreground mt-1">.md, .txt, .pdf, .docx に対応</p>
+          </div>
+        </div>
+      )}
       {/* Sidebar */}
       <div className="w-56 flex-shrink-0 space-y-4">
         {/* Folder tree */}
