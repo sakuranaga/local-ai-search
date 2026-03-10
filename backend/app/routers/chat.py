@@ -1,5 +1,6 @@
 import json
 
+import httpx
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -9,6 +10,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.models import User
 from app.services.ai_agent import run_agent
+from app.services.settings import get_setting
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -28,6 +30,30 @@ class ContextChunk(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     context: list[ContextChunk] = []  # Carried-over RAG context from previous turns
+
+
+@router.get("/status")
+async def chat_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Check LLM connectivity and return model name."""
+    model = await get_setting(db, "llm_model")
+    url = await get_setting(db, "llm_url")
+    api_key = await get_setting(db, "llm_api_key")
+
+    headers: dict[str, str] = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.get(f"{url}/models", headers=headers)
+            available = res.status_code == 200
+    except Exception:
+        available = False
+
+    return {"model": model, "available": available}
 
 
 @router.post("/stream")

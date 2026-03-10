@@ -10,9 +10,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sparkles, Send, Trash2, User, Search, FileText, TextSearch, Hash, Loader2 } from "lucide-react";
 import {
   streamChat,
+  getChatStatus,
   type ChatMessage,
   type ChatSource,
   type ChatContext,
+  type ChatStatus,
   type ToolStep,
 } from "@/lib/api";
 
@@ -115,10 +117,16 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
   );
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [chatStatus, setChatStatus] = useState<ChatStatus | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastInitialQueryRef = useRef(canRestore ? initialQuery! : "");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Fetch LLM status
+  useEffect(() => {
+    getChatStatus().then(setChatStatus).catch(() => setChatStatus({ model: "", available: false }));
+  }, []);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -278,6 +286,13 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
         <CardContent className="flex flex-col items-center justify-center h-full min-h-48 text-muted-foreground gap-2">
           <Sparkles className="h-8 w-8" />
           <p className="text-sm">検索するとAIが回答を生成します</p>
+          {chatStatus && (
+            chatStatus.available ? (
+              <p className="text-xs">({chatStatus.model})</p>
+            ) : (
+              <p className="text-xs text-red-500">（モデル未設定）</p>
+            )
+          )}
         </CardContent>
       </Card>
     );
@@ -290,6 +305,13 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
         <div className="flex items-center gap-2 text-sm font-medium">
           <Sparkles className="h-4 w-4 text-primary" />
           AI チャット
+          {chatStatus && (
+            chatStatus.available ? (
+              <span className="text-xs font-normal text-muted-foreground">({chatStatus.model})</span>
+            ) : (
+              <span className="text-xs font-normal text-red-500">（モデル未設定）</span>
+            )
+          )}
         </div>
         {messages.length > 0 && (
           <Button variant="ghost" size="sm" onClick={handleClear} className="h-7 px-2">
