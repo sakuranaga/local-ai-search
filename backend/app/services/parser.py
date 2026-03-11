@@ -1,3 +1,6 @@
+import asyncio
+import csv
+import io
 import os
 from pathlib import Path
 
@@ -12,6 +15,14 @@ async def parse_file(path: str, file_type: str) -> str:
         return await _parse_pdf(path)
     elif file_type in ("docx", "doc"):
         return await _parse_docx(path)
+    elif file_type in ("xlsx", "xls"):
+        return await _parse_excel(path)
+    elif file_type in ("csv", "tsv"):
+        return await _parse_csv(path, delimiter="\t" if file_type == "tsv" else ",")
+    elif file_type in ("htm", "html"):
+        return await _parse_html(path)
+    elif file_type == "pptx":
+        return await _parse_pptx(path)
     else:
         # Attempt plain-text read as fallback
         return await _parse_text(path)
@@ -19,7 +30,6 @@ async def parse_file(path: str, file_type: str) -> str:
 
 async def _parse_text(path: str) -> str:
     """Read a plain text / markdown file."""
-    import asyncio
 
     def _read() -> str:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -30,7 +40,6 @@ async def _parse_text(path: str) -> str:
 
 async def _parse_pdf(path: str) -> str:
     """Extract text from a PDF using PyMuPDF (fitz)."""
-    import asyncio
 
     def _extract() -> str:
         import fitz  # PyMuPDF
@@ -46,13 +55,115 @@ async def _parse_pdf(path: str) -> str:
 
 async def _parse_docx(path: str) -> str:
     """Extract text from a DOCX file."""
-    import asyncio
 
     def _extract() -> str:
         from docx import Document as DocxDocument
 
         doc = DocxDocument(path)
-        return "\n".join(para.text for para in doc.paragraphs)
+        parts: list[str] = []
+        for para in doc.paragraphs:
+            if para.text.strip():
+                parts.append(para.text)
+        # Also extract text from tables
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                if cells:
+                    parts.append(" | ".join(cells))
+        return "\n".join(parts)
+
+    return await asyncio.get_event_loop().run_in_executor(None, _extract)
+
+
+async def _parse_excel(path: str) -> str:
+    """Extract text from an Excel file (.xlsx/.xls)."""
+
+    def _extract() -> str:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(path, read_only=True, data_only=True)
+        parts: list[str] = []
+
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            parts.append(f"## {sheet_name}")
+            for row in ws.iter_rows(values_only=True):
+                cells = [str(c) if c is not None else "" for c in row]
+                # Skip completely empty rows
+                if any(c for c in cells):
+                    parts.append(" | ".join(cells))
+            parts.append("")  # blank line between sheets
+
+        wb.close()
+        return "\n".join(parts)
+
+    return await asyncio.get_event_loop().run_in_executor(None, _extract)
+
+
+async def _parse_csv(path: str, delimiter: str = ",") -> str:
+    """Extract text from a CSV/TSV file."""
+
+    def _extract() -> str:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            reader = csv.reader(f, delimiter=delimiter)
+            lines: list[str] = []
+            for row in reader:
+                if any(c.strip() for c in row):
+                    lines.append(" | ".join(row))
+        return "\n".join(lines)
+
+    return await asyncio.get_event_loop().run_in_executor(None, _extract)
+
+
+async def _parse_html(path: str) -> str:
+    """Extract text from an HTML file."""
+
+    def _extract() -> str:
+        from bs4 import BeautifulSoup
+
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            soup = BeautifulSoup(f, "html.parser")
+
+        # Remove script and style elements
+        for tag in soup(["script", "style", "nav", "footer", "header"]):
+            tag.decompose()
+
+        text = soup.get_text(separator="\n")
+        # Clean up excessive blank lines
+        lines = [line.strip() for line in text.splitlines()]
+        return "\n".join(line for line in lines if line)
+
+    return await asyncio.get_event_loop().run_in_executor(None, _extract)
+
+
+async def _parse_pptx(path: str) -> str:
+    """Extract text from a PowerPoint file (.pptx)."""
+
+    def _extract() -> str:
+        from pptx import Presentation
+
+        prs = Presentation(path)
+        parts: list[str] = []
+
+        for i, slide in enumerate(prs.slides, 1):
+            slide_texts: list[str] = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = para.text.strip()
+                        if text:
+                            slide_texts.append(text)
+                if shape.has_table:
+                    for row in shape.table.rows:
+                        cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                        if cells:
+                            slide_texts.append(" | ".join(cells))
+            if slide_texts:
+                parts.append(f"## スライド {i}")
+                parts.extend(slide_texts)
+                parts.append("")
+
+        return "\n".join(parts)
 
     return await asyncio.get_event_loop().run_in_executor(None, _extract)
 
