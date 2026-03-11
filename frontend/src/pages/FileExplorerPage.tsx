@@ -360,6 +360,18 @@ export function FileExplorerPage() {
     e.dataTransfer.effectAllowed = "move";
   }
 
+  async function handleDropOnTrash(docIds: string[]) {
+    if (docIds.length === 0) return;
+    try {
+      const res = await bulkAction(docIds, "delete");
+      toast.success(`${res.processed}件をゴミ箱に移動しました`);
+      setSelected(new Set());
+      load();
+      loadFolders();
+      loadTrash();
+    } catch { toast.error("ゴミ箱への移動に失敗しました"); }
+  }
+
   async function handleCreateFolder() {
     if (!newFolderName.trim()) return;
     try {
@@ -527,15 +539,12 @@ export function FileExplorerPage() {
 
         {/* Trash */}
         <Separator />
-        <button
+        <TrashDropTarget
+          isActive={showTrash}
+          count={trashItems.length}
           onClick={() => { setShowTrash(true); loadTrash(); }}
-          className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${showTrash ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted text-muted-foreground"}`}
-        >
-          <Trash2 className="h-3.5 w-3.5" />ゴミ箱
-          {trashItems.length > 0 && (
-            <span className="ml-auto text-xs text-muted-foreground">{trashItems.length}</span>
-          )}
-        </button>
+          onDrop={handleDropOnTrash}
+        />
       </div>
 
       {/* Main content */}
@@ -1080,6 +1089,46 @@ function DropTarget({
       {icon}
       <span className="truncate">{label}</span>
       {count != null && <span className="ml-auto text-xs text-muted-foreground">{count}</span>}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Trash Drop Target
+// ---------------------------------------------------------------------------
+
+function TrashDropTarget({
+  isActive,
+  count,
+  onClick,
+  onDrop,
+}: {
+  isActive: boolean;
+  count: number;
+  onClick: () => void;
+  onDrop: (docIds: string[]) => void;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+
+  return (
+    <button
+      onClick={onClick}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        try {
+          const ids: string[] = JSON.parse(e.dataTransfer.getData("application/x-doc-ids"));
+          if (ids.length > 0) onDrop(ids);
+        } catch { /* ignore */ }
+      }}
+      className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 transition-colors ${
+        dragOver ? "bg-destructive/20 ring-2 ring-destructive/40" : isActive ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted text-muted-foreground"
+      }`}
+    >
+      <Trash2 className="h-3.5 w-3.5" />ゴミ箱
+      {count > 0 && <span className="ml-auto text-xs text-muted-foreground">{count}</span>}
     </button>
   );
 }
