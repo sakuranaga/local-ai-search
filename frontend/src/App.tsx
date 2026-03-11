@@ -170,7 +170,7 @@ function AppLayout({ children }: { children: ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <Toaster position="top-right" />
+      <Toaster position="bottom-right" />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route

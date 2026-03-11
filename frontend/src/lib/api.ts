@@ -425,6 +425,11 @@ export async function uploadDocument(file: File): Promise<Document> {
   return res.json();
 }
 
+export async function getProcessingStatus(docId: string): Promise<string> {
+  const data = await apiFetch<{ status: string }>(`/documents/status/${docId}`);
+  return data.status;
+}
+
 export async function deleteDocument(id: string): Promise<void> {
   return apiFetch(`/documents/${id}`, { method: "DELETE" });
 }

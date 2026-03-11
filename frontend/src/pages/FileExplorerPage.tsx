@@ -73,6 +73,7 @@ import {
   restoreFromTrash,
   purgeFromTrash,
   emptyTrash,
+  getProcessingStatus,
   type TrashItem,
   type DocumentListItem,
   type DocumentPermissionEntry,
@@ -109,6 +110,54 @@ const TAG_COLORS = [
   "#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4",
   "#3b82f6", "#8b5cf6", "#ec4899", "#6b7280",
 ];
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: "待機中...",
+  parsing: "テキスト抽出中...",
+  chunking: "チャンク分割中...",
+  embedding: "ベクトル化中...",
+  summarizing: "要約生成中...",
+  done: "完了",
+  error: "エラー",
+};
+
+/** Upload a file, close modal immediately, and poll background processing with toast. */
+async function uploadWithProgress(
+  file: globalThis.File,
+  onUploaded: () => void,
+): Promise<void> {
+  const toastId = toast.loading(`${file.name}: アップロード中...`);
+  try {
+    const doc = await uploadDocument(file);
+    onUploaded();
+
+    // Poll processing status
+    const poll = async () => {
+      for (let i = 0; i < 300; i++) {  // max ~5 min
+        await new Promise((r) => setTimeout(r, 1000));
+        try {
+          const s = await getProcessingStatus(doc.id);
+          if (s === "done") {
+            toast.success(`${file.name}: 処理完了`, { id: toastId });
+            onUploaded();
+            return;
+          }
+          if (s === "error") {
+            toast.error(`${file.name}: 処理エラー`, { id: toastId });
+            return;
+          }
+          toast.loading(`${file.name}: ${STATUS_LABELS[s] ?? s}`, { id: toastId });
+        } catch {
+          // ignore poll errors, keep trying
+        }
+      }
+      toast.error(`${file.name}: タイムアウト`, { id: toastId });
+    };
+    poll();  // fire-and-forget
+  } catch {
+    toast.error(`${file.name}: アップロード失敗`, { id: toastId });
+  }
+}
 
 interface FolderNode extends Folder {
   children: FolderNode[];
@@ -180,7 +229,6 @@ export function FileExplorerPage() {
 
   // File drop upload
   const [fileDragOver, setFileDragOver] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const dragCounter = useRef(0);
 
   const loadFolders = useCallback(async () => {
@@ -445,21 +493,10 @@ export function FileExplorerPage() {
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
 
-    setUploading(true);
-    let success = 0;
-    let failed = 0;
+    const reload = () => { load(); loadFolders(); };
     for (const file of files) {
-      try {
-        await uploadDocument(file);
-        success++;
-      } catch {
-        failed++;
-      }
+      uploadWithProgress(file, reload);
     }
-    setUploading(false);
-    if (success > 0) toast.success(`${success}件アップロードしました`);
-    if (failed > 0) toast.error(`${failed}件失敗しました`);
-    if (success > 0) { load(); loadFolders(); }
   }
 
   return (
@@ -471,11 +508,11 @@ export function FileExplorerPage() {
       onDrop={handleFileDrop}
     >
       {/* File drop overlay */}
-      {(fileDragOver || uploading) && (
+      {fileDragOver && (
         <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center rounded-lg border-2 border-dashed border-primary m-4 pointer-events-none">
           <div className="text-center">
             <Upload className="h-12 w-12 text-primary mx-auto mb-3" />
-            <p className="text-lg font-medium">{uploading ? "アップロード中..." : "ファイルをドロップしてアップロード"}</p>
+            <p className="text-lg font-medium">ファイルをドロップしてアップロード</p>
             <p className="text-sm text-muted-foreground mt-1">.md, .txt, .pdf, .docx, .xlsx, .csv, .html, .pptx, 画像 に対応</p>
           </div>
         </div>
@@ -1946,18 +1983,12 @@ function UploadDialog({
   onUploaded: () => void;
 }) {
   const [file, setFile] = useState<globalThis.File | null>(null);
-  const [uploading, setUploading] = useState(false);
 
-  async function handleUpload() {
+  function handleUpload() {
     if (!file) return;
-    setUploading(true);
-    try {
-      await uploadDocument(file);
-      toast.success("アップロードしました");
-      setFile(null);
-      onUploaded();
-    } catch { toast.error("アップロード失敗"); }
-    finally { setUploading(false); }
+    uploadWithProgress(file, onUploaded);
+    setFile(null);
+    onClose();
   }
 
   return (
@@ -1970,7 +2001,7 @@ function UploadDialog({
         <Input type="file" accept=".md,.txt,.pdf,.docx,.doc,.markdown,.xlsx,.xls,.csv,.tsv,.html,.htm,.pptx,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.tif,.webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         {file && <p className="text-sm text-muted-foreground">{file.name} ({formatBytes(file.size)})</p>}
         <DialogFooter showCloseButton>
-          <Button onClick={handleUpload} disabled={!file || uploading}>
+          <Button onClick={handleUpload} disabled={!file}>
             <Upload className="h-4 w-4 mr-2" />アップロード
           </Button>
         </DialogFooter>

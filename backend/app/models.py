@@ -168,6 +168,9 @@ class Document(Base):
     ai_knowledge: Mapped[bool] = mapped_column(Boolean, default=True)
     summary: Mapped[str] = mapped_column(Text, nullable=True, default="")
     memo: Mapped[str] = mapped_column(Text, nullable=True, default="")
+    processing_status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="done"
+    )  # pending, parsing, chunking, embedding, summarizing, done, error
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
