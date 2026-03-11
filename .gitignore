@@ -35,3 +35,7 @@ data/
 
 # Logs
 *.log
+
+# OCR server
+ocr-server/venv/
+ocr-server/.venv/

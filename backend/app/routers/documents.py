@@ -122,6 +122,14 @@ def _get_file_type(filename: str) -> str:
         "html": "html",
         "htm": "html",
         "pptx": "pptx",
+        "png": "png",
+        "jpg": "jpg",
+        "jpeg": "jpg",
+        "gif": "gif",
+        "bmp": "bmp",
+        "tiff": "tiff",
+        "tif": "tiff",
+        "webp": "webp",
     }
     return type_map.get(ext, "md")
 
