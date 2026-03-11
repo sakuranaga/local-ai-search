@@ -14,7 +14,9 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Search, Settings, LogOut, FolderOpen } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { type FormEvent, type ReactNode, useState, useEffect } from "react";
+import { getStats, type StatsResponse } from "@/lib/api";
 
 function AuthGuard({ children }: { children: ReactNode }) {
   if (!getToken()) {
@@ -114,11 +116,34 @@ function NavBar() {
   );
 }
 
+function StatsFooter() {
+  const [stats, setStats] = useState<StatsResponse | null>(null);
+
+  useEffect(() => {
+    getStats().then(setStats).catch(() => {});
+  }, []);
+
+  if (!stats) return null;
+
+  return (
+    <div className="border-t px-4 py-2 flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+      <Badge variant="outline" className="text-xs font-normal">
+        {stats.total_documents.toLocaleString()}文書登録済み
+      </Badge>
+      <Badge variant="outline" className="text-xs font-normal">
+        {stats.total_chunks.toLocaleString()}チャンク
+      </Badge>
+      <span className="ml-auto">&copy; DDR8</span>
+    </div>
+  );
+}
+
 function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-screen flex flex-col bg-background">
       <NavBar />
-      {children}
+      <div className="flex-1 min-h-0">{children}</div>
+      <StatsFooter />
     </div>
   );
 }
