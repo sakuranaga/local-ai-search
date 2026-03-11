@@ -13,9 +13,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
-import { Search, Settings, LogOut, FolderOpen } from "lucide-react";
+import { Search, Settings, LogOut, FolderOpen, Moon, Sun } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { type FormEvent, type ReactNode, useState, useEffect } from "react";
+import { useTheme } from "next-themes";
 import { getStats, type StatsResponse } from "@/lib/api";
 
 function AuthGuard({ children }: { children: ReactNode }) {
@@ -76,6 +77,7 @@ function NavBar() {
       </form>
 
       <div className="flex items-center gap-3 shrink-0 ml-auto">
+        <ThemeToggle />
         {currentUser && (currentUser.roles.includes("admin") || currentUser.roles.includes("editor")) && (
           <Link to="/files" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
             <FolderOpen className="h-4 w-4" />
@@ -113,6 +115,23 @@ function NavBar() {
         </DropdownMenu>
       </div>
     </header>
+  );
+}
+
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return <div className="h-8 w-8" />;
+  const isDark = theme === "dark";
+  return (
+    <button
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+      title={isDark ? "ライトモード" : "ダークモード"}
+    >
+      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+    </button>
   );
 }
 
