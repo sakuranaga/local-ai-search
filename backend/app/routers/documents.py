@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, func, or_, select
@@ -613,11 +613,38 @@ async def empty_trash(
 
 @router.get("/{document_id}/download")
 async def download_document_file(
+    request: Request,
     document_id: uuid.UUID,
+    token: str | None = Query(None),
+    inline: bool = Query(False, description="If true, serve inline (for preview)"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
-    """Download the original uploaded file for a document."""
+    """Download the original uploaded file for a document.
+
+    Accepts auth via Bearer header or ?token= query parameter (for iframe/img).
+    """
+    from app.services.auth import verify_token as _verify
+
+    # Resolve token from Bearer header or query param
+    raw_token = token
+    if not raw_token:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            raw_token = auth[7:]
+    if not raw_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    payload = _verify(raw_token, expected_type="access")
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    try:
+        user_id = uuid.UUID(payload["sub"])
+    except (KeyError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    result = await db.execute(select(User).where(User.id == user_id, User.is_active.is_(True)))
+    current_user = result.scalar_one_or_none()
+    if not current_user:
+        raise HTTPException(status_code=401, detail="User not found")
     result = await db.execute(select(Document).where(Document.id == document_id, Document.deleted_at.is_(None)))
     doc = result.scalar_one_or_none()
     if doc is None:
@@ -630,11 +657,14 @@ async def download_document_file(
     if file_record is None or not Path(file_record.storage_path).exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    return FileResponse(
+    resp = FileResponse(
         path=file_record.storage_path,
-        filename=file_record.filename,
+        filename=file_record.filename if not inline else None,
         media_type=file_record.mime_type or "application/octet-stream",
     )
+    if inline:
+        resp.headers["Content-Disposition"] = "inline"
+    return resp
 
 
 # ---------------------------------------------------------------------------

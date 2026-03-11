@@ -12,9 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { getDocument, getToken, type Document, type SearchResult } from "@/lib/api";
 import { toast } from "sonner";
-import ReactMarkdown from "react-markdown";
-import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
+import { DocumentPreview, isPreviewable } from "@/components/DocumentPreview";
 
 interface DocumentModalProps {
   results: SearchResult[];
@@ -34,6 +32,7 @@ export function DocumentModal({
   const [doc, setDoc] = useState<Document | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [viewMode, setViewMode] = useState<"preview" | "raw">("preview");
 
   const current = results[currentIndex];
   const hasPrev = currentIndex > 0;
@@ -44,6 +43,7 @@ export function DocumentModal({
     setLoading(true);
     setError("");
     setDoc(null);
+    setViewMode("preview");
     getDocument(current.document_id)
       .then(setDoc)
       .catch(() => setError("文書の取得に失敗しました"))
@@ -157,7 +157,24 @@ export function DocumentModal({
           )}
         </div>
 
-        <Separator />
+        {/* View mode tabs for previewable files */}
+        {doc && isPreviewable(doc.file_type) && (
+          <div className="flex gap-1 border-b">
+            {(["preview", "raw"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setViewMode(m)}
+                className={`px-3 py-1.5 text-sm border-b-2 transition-colors ${
+                  viewMode === m ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {{ preview: "プレビュー", raw: "Raw テキスト" }[m]}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!(doc && isPreviewable(doc.file_type)) && <Separator />}
 
         {/* Content */}
         <div className="flex-1 min-h-0 overflow-y-auto">
@@ -166,9 +183,12 @@ export function DocumentModal({
           )}
           {error && <p className="text-destructive text-sm p-4">{error}</p>}
           {doc && (
-            <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-headings:my-3 prose-pre:my-2 prose-pre:overflow-x-auto prose-code:text-xs p-1">
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{doc.content}</ReactMarkdown>
-            </div>
+            <DocumentPreview
+              docId={doc.id}
+              fileType={doc.file_type}
+              content={doc.content}
+              mode={isPreviewable(doc.file_type) ? viewMode : "preview"}
+            />
           )}
         </div>
       </DialogContent>
