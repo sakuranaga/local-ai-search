@@ -8,11 +8,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { getDocument, getToken, type Document, type SearchResult } from "@/lib/api";
 import { toast } from "sonner";
-import { DocumentPreview, isPreviewable } from "@/components/DocumentPreview";
+import { DocumentPreview } from "@/components/DocumentPreview";
 
 interface DocumentModalProps {
   results: SearchResult[];
@@ -32,7 +31,7 @@ export function DocumentModal({
   const [doc, setDoc] = useState<Document | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [viewMode, setViewMode] = useState<"preview" | "raw">("preview");
+  const [tab, setTab] = useState<"preview" | "raw">("preview");
 
   const current = results[currentIndex];
   const hasPrev = currentIndex > 0;
@@ -43,7 +42,7 @@ export function DocumentModal({
     setLoading(true);
     setError("");
     setDoc(null);
-    setViewMode("preview");
+    setTab("preview");
     getDocument(current.document_id)
       .then(setDoc)
       .catch(() => setError("文書の取得に失敗しました"))
@@ -157,24 +156,20 @@ export function DocumentModal({
           )}
         </div>
 
-        {/* View mode tabs for previewable files */}
-        {doc && isPreviewable(doc.file_type) && (
-          <div className="flex gap-1 border-b">
-            {(["preview", "raw"] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setViewMode(m)}
-                className={`px-3 py-1.5 text-sm border-b-2 transition-colors ${
-                  viewMode === m ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {{ preview: "プレビュー", raw: "Raw テキスト" }[m]}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {!(doc && isPreviewable(doc.file_type)) && <Separator />}
+        {/* Top-level tabs */}
+        <div className="flex gap-1 border-b">
+          {(["preview", "raw"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-3 py-1.5 text-sm border-b-2 transition-colors ${
+                tab === t ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {{ preview: "プレビュー", raw: "Raw テキスト" }[t]}
+            </button>
+          ))}
+        </div>
 
         {/* Content */}
         <div className="flex-1 min-h-0 overflow-y-auto">
@@ -187,7 +182,7 @@ export function DocumentModal({
               docId={doc.id}
               fileType={doc.file_type}
               content={doc.content}
-              mode={isPreviewable(doc.file_type) ? viewMode : "preview"}
+              mode={tab}
             />
           )}
         </div>

@@ -8,17 +8,26 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 /** File types that can be previewed natively in the browser. */
 const PDF_TYPES = new Set(["pdf"]);
 const IMAGE_TYPES = new Set(["png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "webp"]);
+/** File types rendered as HTML via the /preview endpoint. */
+const OFFICE_TYPES = new Set(["xlsx", "xls", "csv", "tsv", "pptx", "docx", "doc"]);
 
 export function isPreviewable(fileType: string): boolean {
   const ft = fileType.toLowerCase();
-  return PDF_TYPES.has(ft) || IMAGE_TYPES.has(ft);
+  return PDF_TYPES.has(ft) || IMAGE_TYPES.has(ft) || OFFICE_TYPES.has(ft);
 }
 
-function previewUrl(docId: string): string {
+function downloadUrl(docId: string): string {
   const token = getToken();
   const params = new URLSearchParams({ inline: "true" });
   if (token) params.set("token", token);
   return `${API_BASE}/documents/${docId}/download?${params}`;
+}
+
+function htmlPreviewUrl(docId: string): string {
+  const token = getToken();
+  const params = new URLSearchParams();
+  if (token) params.set("token", token);
+  return `${API_BASE}/documents/${docId}/preview?${params}`;
 }
 
 interface DocumentPreviewProps {
@@ -44,7 +53,7 @@ export function DocumentPreview({ docId, fileType, content, mode }: DocumentPrev
   if (PDF_TYPES.has(ft)) {
     return (
       <iframe
-        src={previewUrl(docId)}
+        src={downloadUrl(docId)}
         className="w-full h-full min-h-[60vh] rounded border"
         title="PDF preview"
       />
@@ -56,11 +65,22 @@ export function DocumentPreview({ docId, fileType, content, mode }: DocumentPrev
     return (
       <div className="flex items-center justify-center p-4">
         <img
-          src={previewUrl(docId)}
+          src={downloadUrl(docId)}
           alt="Preview"
           className="max-w-full max-h-[65vh] object-contain rounded"
         />
       </div>
+    );
+  }
+
+  // HTML preview for office documents (Excel, PowerPoint, CSV, DOCX)
+  if (OFFICE_TYPES.has(ft)) {
+    return (
+      <iframe
+        src={htmlPreviewUrl(docId)}
+        className="w-full h-full min-h-[60vh] rounded border bg-white"
+        title="Document preview"
+      />
     );
   }
 

@@ -611,21 +611,10 @@ async def empty_trash(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{document_id}/download")
-async def download_document_file(
-    request: Request,
-    document_id: uuid.UUID,
-    token: str | None = Query(None),
-    inline: bool = Query(False, description="If true, serve inline (for preview)"),
-    db: AsyncSession = Depends(get_db),
-):
-    """Download the original uploaded file for a document.
-
-    Accepts auth via Bearer header or ?token= query parameter (for iframe/img).
-    """
+async def _resolve_token_user(request: Request, token: str | None, db: AsyncSession) -> User:
+    """Resolve authenticated user from Bearer header or ?token= query param."""
     from app.services.auth import verify_token as _verify
 
-    # Resolve token from Bearer header or query param
     raw_token = token
     if not raw_token:
         auth = request.headers.get("authorization", "")
@@ -642,20 +631,38 @@ async def download_document_file(
     except (KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token")
     result = await db.execute(select(User).where(User.id == user_id, User.is_active.is_(True)))
-    current_user = result.scalar_one_or_none()
-    if not current_user:
+    user = result.scalar_one_or_none()
+    if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+
+async def _get_doc_file(document_id: uuid.UUID, current_user: User, db: AsyncSession) -> tuple["Document", "File"]:
+    """Get document and its file record with access check."""
     result = await db.execute(select(Document).where(Document.id == document_id, Document.deleted_at.is_(None)))
     doc = result.scalar_one_or_none()
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     if not await _check_doc_access(doc, current_user, need_write=False, db=db):
         raise HTTPException(status_code=403, detail="Access denied")
-
     files_result = await db.execute(select(File).where(File.document_id == doc.id))
     file_record = files_result.scalars().first()
     if file_record is None or not Path(file_record.storage_path).exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
+    return doc, file_record
+
+
+@router.get("/{document_id}/download")
+async def download_document_file(
+    request: Request,
+    document_id: uuid.UUID,
+    token: str | None = Query(None),
+    inline: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download the original uploaded file. Supports ?token= and ?inline=true."""
+    current_user = await _resolve_token_user(request, token, db)
+    _, file_record = await _get_doc_file(document_id, current_user, db)
 
     resp = FileResponse(
         path=file_record.storage_path,
@@ -665,6 +672,24 @@ async def download_document_file(
     if inline:
         resp.headers["Content-Disposition"] = "inline"
     return resp
+
+
+@router.get("/{document_id}/preview")
+async def preview_document(
+    request: Request,
+    document_id: uuid.UUID,
+    token: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return an HTML preview for Excel/PowerPoint files."""
+    from fastapi.responses import HTMLResponse
+    from app.services.preview import render_preview_html
+
+    current_user = await _resolve_token_user(request, token, db)
+    doc, file_record = await _get_doc_file(document_id, current_user, db)
+
+    html = await render_preview_html(file_record.storage_path, doc.file_type)
+    return HTMLResponse(content=html)
 
 
 # ---------------------------------------------------------------------------
