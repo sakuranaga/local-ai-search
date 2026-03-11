@@ -94,8 +94,23 @@ def _images_from_pdf(data: bytes, dpi: int = 300) -> list[Image.Image]:
     return images
 
 
+_MAX_DIMENSION = 4000  # max width or height — matches warmup size
+
+
+def _limit_size(img: Image.Image) -> Image.Image:
+    """Downscale image if either dimension exceeds _MAX_DIMENSION."""
+    w, h = img.size
+    if w <= _MAX_DIMENSION and h <= _MAX_DIMENSION:
+        return img
+    scale = min(_MAX_DIMENSION / w, _MAX_DIMENSION / h)
+    new_w, new_h = int(w * scale), int(h * scale)
+    logger.info("Resizing %dx%d → %dx%d", w, h, new_w, new_h)
+    return img.resize((new_w, new_h), Image.LANCZOS)
+
+
 def _ocr_images(images: list[Image.Image]) -> str:
     """Run Surya OCR on a list of images and return combined text."""
+    images = [_limit_size(img) for img in images]
     predictions = rec_predictor(images, det_predictor=det_predictor)
     parts: list[str] = []
     for page in predictions:
