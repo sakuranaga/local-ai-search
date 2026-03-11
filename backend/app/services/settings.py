@@ -63,7 +63,7 @@ DEFAULTS = {
         "placeholder": "50",
     },
     "ai_max_search_rounds": {
-        "value": "3",
+        "value": "5",
         "description": "AI自律検索の最大ラウンド数",
         "placeholder": "3",
     },
