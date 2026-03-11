@@ -435,7 +435,7 @@ export function FileExplorerPage() {
 
   return (
     <div
-      className="max-w-[1600px] mx-auto p-4 flex gap-4 relative"
+      className="max-w-[1600px] mx-auto p-4 flex gap-4 relative h-full overflow-hidden"
       onDragEnter={handleFileDragEnter}
       onDragLeave={handleFileDragLeave}
       onDragOver={handleFileDragOver}
@@ -452,7 +452,7 @@ export function FileExplorerPage() {
         </div>
       )}
       {/* Sidebar */}
-      <div className="w-56 flex-shrink-0 space-y-4">
+      <div className="w-56 flex-shrink-0 space-y-4 overflow-y-auto">
         {/* Folder tree */}
         <div>
           <div className="flex items-center justify-between mb-1">
@@ -539,7 +539,7 @@ export function FileExplorerPage() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 min-w-0 space-y-4">
+      <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold">{showTrash ? "ゴミ箱" : "文書管理"}</h1>
@@ -693,8 +693,8 @@ export function FileExplorerPage() {
         </div>
 
         {/* Table */}
-        <Card className="!py-0 !gap-0">
-          <ScrollArea className="w-full">
+        <Card className="!py-0 !gap-0 flex-1 min-h-0 overflow-hidden">
+          <ScrollArea className="w-full h-full">
             <Table>
               <TableHeader>
                 <TableRow>

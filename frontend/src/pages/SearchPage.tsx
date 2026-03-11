@@ -12,10 +12,8 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   searchDocuments,
-  getStats,
   getPublicSetting,
   type SearchResult,
-  type StatsResponse,
 } from "@/lib/api";
 
 const CACHE_KEY = "las_search_cache";
@@ -61,12 +59,10 @@ export function SearchPage() {
   const [total, setTotal] = useState(urlQ ? 0 : cached.current?.total ?? 0);
   const [tokens, setTokens] = useState<string[]>([]);
 
-  const [stats, setStats] = useState<StatsResponse | null>(null);
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const lastSearchRef = useRef("");
 
   useEffect(() => {
-    getStats().then(setStats).catch(() => {});
     getPublicSetting("welcome_message").then((s) => setWelcomeMessage(s.value)).catch(() => {});
   }, []);
 
@@ -131,7 +127,7 @@ export function SearchPage() {
   const showWelcome = !urlQ && results.length === 0;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-56px)]">
+    <div className="flex flex-col h-full">
       {/* Two-column layout */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-5 gap-4 px-4 pt-4 pb-4 min-h-0">
         {/* Left: welcome or results + pagination */}
@@ -234,18 +230,6 @@ export function SearchPage() {
           />
         </div>
       </div>
-
-      {/* Stats bar */}
-      {stats && (
-        <div className="border-t px-4 py-2 flex items-center gap-3 text-xs text-muted-foreground">
-          <Badge variant="outline" className="text-xs font-normal">
-            {stats.total_documents.toLocaleString()}文書登録済み
-          </Badge>
-          <Badge variant="outline" className="text-xs font-normal">
-            {stats.total_chunks.toLocaleString()}チャンク
-          </Badge>
-        </div>
-      )}
 
       <DocumentModal
         results={results}
