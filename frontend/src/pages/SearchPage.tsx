@@ -147,7 +147,7 @@ export function SearchPage() {
           ) : (
           <>
           {total > 0 && (
-            <div className="flex items-center gap-2 pb-2 flex-wrap">
+            <div className="flex items-center gap-2 pb-2 flex-wrap px-3">
               <p className="text-xs text-muted-foreground">
                 {total}件中 {(page - 1) * PER_PAGE + 1}〜{Math.min(page * PER_PAGE, total)}件目
               </p>
