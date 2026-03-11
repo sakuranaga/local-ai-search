@@ -4,6 +4,7 @@ The agent iteratively calls tools (search, grep, read_document, search_by_title)
 to find information, then generates a final answer with streaming.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -71,11 +72,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "read_document",
-            "description": "文書IDを指定して全文を取得します。検索結果で見つかった文書の詳細を読むときに使います。",
+            "description": "文書のUUID形式のIDを指定して全文を取得します。IDは検索結果の「ID:」に表示されるUUID（例: f0bfec60-5edf-4122-a25a-b44b47ae17b5）です。タイトルやファイル名ではありません。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "id": {"type": "string", "description": "文書ID (UUID)"}
+                    "id": {"type": "string", "description": "文書のUUID（例: f0bfec60-5edf-4122-a25a-b44b47ae17b5）。タイトルやファイル名は不可。"}
                 },
                 "required": ["id"],
             },
@@ -116,11 +117,10 @@ SYSTEM_PROMPT = """\
 - count_results: 検索クエリに一致する文書の件数を確認
 
 ## 手順
-1. まずユーザーの質問に関連するキーワードで search や count_results を実行して概要を把握
-2. 件数が多すぎる場合はユーザーにどの情報を探しているか聞いてください
+1. まずユーザーの質問に関連するキーワードで search を実行
+2. 関連しそうな文書が見つかったら、自分で判断して read_document で全文を取得する。ユーザーに確認を求めず、自分で積極的に調べること。
 3. 情報が不足していれば、別のクエリで追加検索や grep を実行
-4. 特定の文書の詳細が必要なら read_document で全文を取得
-5. 十分な情報が集まったら、日本語で回答を生成
+4. 十分な情報が集まったら、日本語で回答を生成
 
 ## 注意
 - ツールで見つけた情報のみを元に回答してください。推測で答えないでください。
@@ -130,6 +130,7 @@ SYSTEM_PROMPT = """\
 - **追加質問や確認の質問に対しても、必ずツールを使って文書を再確認してください。**
   会話履歴の回答は要約であり、正確な情報が欠落している可能性があります。
   記憶に頼らず、必ず read_document や search で原文を確認してから回答してください。
+- **文書IDを絶対に捏造しないでください。** read_document に渡すIDは、直前の検索結果に表示された「ID:」の値をそのまま使ってください。記憶やUUIDの推測は厳禁です。IDが分からない場合は search_by_title で再検索してください。
 """
 
 
@@ -410,9 +411,9 @@ async def run_agent(
         choice = choices[0]
         message = choice.get("message", {})
         finish_reason = choice.get("finish_reason", "stop")
-        logger.debug("Round %d: finish_reason=%s, has_content=%s, has_tool_calls=%s",
-                      round_num, finish_reason, bool(message.get("content")),
-                      bool(message.get("tool_calls")))
+        logger.info("Round %d: finish_reason=%s, has_content=%s, has_tool_calls=%s",
+                     round_num, finish_reason, bool(message.get("content")),
+                     bool(message.get("tool_calls")))
 
         # Check for tool calls (structured or embedded in text)
         tool_calls = message.get("tool_calls")
@@ -422,11 +423,60 @@ async def run_agent(
         if not tool_calls and content and "<tool_call>" in content:
             text_tool_calls, cleaned_content = _extract_tool_calls_from_text(content)
             if text_tool_calls:
+                logger.info("Round %d: Extracted %d tool calls from text", round_num, len(text_tool_calls))
                 tool_calls = text_tool_calls
                 content = cleaned_content
                 message = {**message, "content": content, "tool_calls": tool_calls}
 
+        logger.info("Round %d: tool_calls=%s, content_len=%d", round_num,
+                     bool(tool_calls), len(content) if content else 0)
+
         if not tool_calls or is_last_round:
+            # Round 1 without tools: LLM skipped search — force a search
+            if round_num == 1 and not is_last_round:
+                user_query = ""
+                for m in reversed(messages):
+                    if m.get("role") == "user":
+                        user_query = m.get("content", "")
+                        break
+                if user_query:
+                    logger.info("Round 1: LLM skipped tools, forcing search for: %s", user_query)
+                    # Inject a forced search tool call
+                    forced_tc = {
+                        "id": "forced_search_1",
+                        "type": "function",
+                        "function": {"name": "search", "arguments": json.dumps({"query": user_query})},
+                    }
+                    # Emit tool call event
+                    yield {
+                        "type": "tool_call",
+                        "round": round_num,
+                        "name": "search",
+                        "arguments": {"query": user_query},
+                    }
+                    result_text, sources = await _execute_tool(db, "search", {"query": user_query})
+                    for s in sources:
+                        if s["document_id"] not in seen_doc_ids:
+                            seen_doc_ids.add(s["document_id"])
+                            all_sources.append(s)
+                    yield {
+                        "type": "tool_result",
+                        "round": round_num,
+                        "name": "search",
+                        "summary": _summarize_result("search", result_text),
+                    }
+                    # Append assistant message (with skipped content) + tool result
+                    if content:
+                        conv_messages.append({"role": "assistant", "content": content, "tool_calls": [forced_tc]})
+                    else:
+                        conv_messages.append({"role": "assistant", "content": "", "tool_calls": [forced_tc]})
+                    conv_messages.append({
+                        "role": "tool",
+                        "tool_call_id": "forced_search_1",
+                        "content": result_text,
+                    })
+                    continue  # Go to next round
+
             # No tool calls (or last round) — generate final answer
             if not content and round_num > 1:
                 # LLM returned empty — prompt it to answer
@@ -444,6 +494,7 @@ async def run_agent(
                 if content:
                     for chunk in _chunk_text_for_streaming(content):
                         yield {"type": "token", "content": chunk}
+                        await asyncio.sleep(0.02)
                 else:
                     # Content was only tool calls — force answer
                     conv_messages.append({
