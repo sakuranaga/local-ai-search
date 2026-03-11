@@ -478,7 +478,7 @@ export function FileExplorerPage() {
           <div className="text-center">
             <Upload className="h-12 w-12 text-primary mx-auto mb-3" />
             <p className="text-lg font-medium">{uploading ? "アップロード中..." : "ファイルをドロップしてアップロード"}</p>
-            <p className="text-sm text-muted-foreground mt-1">.md, .txt, .pdf, .docx, .xlsx, .csv, .html, .pptx に対応</p>
+            <p className="text-sm text-muted-foreground mt-1">.md, .txt, .pdf, .docx, .xlsx, .csv, .html, .pptx, 画像 に対応</p>
           </div>
         </div>
       )}
@@ -1965,7 +1965,7 @@ function UploadDialog({
           <DialogTitle>ファイルアップロード</DialogTitle>
           <DialogDescription>対応形式: Markdown, テキスト, PDF, Word</DialogDescription>
         </DialogHeader>
-        <Input type="file" accept=".md,.txt,.pdf,.docx,.doc,.markdown,.xlsx,.xls,.csv,.tsv,.html,.htm,.pptx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        <Input type="file" accept=".md,.txt,.pdf,.docx,.doc,.markdown,.xlsx,.xls,.csv,.tsv,.html,.htm,.pptx,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.tif,.webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         {file && <p className="text-sm text-muted-foreground">{file.name} ({formatBytes(file.size)})</p>}
         <DialogFooter showCloseButton>
           <Button onClick={handleUpload} disabled={!file || uploading}>
