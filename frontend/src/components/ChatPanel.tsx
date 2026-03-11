@@ -351,8 +351,8 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
                         ))}
                       </div>
                     )}
-                    {/* Show loading when tool steps are happening but no content yet */}
-                    {isStreaming && idx === messages.length - 1 && !msg.content && msg.toolSteps && msg.toolSteps.length > 0 && msg.toolSteps[msg.toolSteps.length - 1].summary && (
+                    {/* Show loading when streaming but no content yet */}
+                    {isStreaming && idx === messages.length - 1 && !msg.content && (
                       <LoadingDots />
                     )}
                     <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-pre:my-1">
