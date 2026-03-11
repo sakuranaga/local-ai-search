@@ -51,6 +51,7 @@ async def init_db():
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_folder_id ON documents(folder_id)"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary TEXT DEFAULT ''"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS processing_status VARCHAR(30) DEFAULT 'done' NOT NULL"))
         logger.info("Document table migration columns verified")
 
     async with engine.begin() as conn:

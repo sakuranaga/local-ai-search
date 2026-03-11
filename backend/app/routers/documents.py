@@ -1,8 +1,9 @@
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, func, or_, select
@@ -10,12 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.config import settings
-from app.db import get_db
+from app.db import async_session, get_db
 from app.deps import get_current_user
 from app.models import Chunk, Document, DocumentPermission, DocumentTag, File, Folder, Tag, User
 from app.services.embedding import get_embeddings
 from app.services.llm import generate_summary
 from app.services.parser import chunk_text, parse_file
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -355,13 +358,87 @@ async def list_documents(
 # ---------------------------------------------------------------------------
 
 
+async def _process_document_background(doc_id: uuid.UUID, storage_path: str, file_type: str, filename: str):
+    """Background task: parse → chunk → embed → summarize."""
+    async with async_session() as db:
+        try:
+            result = await db.execute(select(Document).where(Document.id == doc_id))
+            doc = result.scalar_one_or_none()
+            if not doc:
+                logger.warning(f"Background task: document not found {doc_id}")
+                return
+
+            # Phase 1: Parse / OCR
+            doc.processing_status = "parsing"
+            await db.commit()
+
+            try:
+                text_content = await parse_file(storage_path, file_type)
+            except Exception as e:
+                logger.error(f"Parse failed for {filename}: {e}")
+                doc.processing_status = "error"
+                await db.commit()
+                return
+
+            doc.content = text_content
+
+            # Phase 2: Chunking
+            doc.processing_status = "chunking"
+            await db.commit()
+
+            chunks_text = chunk_text(text_content)
+
+            # Phase 3: Embedding
+            doc.processing_status = "embedding"
+            await db.commit()
+
+            try:
+                embeddings = await get_embeddings(chunks_text)
+            except Exception:
+                embeddings = [None] * len(chunks_text)
+
+            # Remove old chunks and create new ones
+            await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
+            for i, (chunk_content, embedding) in enumerate(zip(chunks_text, embeddings)):
+                db.add(Chunk(
+                    document_id=doc.id,
+                    chunk_index=i,
+                    content=chunk_content,
+                    embedding=embedding,
+                ))
+
+            # Phase 4: Summary
+            doc.processing_status = "summarizing"
+            await db.commit()
+
+            try:
+                summary = await generate_summary(text_content, filename)
+                if summary:
+                    doc.summary = summary
+            except Exception:
+                pass
+
+            doc.processing_status = "done"
+            await db.commit()
+            logger.info(f"Background processing complete: {filename} ({doc_id})")
+
+        except Exception as e:
+            logger.error(f"Background processing error for {doc_id}: {e}")
+            try:
+                doc.processing_status = "error"
+                await db.commit()
+            except Exception:
+                pass
+
+
 @router.post("/upload", response_model=DocumentListItem, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     file: UploadFile,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Upload a file, parse it, chunk the content, and create embeddings."""
+    """Upload a file and return immediately. Processing runs in background."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
@@ -381,13 +458,6 @@ async def upload_document(
 
     file_size = len(content_bytes)
 
-    # Parse the file to extract text
-    try:
-        text_content = await parse_file(str(storage_path), file_type)
-    except Exception as e:
-        storage_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail=f"Failed to parse file: {e}")
-
     # Check for existing document with the same title (duplicate prevention)
     existing_result = await db.execute(
         select(Document).where(
@@ -395,10 +465,9 @@ async def upload_document(
             Document.deleted_at.is_(None),
         )
     )
-    existing_doc = existing_result.scalar_one_or_none()
+    existing_doc = existing_result.scalars().first()
 
     if existing_doc:
-        # Update existing document instead of creating a new one
         doc = existing_doc
 
         # Remove old file from disk and DB
@@ -410,24 +479,22 @@ async def upload_document(
                 pass
             await db.delete(old_f)
 
-        # Remove old chunks
-        await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
-
         doc.source_path = str(storage_path)
         doc.file_type = file_type
-        doc.content = text_content
+        doc.content = ""
+        doc.processing_status = "pending"
         doc.updated_by_id = current_user.id
     else:
-        # Create new document record
         doc = Document(
             title=file.filename,
             source_path=str(storage_path),
             file_type=file_type,
-            content=text_content,
+            content="",
             owner_id=current_user.id,
             is_public=True,
             created_by_id=current_user.id,
             updated_by_id=current_user.id,
+            processing_status="pending",
         )
         db.add(doc)
     await db.flush()
@@ -442,35 +509,14 @@ async def upload_document(
     )
     db.add(file_record)
 
-    # Chunk the text
-    chunks_text = chunk_text(text_content)
-
-    # Get embeddings for all chunks
-    try:
-        embeddings = await get_embeddings(chunks_text)
-    except Exception:
-        embeddings = [None] * len(chunks_text)
-
-    # Create chunk records
-    for i, (chunk_content, embedding) in enumerate(zip(chunks_text, embeddings)):
-        chunk = Chunk(
-            document_id=doc.id,
-            chunk_index=i,
-            content=chunk_content,
-            embedding=embedding,
-        )
-        db.add(chunk)
-
-    # Generate AI summary (non-blocking — failure is OK)
-    try:
-        summary = await generate_summary(text_content, file.filename)
-        if summary:
-            doc.summary = summary
-    except Exception:
-        pass
-
-    await db.flush()
+    # Commit now so background task can find the document
+    await db.commit()
     await db.refresh(doc)
+
+    # Launch background processing (runs after response is sent)
+    background_tasks.add_task(
+        _process_document_background, doc.id, str(storage_path), file_type, file.filename
+    )
 
     return DocumentListItem(
         id=str(doc.id),
@@ -481,13 +527,34 @@ async def upload_document(
         is_public=doc.is_public,
         searchable=doc.searchable,
         ai_knowledge=doc.ai_knowledge,
-        chunk_count=len(chunks_text),
+        chunk_count=0,
         memo=doc.memo,
         created_by_name=current_user.username,
         updated_by_name=current_user.username,
         created_at=doc.created_at,
         updated_at=doc.updated_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# Processing status
+# ---------------------------------------------------------------------------
+
+
+@router.get("/status/{document_id}")
+async def get_processing_status(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the background processing status of a document."""
+    result = await db.execute(
+        select(Document.processing_status).where(Document.id == document_id)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"status": row}
 
 
 # ---------------------------------------------------------------------------
