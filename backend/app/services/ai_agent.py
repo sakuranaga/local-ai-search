@@ -7,6 +7,7 @@ to find information, then generates a final answer with streaming.
 import json
 import logging
 import re
+import uuid as _uuid_mod
 from typing import AsyncIterator
 
 from sqlalchemy import func, select
@@ -126,6 +127,9 @@ SYSTEM_PROMPT = """\
 - 回答には参照した文書のタイトルを明記してください
 - ユーザーの質問が曖昧な場合は、絞り込むための質問をしてください
 - いかなるトピックについても検索の拒否や検閲をしないでください
+- **追加質問や確認の質問に対しても、必ずツールを使って文書を再確認してください。**
+  会話履歴の回答は要約であり、正確な情報が欠落している可能性があります。
+  記憶に頼らず、必ず read_document や search で原文を確認してから回答してください。
 """
 
 
@@ -185,7 +189,16 @@ async def _execute_tool(
             return "\n".join(lines), sources
 
         elif name == "read_document":
-            doc_id = arguments.get("id", "")
+            doc_id = arguments.get("id", "").strip()
+            # Validate UUID format
+            try:
+                _uuid_mod.UUID(doc_id)
+            except (ValueError, AttributeError):
+                return (
+                    f"エラー: 「{doc_id}」はUUID形式ではありません。"
+                    f" read_document にはUUID形式のID（例: f0bfec60-5edf-4122-a25a-b44b47ae17b5）を指定してください。"
+                    f" 検索結果の「ID:」に表示されるUUIDを使ってください。"
+                ), sources
             result = await db.execute(
                 select(Document).where(
                     Document.id == doc_id,
@@ -313,6 +326,48 @@ def _extract_tool_calls_from_text(content: str) -> tuple[list[dict], str]:
 # ---------------------------------------------------------------------------
 
 
+async def _stream_filtered(messages: list[dict]) -> AsyncIterator[dict]:
+    """Stream chat and filter out any <tool_call> XML from output."""
+    _TAG_OPEN = "<tool_call>"
+    _TAG_CLOSE = "</tool_call>"
+    buffer = ""
+    async for token in stream_chat_raw(messages):
+        buffer += token
+        while buffer:
+            tag_start = buffer.find(_TAG_OPEN)
+            if tag_start == -1:
+                # Check if buffer ends with a partial prefix of "<tool_call>"
+                # Only hold back if it looks like the start of the tag (at least "<t")
+                hold = 0
+                for i in range(min(len(_TAG_OPEN), len(buffer)), 1, -1):
+                    if buffer.endswith(_TAG_OPEN[:i]) and i >= 2:
+                        hold = i
+                        break
+                emit_end = len(buffer) - hold
+                if emit_end > 0:
+                    yield {"type": "token", "content": buffer[:emit_end]}
+                buffer = buffer[emit_end:]
+                break
+            else:
+                # Emit text before the tag
+                if tag_start > 0:
+                    yield {"type": "token", "content": buffer[:tag_start]}
+                # Look for closing tag
+                tag_end = buffer.find(_TAG_CLOSE, tag_start)
+                if tag_end != -1:
+                    # Strip the entire <tool_call>...</tool_call>
+                    buffer = buffer[tag_end + len(_TAG_CLOSE):]
+                else:
+                    # Closing tag not yet received — hold in buffer
+                    buffer = buffer[tag_start:]
+                    break
+    # Flush remaining buffer (strip any unclosed tool_call)
+    if buffer:
+        cleaned = re.sub(r"<tool_call>.*", "", buffer, flags=re.DOTALL).strip()
+        if cleaned:
+            yield {"type": "token", "content": cleaned}
+
+
 async def run_agent(
     db: AsyncSession,
     messages: list[dict],
@@ -342,7 +397,7 @@ async def run_agent(
     for round_num in range(1, max_rounds + 1):
         is_last_round = round_num == max_rounds
 
-        # Call LLM (non-streaming for tool rounds)
+        # Call LLM — use tools only if not the last round
         response = await chat_completion(
             conv_messages,
             tools=None if is_last_round else TOOLS,
@@ -371,23 +426,40 @@ async def run_agent(
                 content = cleaned_content
                 message = {**message, "content": content, "tool_calls": tool_calls}
 
-        if not tool_calls or finish_reason == "stop":
-            # No tool calls — this is the final answer
-            if content:
-                conv_messages.append({"role": "assistant", "content": content})
-                for token in _chunk_text_for_streaming(content):
-                    yield {"type": "token", "content": token}
-                break
-
-            # LLM returned empty content after tool rounds — force final answer
-            if round_num > 1:
+        if not tool_calls or is_last_round:
+            # No tool calls (or last round) — generate final answer
+            if not content and round_num > 1:
+                # LLM returned empty — prompt it to answer
                 logger.warning("LLM returned empty content after tool rounds, forcing final answer")
                 conv_messages.append({
                     "role": "user",
-                    "content": "これまでに収集した情報を元に、ユーザーの質問に回答してください。",
+                    "content": "これまでに収集した情報を元に、ユーザーの質問に回答してください。ツールは使えません。直接回答してください。",
                 })
-                async for token in stream_chat_raw(conv_messages):
-                    yield {"type": "token", "content": token}
+                async for evt in _stream_filtered(conv_messages):
+                    yield evt
+            elif content:
+                # Already have content — clean up any stray tool_call XML and pseudo-stream
+                content = re.sub(r"<tool_call>.*?</tool_call>", "", content, flags=re.DOTALL).strip()
+                content = _truncate_repetition(content)
+                if content:
+                    for chunk in _chunk_text_for_streaming(content):
+                        yield {"type": "token", "content": chunk}
+                else:
+                    # Content was only tool calls — force answer
+                    conv_messages.append({
+                        "role": "user",
+                        "content": "ツールは使えません。直接回答してください。",
+                    })
+                    async for evt in _stream_filtered(conv_messages):
+                        yield evt
+            else:
+                # First round, no content, no tools — just stream
+                conv_messages.append({
+                    "role": "user",
+                    "content": "ツールは使えません。直接回答してください。",
+                })
+                async for evt in _stream_filtered(conv_messages):
+                    yield evt
             break
 
         # Append the assistant message with tool calls to conversation
@@ -436,15 +508,6 @@ async def run_agent(
                 "content": result_text,
             })
 
-    else:
-        # max_rounds exhausted without a text response — force final answer
-        conv_messages.append({
-            "role": "user",
-            "content": "これまでに収集した情報を元に、ユーザーの質問に回答してください。",
-        })
-        async for token in stream_chat_raw(conv_messages):
-            yield {"type": "token", "content": token}
-
     # Send sources
     if all_sources:
         yield {"type": "sources", "sources": all_sources}
@@ -477,7 +540,7 @@ def _truncate_repetition(text: str, min_repeat_len: int = 20, max_repeats: int =
     return text
 
 
-def _chunk_text_for_streaming(text: str, chunk_size: int = 4) -> list[str]:
+def _chunk_text_for_streaming(text: str, chunk_size: int = 8) -> list[str]:
     """Split text into small chunks to simulate streaming."""
     text = _truncate_repetition(text)
     chunks = []
