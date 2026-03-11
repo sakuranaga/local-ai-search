@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import ReactMarkdown from "react-markdown";
-import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
+import { DocumentPreview, isPreviewable } from "@/components/DocumentPreview";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1309,10 +1307,11 @@ function DocumentDetailModal({
 }) {
   const [doc, setDoc] = useState<Document | null>(null);
   const [tab, setTab] = useState<"view" | "edit" | "permissions">("view");
+  const [viewMode, setViewMode] = useState<"preview" | "raw">("preview");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!item) { setDoc(null); setTab("view"); return; }
+    if (!item) { setDoc(null); setTab("view"); setViewMode("preview"); return; }
     setLoading(true);
     getDocument(item.id).then(setDoc).catch(() => toast.error("文書取得失敗")).finally(() => setLoading(false));
   }, [item?.id]);
@@ -1415,12 +1414,32 @@ function DocumentDetailModal({
           {loading && <p className="text-sm text-muted-foreground p-4">読み込み中...</p>}
 
           {tab === "view" && doc && (
-            <div className="space-y-3">
+            <div className="space-y-3 h-full flex flex-col">
               {doc.memo && (
                 <div className="text-sm text-muted-foreground bg-muted rounded-md px-3 py-2">{doc.memo}</div>
               )}
-              <div className="prose dark:prose-invert max-w-none p-1">
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{doc.content}</ReactMarkdown>
+              {isPreviewable(doc.file_type) && (
+                <div className="flex gap-1 border-b">
+                  {(["preview", "raw"] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setViewMode(m)}
+                      className={`px-3 py-1.5 text-sm border-b-2 transition-colors ${
+                        viewMode === m ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {{ preview: "プレビュー", raw: "Raw テキスト" }[m]}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex-1 min-h-0">
+                <DocumentPreview
+                  docId={doc.id}
+                  fileType={doc.file_type}
+                  content={doc.content}
+                  mode={isPreviewable(doc.file_type) ? viewMode : "preview"}
+                />
               </div>
             </div>
           )}
