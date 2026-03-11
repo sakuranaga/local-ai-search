@@ -256,6 +256,25 @@ export function FileExplorerPage() {
   }
 
   const lastClickedIdx = useRef<number | null>(null);
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleRowClick(item: DocumentListItem, e: React.MouseEvent) {
+    // Ignore clicks on checkbox cell (handled separately)
+    if ((e.target as HTMLElement).closest('[data-checkbox-cell]')) return;
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+    clickTimer.current = setTimeout(() => {
+      clickTimer.current = null;
+      toggleSelect(item.id, e);
+    }, 250);
+  }
+
+  function handleRowDoubleClick(item: DocumentListItem) {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+    }
+    setDetailDoc(item);
+  }
 
   function toggleSelect(id: string, e?: React.MouseEvent) {
     const idx = items.findIndex((i) => i.id === id);
@@ -730,9 +749,12 @@ export function FileExplorerPage() {
                     key={item.id}
                     draggable
                     onDragStart={(e) => handleDragStart(e, item.id)}
-                    className={`cursor-pointer ${selected.has(item.id) ? "bg-muted/50" : "hover:bg-muted/30"}`}
+                    className={`cursor-pointer select-none ${selected.has(item.id) ? "bg-muted/50" : "hover:bg-muted/30"}`}
+                    onClick={(e) => handleRowClick(item, e)}
+                    onDoubleClick={() => handleRowDoubleClick(item)}
                   >
                     <TableCell
+                      data-checkbox-cell
                       className="cursor-pointer select-none px-0"
                       onClick={(e) => { e.stopPropagation(); toggleSelect(item.id, e); }}
                     >
@@ -740,8 +762,8 @@ export function FileExplorerPage() {
                         <input type="checkbox" checked={selected.has(item.id)} readOnly className="pointer-events-none" />
                       </div>
                     </TableCell>
-                    <TableCell onClick={() => setDetailDoc(item)}>
-                      <span className="font-medium text-sm max-w-[400px] truncate block hover:underline">
+                    <TableCell>
+                      <span className="font-medium text-sm max-w-[400px] truncate block">
                         {item.title}
                       </span>
                       <div className="flex items-center gap-1 mt-0.5 flex-wrap">
@@ -764,16 +786,16 @@ export function FileExplorerPage() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell onClick={() => setDetailDoc(item)}>
+                    <TableCell>
                       <Badge variant="outline" className="text-xs">{item.file_type}</Badge>
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground" onClick={() => setDetailDoc(item)}>
+                    <TableCell className="text-xs text-muted-foreground">
                       {item.chunk_count}
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground" onClick={() => setDetailDoc(item)}>
+                    <TableCell className="text-xs text-muted-foreground">
                       {item.created_by_name ?? "-"}
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground" onClick={() => setDetailDoc(item)}>
+                    <TableCell className="text-xs text-muted-foreground">
                       {formatDate(item.updated_at)}
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
