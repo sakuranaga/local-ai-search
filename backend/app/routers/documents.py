@@ -115,6 +115,13 @@ def _get_file_type(filename: str) -> str:
         "pdf": "pdf",
         "docx": "docx",
         "doc": "docx",
+        "xlsx": "xlsx",
+        "xls": "xlsx",
+        "csv": "csv",
+        "tsv": "csv",
+        "html": "html",
+        "htm": "html",
+        "pptx": "pptx",
     }
     return type_map.get(ext, "md")
 
