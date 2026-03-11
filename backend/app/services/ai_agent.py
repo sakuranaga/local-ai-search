@@ -452,8 +452,34 @@ async def run_agent(
     yield {"type": "done"}
 
 
+def _truncate_repetition(text: str, min_repeat_len: int = 20, max_repeats: int = 2) -> str:
+    """Detect and truncate repetitive text from LLM output.
+
+    Looks for repeated substrings and cuts the text at the point
+    where repetition begins.
+    """
+    # Check for long repeated patterns (e.g. UUID fragments repeating)
+    for pattern_len in range(min_repeat_len, min(200, len(text) // 3), 5):
+        for start in range(len(text) - pattern_len * (max_repeats + 1)):
+            pattern = text[start:start + pattern_len]
+            count = 0
+            pos = start
+            while pos + pattern_len <= len(text):
+                if text[pos:pos + pattern_len] == pattern:
+                    count += 1
+                    pos += pattern_len
+                else:
+                    break
+            if count > max_repeats:
+                # Found repetition — truncate before it
+                truncated = text[:start + pattern_len].rstrip("-_ ")
+                return truncated
+    return text
+
+
 def _chunk_text_for_streaming(text: str, chunk_size: int = 4) -> list[str]:
     """Split text into small chunks to simulate streaming."""
+    text = _truncate_repetition(text)
     chunks = []
     for i in range(0, len(text), chunk_size):
         chunks.append(text[i : i + chunk_size])

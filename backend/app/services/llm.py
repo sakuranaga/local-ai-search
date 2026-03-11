@@ -93,6 +93,7 @@ async def chat_completion(
         "stream": False,
         "temperature": 0.3,
         "max_tokens": 2048,
+        "repetition_penalty": 1.2,
     }
     if tools:
         payload["tools"] = tools
@@ -141,6 +142,7 @@ async def stream_chat_raw(
         "stream": True,
         "temperature": 0.3,
         "max_tokens": 2048,
+        "repetition_penalty": 1.2,
     }
 
     try:

@@ -58,9 +58,9 @@ DEFAULTS = {
         "placeholder": "20",
     },
     "vector_similarity_threshold": {
-        "value": "70",
+        "value": "50",
         "description": "ベクトル検索の最低類似度 (%) — この値未満の結果を除外",
-        "placeholder": "70",
+        "placeholder": "50",
     },
     "ai_max_search_rounds": {
         "value": "3",
