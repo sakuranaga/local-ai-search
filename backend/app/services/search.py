@@ -26,6 +26,8 @@ async def fulltext_search(
     db: AsyncSession, query: str, limit: int = 20,
     require_searchable: bool = False, require_ai_knowledge: bool = False,
     user: User | None = None,
+    folder_id: str | None = None, unfiled: bool = False,
+    tag: str | None = None, file_type: str | None = None,
 ) -> list[dict]:
     """Full-text search using SQL LIKE with pg_bigm GIN index acceleration."""
     words = tokenize_query(query)
@@ -65,6 +67,21 @@ async def fulltext_search(
         stmt = stmt.where(Document.searchable.is_(True))
     if require_ai_knowledge:
         stmt = stmt.where(Document.ai_knowledge.is_(True))
+    if folder_id:
+        stmt = stmt.where(Document.folder_id == uuid.UUID(folder_id))
+    elif unfiled:
+        stmt = stmt.where(Document.folder_id.is_(None))
+    if file_type:
+        stmt = stmt.where(Document.file_type == file_type)
+    if tag:
+        from app.models import DocumentTag, Tag
+        tag_sq = (
+            select(DocumentTag.document_id)
+            .join(Tag, DocumentTag.tag_id == Tag.id)
+            .where(Tag.name == tag)
+            .subquery()
+        )
+        stmt = stmt.where(Document.id.in_(select(tag_sq.c.document_id)))
     stmt = stmt.order_by(match_count.desc()).limit(limit)
 
     result = await db.execute(stmt)
@@ -90,6 +107,8 @@ async def vector_search(
     db: AsyncSession, query: str, limit: int = 20,
     require_searchable: bool = False, require_ai_knowledge: bool = False,
     user: User | None = None,
+    folder_id: str | None = None, unfiled: bool = False,
+    tag: str | None = None, file_type: str | None = None,
 ) -> list[dict]:
     """Semantic search using pgvector cosine distance (<=>)."""
     query_embedding = await get_embedding(query)
@@ -123,6 +142,21 @@ async def vector_search(
         stmt = stmt.where(Document.searchable.is_(True))
     if require_ai_knowledge:
         stmt = stmt.where(Document.ai_knowledge.is_(True))
+    if folder_id:
+        stmt = stmt.where(Document.folder_id == uuid.UUID(folder_id))
+    elif unfiled:
+        stmt = stmt.where(Document.folder_id.is_(None))
+    if file_type:
+        stmt = stmt.where(Document.file_type == file_type)
+    if tag:
+        from app.models import DocumentTag, Tag
+        tag_sq = (
+            select(DocumentTag.document_id)
+            .join(Tag, DocumentTag.tag_id == Tag.id)
+            .where(Tag.name == tag)
+            .subquery()
+        )
+        stmt = stmt.where(Document.id.in_(select(tag_sq.c.document_id)))
     stmt = stmt.order_by(distance).limit(limit)
 
     result = await db.execute(stmt)
@@ -154,13 +188,16 @@ async def merged_search(
     require_searchable: bool = False,
     require_ai_knowledge: bool = False,
     user: User | None = None,
+    folder_id: str | None = None, unfiled: bool = False,
+    tag: str | None = None, file_type: str | None = None,
 ) -> tuple[list[dict], int]:
     """Reciprocal Rank Fusion (RRF) merge of fulltext and vector search results."""
     import asyncio
 
+    filter_kwargs = dict(folder_id=folder_id, unfiled=unfiled, tag=tag, file_type=file_type)
     ft_results, vec_results = await asyncio.gather(
-        fulltext_search(db, query, limit=max_candidates, require_searchable=require_searchable, require_ai_knowledge=require_ai_knowledge, user=user),
-        vector_search(db, query, limit=max_candidates, require_searchable=require_searchable, require_ai_knowledge=require_ai_knowledge, user=user),
+        fulltext_search(db, query, limit=max_candidates, require_searchable=require_searchable, require_ai_knowledge=require_ai_knowledge, user=user, **filter_kwargs),
+        vector_search(db, query, limit=max_candidates, require_searchable=require_searchable, require_ai_knowledge=require_ai_knowledge, user=user, **filter_kwargs),
     )
 
     k = 60

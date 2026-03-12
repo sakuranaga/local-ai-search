@@ -85,6 +85,7 @@ class DocumentDetail(DocumentListItem):
 
 class DocumentUpdateRequest(BaseModel):
     title: str | None = None
+    summary: str | None = None
     memo: str | None = None
     group_id: str | None = None  # UUID string or "" to unset
     group_read: bool | None = None
@@ -937,6 +938,8 @@ async def update_document(
 
     if body.title is not None:
         doc.title = body.title
+    if body.summary is not None:
+        doc.summary = body.summary
     if body.memo is not None:
         doc.memo = body.memo
     if body.group_id is not None:

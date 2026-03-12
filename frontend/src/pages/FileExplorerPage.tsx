@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { DocumentPreview } from "@/components/DocumentPreview";
+import { ChatPanel } from "@/components/ChatPanel";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +50,7 @@ import {
   Pencil,
   Undo2,
   Download,
+  Sparkles,
 } from "lucide-react";
 import {
   getDocuments,
@@ -74,6 +77,7 @@ import {
   emptyTrash,
   getProcessingStatus,
   checkDuplicates,
+  searchDocumentsList,
   type TrashItem,
   type DocumentListItem,
   type Document,
@@ -189,6 +193,11 @@ function buildFolderTree(folders: Folder[]): FolderNode[] {
 // ---------------------------------------------------------------------------
 
 export function FileExplorerPage() {
+  const [searchParams] = useSearchParams();
+  const urlQ = searchParams.get("q") ?? "";
+  const urlT = searchParams.get("_t") ?? "";
+  const isSearching = !!urlQ;
+
   const [items, setItems] = useState<DocumentListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -196,8 +205,10 @@ export function FileExplorerPage() {
   const [sortBy, setSortBy] = useState("updated_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [filterType, setFilterType] = useState("");
-  const [filterQ, setFilterQ] = useState("");
-  const [searchInput, setSearchInput] = useState("");
+  const [searchTokens, setSearchTokens] = useState<string[]>([]);
+
+  // AI chat panel visibility for small screens
+  const [chatOpen, setChatOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
 
@@ -259,34 +270,61 @@ export function FileExplorerPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Parameters<typeof getDocuments>[0] = {
-        page,
-        per_page: perPage,
-        sort_by: sortBy,
-        sort_dir: sortDir,
-        file_type: filterType || undefined,
-        q: filterQ || undefined,
-      };
-      if (activeFolderId === "unfiled") {
-        params.unfiled = true;
-      } else if (activeFolderId) {
-        params.folder_id = activeFolderId;
+      if (isSearching) {
+        // Search mode: use merged search endpoint
+        const searchParams: Parameters<typeof searchDocumentsList>[0] = {
+          q: urlQ,
+          page,
+          per_page: perPage,
+          file_type: filterType || undefined,
+        };
+        if (activeFolderId === "unfiled") {
+          searchParams.unfiled = true;
+        } else if (activeFolderId) {
+          searchParams.folder_id = activeFolderId;
+        }
+        if (activeTag) {
+          searchParams.tag = activeTag;
+        }
+        const data = await searchDocumentsList(searchParams);
+        setItems(data.items);
+        setTotal(data.total);
+        setSearchTokens(data.tokens ?? []);
+      } else {
+        // Browse mode: use documents list endpoint
+        const params: Parameters<typeof getDocuments>[0] = {
+          page,
+          per_page: perPage,
+          sort_by: sortBy,
+          sort_dir: sortDir,
+          file_type: filterType || undefined,
+        };
+        if (activeFolderId === "unfiled") {
+          params.unfiled = true;
+        } else if (activeFolderId) {
+          params.folder_id = activeFolderId;
+        }
+        if (activeTag) {
+          params.tag = activeTag;
+        }
+        const data = await getDocuments(params);
+        setItems(data.items);
+        setTotal(data.total);
+        setSearchTokens([]);
       }
-      if (activeTag) {
-        params.tag = activeTag;
-      }
-      const data = await getDocuments(params);
-      setItems(data.items);
-      setTotal(data.total);
     } catch {
       toast.error("文書一覧の取得に失敗");
     } finally {
       setLoading(false);
     }
-  }, [page, perPage, sortBy, sortDir, filterType, filterQ, activeFolderId, activeTag]);
+  }, [page, perPage, sortBy, sortDir, filterType, activeFolderId, activeTag, isSearching, urlQ]);
 
   useEffect(() => { load(); }, [load]);
+  // Re-trigger search when URL timestamp changes (re-search same query)
+  useEffect(() => { if (urlT) load(); }, [urlT]);
   useEffect(() => { loadFolders(); loadTags(); loadTrash(); }, []);
+  // Reset page when search query changes
+  useEffect(() => { setPage(1); }, [urlQ]);
 
   const totalPages = Math.ceil(total / perPage);
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
@@ -537,7 +575,7 @@ export function FileExplorerPage() {
 
   return (
     <div
-      className="max-w-[1600px] mx-auto p-4 flex gap-4 relative h-full overflow-hidden"
+      className="p-4 flex gap-4 relative h-full overflow-hidden"
       onDragEnter={handleFileDragEnter}
       onDragLeave={handleFileDragLeave}
       onDragOver={handleFileDragOver}
@@ -641,7 +679,7 @@ export function FileExplorerPage() {
       <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-hidden px-0.5">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold">{showTrash ? "ゴミ箱" : "文書管理"}</h1>
+          <h1 className="text-xl font-bold">{showTrash ? "ゴミ箱" : isSearching ? `検索結果: ${urlQ}` : "ドキュメント"}</h1>
           {showTrash ? (
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => { setShowTrash(false); setTrashSelected(new Set()); }}>
@@ -745,18 +783,14 @@ export function FileExplorerPage() {
         <>
         {/* Filters */}
         <div className="flex items-center gap-3">
-          <form
-            className="relative flex-1 max-w-sm"
-            onSubmit={(e) => { e.preventDefault(); setFilterQ(searchInput); setPage(1); }}
-          >
-            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="タイトル検索..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="pl-9 h-9 text-sm"
-            />
-          </form>
+          {isSearching && searchTokens.length > 0 && searchTokens.join(" ") !== urlQ && (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground">検索語:</span>
+              {searchTokens.map((t) => (
+                <Badge key={t} variant="secondary" className="text-xs font-normal">{t}</Badge>
+              ))}
+            </div>
+          )}
           <select
             value={filterType}
             onChange={(e) => { setFilterType(e.target.value); setPage(1); }}
@@ -768,6 +802,15 @@ export function FileExplorerPage() {
             ))}
           </select>
           <span className="text-sm text-muted-foreground ml-auto">{total.toLocaleString()}件</span>
+          {/* AI chat toggle for small screens */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="xl:hidden"
+            onClick={() => setChatOpen(!chatOpen)}
+          >
+            <Sparkles className="h-4 w-4" />
+          </Button>
         </div>
 
         {/* Bulk actions — always visible */}
@@ -802,14 +845,14 @@ export function FileExplorerPage() {
                       <input type="checkbox" checked={items.length > 0 && selected.size === items.length} readOnly className="pointer-events-none" />
                     </div>
                   </TableHead>
-                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort("title")}>
-                    <span className="flex items-center">タイトル <SortIcon col="title" /></span>
+                  <TableHead className={isSearching ? "" : "cursor-pointer select-none"} onClick={isSearching ? undefined : () => handleSort("title")}>
+                    <span className="flex items-center">タイトル {!isSearching && <SortIcon col="title" />}</span>
                   </TableHead>
                   <TableHead className="w-16">種別</TableHead>
                   <TableHead className="w-14">チャンク</TableHead>
                   <TableHead className="w-24">登録者</TableHead>
-                  <TableHead className="w-24 cursor-pointer select-none" onClick={() => handleSort("updated_at")}>
-                    <span className="flex items-center">更新日 <SortIcon col="updated_at" /></span>
+                  <TableHead className={`w-24 ${isSearching ? "" : "cursor-pointer select-none"}`} onClick={isSearching ? undefined : () => handleSort("updated_at")}>
+                    <span className="flex items-center">更新日 {!isSearching && <SortIcon col="updated_at" />}</span>
                   </TableHead>
                   <TableHead className="w-28 text-center">検索 / AI</TableHead>
                 </TableRow>
@@ -935,6 +978,28 @@ export function FileExplorerPage() {
         </>
         )}
       </div>
+
+      {/* AI Chat Panel — xl: inline column, smaller: fixed overlay toggled by chatOpen */}
+      <div className={`
+        w-[36rem] flex-shrink-0 min-h-0
+        max-xl:fixed max-xl:inset-y-0 max-xl:right-0 max-xl:z-50 max-xl:max-w-[90vw] max-xl:bg-background max-xl:border-l max-xl:shadow-xl
+        ${chatOpen ? "" : "max-xl:hidden"}
+      `}>
+        <div className="xl:hidden flex items-center justify-between px-3 py-2 border-b">
+          <span className="text-sm font-medium flex items-center gap-1.5"><Sparkles className="h-4 w-4" />AI チャット</span>
+          <Button variant="ghost" size="sm" onClick={() => setChatOpen(false)}><X className="h-4 w-4" /></Button>
+        </div>
+        <div className="min-h-0 h-[calc(100%-3rem)] xl:h-full">
+          <ChatPanel
+            initialQuery={urlQ || undefined}
+            onSourceClick={(docId) => {
+              const found = items.find((i) => i.id === docId);
+              if (found) { setDetailDoc(found); setChatOpen(false); }
+            }}
+          />
+        </div>
+      </div>
+      {chatOpen && <div className="xl:hidden fixed inset-0 z-40 bg-black/30" onClick={() => setChatOpen(false)} />}
 
       {/* Detail Modal */}
       <DocumentDetailModal
@@ -1556,6 +1621,7 @@ function EditTab({
   onTagsChanged: () => void;
 }) {
   const [title, setTitle] = useState(doc.title);
+  const [summary, setSummary] = useState(doc.summary ?? "");
   const [memo, setMemo] = useState(doc.memo ?? "");
   const [searchable, setSearchable] = useState(doc.searchable);
   const [aiKnowledge, setAiKnowledge] = useState(doc.ai_knowledge);
@@ -1596,6 +1662,7 @@ function EditTab({
     try {
       await updateDocument(item.id, {
         title,
+        summary,
         memo,
         searchable,
         ai_knowledge: aiKnowledge,
@@ -1614,6 +1681,10 @@ function EditTab({
       <div>
         <label className="text-sm font-medium">タイトル</label>
         <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+      <div>
+        <label className="text-sm font-medium">要約</label>
+        <Textarea value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="文書の要約..." rows={3} />
       </div>
       <div>
         <label className="text-sm font-medium">メモ</label>
