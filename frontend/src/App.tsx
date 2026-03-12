@@ -135,6 +135,17 @@ function ThemeToggle() {
   );
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = bytes;
+  for (const u of units) {
+    v /= 1024;
+    if (v < 1024 || u === "TB") return `${Math.round(v * 10) / 10}${u}`;
+  }
+  return `${bytes}B`;
+}
+
 function StatsFooter() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
 
@@ -152,6 +163,11 @@ function StatsFooter() {
       <Badge variant="outline" className="text-xs font-normal">
         {stats.total_chunks.toLocaleString()}チャンク
       </Badge>
+      {stats.disk_total_bytes > 0 && (
+        <Badge variant="outline" className="text-xs font-normal">
+          ディスク {formatBytes(stats.disk_used_bytes)}/{formatBytes(stats.disk_total_bytes)} ({Math.round(stats.disk_used_bytes / stats.disk_total_bytes * 100)}%)
+        </Badge>
+      )}
       <span className="ml-auto">&copy; DDR8</span>
     </div>
   );

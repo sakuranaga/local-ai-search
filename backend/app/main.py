@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import shutil
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -186,4 +187,13 @@ async def stats(
 ):
     doc_count = await db.scalar(select(func.count()).select_from(Document).where(Document.deleted_at.is_(None)))
     chunk_count = await db.scalar(select(func.count()).select_from(Chunk))
-    return {"total_documents": doc_count or 0, "total_chunks": chunk_count or 0}
+
+    from app.config import settings
+    usage = shutil.disk_usage(settings.STORAGE_PATH)
+
+    return {
+        "total_documents": doc_count or 0,
+        "total_chunks": chunk_count or 0,
+        "disk_used_bytes": usage.used,
+        "disk_total_bytes": usage.total,
+    }
