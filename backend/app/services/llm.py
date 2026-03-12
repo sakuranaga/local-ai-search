@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import AsyncIterator
@@ -6,6 +7,11 @@ import httpx
 
 from app.db import async_session
 from app.services.settings import get_setting
+
+
+class CancelledByClient(Exception):
+    """Raised when the SSE client disconnects and the request should be aborted."""
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -75,11 +81,16 @@ async def generate_summary(content: str, title: str = "") -> str:
 async def chat_completion(
     messages: list[dict],
     tools: list[dict] | None = None,
+    cancel_event: asyncio.Event | None = None,
 ) -> dict:
     """Non-streaming chat completion with optional tool support.
 
     Returns the full response dict from the API.
+    If cancel_event is set, raises CancelledByClient.
     """
+    if cancel_event and cancel_event.is_set():
+        raise CancelledByClient()
+
     url, model, api_key = await _get_llm_config()
 
     if not url:
@@ -101,17 +112,35 @@ async def chat_completion(
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
-            response = await client.post(
+            # Wrap the POST in a task so we can cancel it when the client disconnects
+            post_coro = client.post(
                 f"{url}/chat/completions",
                 json=payload,
                 headers=_build_headers(api_key),
             )
+            if cancel_event:
+                task = asyncio.ensure_future(post_coro)
+                cancel_wait = asyncio.ensure_future(cancel_event.wait())
+                done, pending = await asyncio.wait(
+                    {task, cancel_wait}, return_when=asyncio.FIRST_COMPLETED,
+                )
+                for p in pending:
+                    p.cancel()
+                if cancel_wait in done:
+                    task.cancel()
+                    raise CancelledByClient()
+                response = task.result()
+            else:
+                response = await post_coro
+
             if response.status_code != 200:
                 logger.error(f"LLM API error {response.status_code}: {response.text}")
                 return {
                     "choices": [{"message": {"role": "assistant", "content": f"LLM APIエラー: {response.status_code}"}, "finish_reason": "stop"}]
                 }
             return response.json()
+    except CancelledByClient:
+        raise
     except httpx.ConnectError:
         return {
             "choices": [{"message": {"role": "assistant", "content": "LLMサーバーに接続できません。"}, "finish_reason": "stop"}]
@@ -125,11 +154,16 @@ async def chat_completion(
 
 async def stream_chat_raw(
     messages: list[dict],
+    cancel_event: asyncio.Event | None = None,
 ) -> AsyncIterator[str]:
     """Stream chat completion without injecting system prompt.
 
     Used by the agent for the final answer streaming.
+    If cancel_event is set, raises CancelledByClient.
     """
+    if cancel_event and cancel_event.is_set():
+        raise CancelledByClient()
+
     url, model, api_key = await _get_llm_config()
 
     if not url:
@@ -160,6 +194,8 @@ async def stream_chat_raw(
                     return
 
                 async for line in response.aiter_lines():
+                    if cancel_event and cancel_event.is_set():
+                        raise CancelledByClient()
                     if not line.startswith("data: "):
                         continue
                     data = line[6:].strip()
@@ -173,6 +209,8 @@ async def stream_chat_raw(
                             yield content
                     except (json.JSONDecodeError, IndexError, KeyError):
                         continue
+    except CancelledByClient:
+        raise
     except httpx.ConnectError:
         yield "LLMサーバーに接続できません。サーバーが起動しているか確認してください。"
     except Exception as e:

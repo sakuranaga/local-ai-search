@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Chunk, Document, User
-from app.services.llm import chat_completion, stream_chat_raw
+from app.services.llm import CancelledByClient, chat_completion, stream_chat_raw
 from app.services.permissions import can_access_document
 from app.services.search import grep_search, merged_search, title_search
 from app.services.settings import get_setting
@@ -338,12 +338,15 @@ def _extract_tool_calls_from_text(content: str) -> tuple[list[dict], str]:
 # ---------------------------------------------------------------------------
 
 
-async def _stream_filtered(messages: list[dict]) -> AsyncIterator[dict]:
+async def _stream_filtered(
+    messages: list[dict],
+    cancel_event: asyncio.Event | None = None,
+) -> AsyncIterator[dict]:
     """Stream chat and filter out any <tool_call> XML from output."""
     _TAG_OPEN = "<tool_call>"
     _TAG_CLOSE = "</tool_call>"
     buffer = ""
-    async for token in stream_chat_raw(messages):
+    async for token in stream_chat_raw(messages, cancel_event=cancel_event):
         buffer += token
         while buffer:
             tag_start = buffer.find(_TAG_OPEN)
@@ -385,6 +388,7 @@ async def run_agent(
     messages: list[dict],
     existing_context: list[str] | None = None,
     user: User | None = None,
+    cancel_event: asyncio.Event | None = None,
 ) -> AsyncIterator[dict]:
     """Run the ReAct agent loop.
 
@@ -408,12 +412,16 @@ async def run_agent(
     conv_messages = [{"role": "system", "content": system_content}] + messages
 
     for round_num in range(1, max_rounds + 1):
+        if cancel_event and cancel_event.is_set():
+            raise CancelledByClient()
+
         is_last_round = round_num == max_rounds
 
         # Call LLM — use tools only if not the last round
         response = await chat_completion(
             conv_messages,
             tools=None if is_last_round else TOOLS,
+            cancel_event=cancel_event,
         )
 
         choices = response.get("choices", [])
@@ -497,7 +505,7 @@ async def run_agent(
                     "role": "user",
                     "content": "これまでに収集した情報を元に、ユーザーの質問に回答してください。ツールは使えません。直接回答してください。",
                 })
-                async for evt in _stream_filtered(conv_messages):
+                async for evt in _stream_filtered(conv_messages, cancel_event=cancel_event):
                     yield evt
             elif content:
                 # Already have content — clean up any stray tool_call XML and pseudo-stream
@@ -513,7 +521,7 @@ async def run_agent(
                         "role": "user",
                         "content": "ツールは使えません。直接回答してください。",
                     })
-                    async for evt in _stream_filtered(conv_messages):
+                    async for evt in _stream_filtered(conv_messages, cancel_event=cancel_event):
                         yield evt
             else:
                 # First round, no content, no tools — just stream
@@ -521,7 +529,7 @@ async def run_agent(
                     "role": "user",
                     "content": "ツールは使えません。直接回答してください。",
                 })
-                async for evt in _stream_filtered(conv_messages):
+                async for evt in _stream_filtered(conv_messages, cancel_event=cancel_event):
                     yield evt
             break
 
