@@ -12,8 +12,17 @@ export function setToken(token: string) {
   localStorage.setItem("las_token", token);
 }
 
+export function getRefreshToken(): string | null {
+  return localStorage.getItem("las_refresh_token");
+}
+
+export function setRefreshToken(token: string) {
+  localStorage.setItem("las_refresh_token", token);
+}
+
 export function clearToken() {
   localStorage.removeItem("las_token");
+  localStorage.removeItem("las_refresh_token");
 }
 
 // ---------------------------------------------------------------------------
@@ -36,6 +45,30 @@ async function apiFetch<T>(
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
   if (res.status === 401) {
+    // Try refreshing the token once
+    const rt = getRefreshToken();
+    if (rt) {
+      try {
+        const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: rt }),
+        });
+        if (refreshRes.ok) {
+          const data = await refreshRes.json();
+          setToken(data.access_token);
+          // Retry the original request with new token
+          headers["Authorization"] = `Bearer ${data.access_token}`;
+          const retry = await fetch(`${API_BASE}${path}`, { ...options, headers });
+          if (retry.ok) {
+            if (retry.status === 204) return undefined as T;
+            return retry.json() as Promise<T>;
+          }
+        }
+      } catch {
+        // refresh failed, fall through to logout
+      }
+    }
     clearToken();
     window.location.href = "/login";
     throw new Error("Unauthorized");
@@ -56,6 +89,7 @@ async function apiFetch<T>(
 
 export interface LoginResponse {
   access_token: string;
+  refresh_token: string;
   token_type: string;
 }
 
@@ -204,6 +238,7 @@ export async function login(
   }
   const data: LoginResponse = await res.json();
   setToken(data.access_token);
+  setRefreshToken(data.refresh_token);
   return data;
 }
 
@@ -212,8 +247,16 @@ export function logout() {
   window.location.href = "/login";
 }
 
-export async function refreshToken(): Promise<LoginResponse> {
-  return apiFetch<LoginResponse>("/auth/refresh", { method: "POST" });
+export async function refreshToken(): Promise<{ access_token: string }> {
+  const rt = getRefreshToken();
+  if (!rt) throw new Error("No refresh token");
+  const data = await apiFetch<{ access_token: string }>("/auth/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: rt }),
+  });
+  setToken(data.access_token);
+  return data;
 }
 
 export async function getMe(): Promise<User> {
