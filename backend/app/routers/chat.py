@@ -1,7 +1,9 @@
+import asyncio
 import json
+import logging
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +12,10 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.models import User
 from app.services.ai_agent import run_agent
+from app.services.llm import CancelledByClient
 from app.services.settings import get_setting
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -59,6 +64,7 @@ async def chat_status(
 @router.post("/stream")
 async def chat_stream(
     body: ChatRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -66,16 +72,40 @@ async def chat_stream(
 
     The AI agent autonomously decides which tools to use (search, grep,
     read_document, search_by_title) to find information and answer the user.
+    Creates a per-request cancel event so disconnecting clients don't waste
+    LLM inference resources.
     """
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
 
     # Carried-over context from frontend
     existing_context = [c.content for c in body.context] if body.context else None
 
+    # Per-request cancellation: set when the client disconnects
+    cancel_event = asyncio.Event()
+
+    async def _monitor_disconnect():
+        """Poll Request.is_disconnected() and signal cancellation."""
+        while not cancel_event.is_set():
+            if await request.is_disconnected():
+                logger.info("Client disconnected, cancelling LLM inference")
+                cancel_event.set()
+                return
+            await asyncio.sleep(0.5)
+
     async def event_generator():
-        async for event in run_agent(db, messages, existing_context, user=current_user):
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-        yield "data: [DONE]\n\n"
+        monitor_task = asyncio.create_task(_monitor_disconnect())
+        try:
+            async for event in run_agent(
+                db, messages, existing_context,
+                user=current_user, cancel_event=cancel_event,
+            ):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+        except CancelledByClient:
+            logger.info("Agent cancelled by client disconnect")
+        finally:
+            cancel_event.set()  # stop the monitor
+            monitor_task.cancel()
 
     return StreamingResponse(
         event_generator(),
