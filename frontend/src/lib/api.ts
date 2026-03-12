@@ -402,6 +402,15 @@ export async function getDocument(id: string): Promise<Document> {
   return apiFetch(`/documents/${id}`);
 }
 
+export async function checkDuplicates(titles: string[]): Promise<string[]> {
+  const data = await apiFetch<{ duplicates: string[] }>("/documents/check-duplicates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(titles),
+  });
+  return data.duplicates;
+}
+
 export async function updateDocument(
   id: string,
   data: { title?: string; memo?: string; is_public?: boolean; searchable?: boolean; ai_knowledge?: boolean; folder_id?: string | null; tag_ids?: number[] },

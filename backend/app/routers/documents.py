@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, func, or_, select
@@ -555,6 +555,25 @@ async def get_processing_status(
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found")
     return {"status": row}
+
+
+@router.post("/check-duplicates")
+async def check_duplicates(
+    titles: list[str] = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return which of the given titles already exist as documents."""
+    if not titles:
+        return {"duplicates": []}
+    result = await db.execute(
+        select(Document.title).where(
+            Document.title.in_(titles),
+            Document.deleted_at.is_(None),
+        )
+    )
+    found = set(result.scalars().all())
+    return {"duplicates": [t for t in titles if t in found]}
 
 
 # ---------------------------------------------------------------------------
