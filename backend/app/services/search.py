@@ -32,9 +32,14 @@ async def fulltext_search(
     if not words:
         return []
 
-    like_conditions = [Chunk.content.ilike(f"%{word}%") for word in words]
+    like_conditions = [
+        or_(Chunk.content.ilike(f"%{word}%"), Document.title.ilike(f"%{word}%"))
+        for word in words
+    ]
     match_count = sum(
-        case((Chunk.content.ilike(f"%{w}%"), 1), else_=0) for w in words
+        case((Chunk.content.ilike(f"%{w}%"), 1), else_=0)
+        + case((Document.title.ilike(f"%{w}%"), 1), else_=0)
+        for w in words
     ).label("match_count")
 
     visibility = await _get_visibility_filter(db, user)
