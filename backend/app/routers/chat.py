@@ -73,7 +73,7 @@ async def chat_stream(
     existing_context = [c.content for c in body.context] if body.context else None
 
     async def event_generator():
-        async for event in run_agent(db, messages, existing_context):
+        async for event in run_agent(db, messages, existing_context, user=current_user):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 

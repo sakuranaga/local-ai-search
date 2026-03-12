@@ -13,10 +13,17 @@ from sqlalchemy.orm import aliased
 from app.config import settings
 from app.db import async_session, get_db
 from app.deps import get_current_user
-from app.models import Chunk, Document, DocumentPermission, DocumentTag, File, Folder, Tag, User
+from app.models import Chunk, Document, DocumentTag, File, Folder, Group, Tag, User
 from app.services.embedding import get_embeddings
 from app.services.llm import generate_summary
 from app.services.parser import chunk_text, parse_file
+from app.services.permissions import (
+    is_admin as _is_admin,
+    can_access_document as _check_doc_access,
+    get_user_group_ids,
+    build_visibility_filter,
+    format_permission_string,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +46,15 @@ class DocumentListItem(BaseModel):
     summary: str | None = None
     source_path: str | None
     file_type: str
-    is_public: bool
+    owner_id: str | None = None
+    owner_name: str | None = None
+    group_id: str | None = None
+    group_name: str | None = None
+    group_read: bool = False
+    group_write: bool = False
+    others_read: bool = True
+    others_write: bool = False
+    permissions: str = "rw--r-"  # Unix-style string
     searchable: bool
     ai_knowledge: bool
     chunk_count: int
@@ -71,7 +86,11 @@ class DocumentDetail(DocumentListItem):
 class DocumentUpdateRequest(BaseModel):
     title: str | None = None
     memo: str | None = None
-    is_public: bool | None = None
+    group_id: str | None = None  # UUID string or "" to unset
+    group_read: bool | None = None
+    group_write: bool | None = None
+    others_read: bool | None = None
+    others_write: bool | None = None
     searchable: bool | None = None
     ai_knowledge: bool | None = None
     folder_id: str | None = None  # UUID string or "" to unset
@@ -85,23 +104,24 @@ class BulkDeleteRequest(BaseModel):
 class BulkActionRequest(BaseModel):
     ids: list[str]
     action: str  # "delete" | "reindex" | "set_permissions" | "move_to_folder" | "add_tags" | "remove_tags"
-    # For set_permissions action
-    permissions: list["PermissionEntry"] | None = None
+    # For set_permissions action (Unix-style)
+    group_id: str | None = None  # UUID string or "" to unset
+    group_read: bool | None = None
+    group_write: bool | None = None
+    others_read: bool | None = None
+    others_write: bool | None = None
     # For move_to_folder action
     folder_id: str | None = None  # "" to unset
     # For add_tags / remove_tags actions
     tag_ids: list[int] | None = None
 
 
-class PermissionEntry(BaseModel):
-    user_id: str
-    username: str | None = None
-    can_read: bool = True
-    can_write: bool = False
-
-
-class PermissionsRequest(BaseModel):
-    permissions: list[PermissionEntry]
+class UnixPermissionsRequest(BaseModel):
+    group_id: str | None = None  # UUID string or "" to unset
+    group_read: bool | None = None
+    group_write: bool | None = None
+    others_read: bool | None = None
+    others_write: bool | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -137,47 +157,41 @@ def _get_file_type(filename: str) -> str:
     return type_map.get(ext, "md")
 
 
-def _is_admin(user: User) -> bool:
-    for ur in user.roles:
-        if ur.role.permissions and "admin" in [
-            p.strip() for p in ur.role.permissions.split(",")
-        ]:
-            return True
-    return False
-
-
-async def _check_doc_access(
-    doc: Document, user: User, need_write: bool = False, db: AsyncSession | None = None
-) -> bool:
-    """Return True if *user* may access *doc*.
-
-    - admin always has access
-    - owner always has access
-    - is_public grants read access (not write)
-    - DocumentPermission for specific user
-    """
-    if _is_admin(user):
-        return True
-    if doc.owner_id == user.id:
-        return True
-
-    if not need_write and doc.is_public:
-        return True
-
-    if db is not None:
-        result = await db.execute(
-            select(DocumentPermission).where(
-                DocumentPermission.document_id == doc.id,
-                DocumentPermission.user_id == user.id,
-            )
-        )
-        perm = result.scalar_one_or_none()
-        if perm is not None:
-            if need_write:
-                return perm.can_write
-            return perm.can_read
-
-    return False
+def _make_doc_list_item(
+    row, tags: list[TagInfo] | None = None, group_name: str | None = None,
+) -> DocumentListItem:
+    """Build a DocumentListItem from a query row with Unix permission fields."""
+    g_read = getattr(row, "group_read", False) or False
+    g_write = getattr(row, "group_write", False) or False
+    o_read = getattr(row, "others_read", True)
+    o_write = getattr(row, "others_write", False) or False
+    return DocumentListItem(
+        id=str(row.id),
+        title=row.title,
+        summary=getattr(row, "summary", None),
+        source_path=getattr(row, "source_path", None),
+        file_type=row.file_type,
+        owner_id=str(row.owner_id) if getattr(row, "owner_id", None) else None,
+        owner_name=getattr(row, "owner_name", None),
+        group_id=str(row.group_id) if getattr(row, "group_id", None) else None,
+        group_name=group_name or getattr(row, "group_name", None),
+        group_read=g_read,
+        group_write=g_write,
+        others_read=o_read if o_read is not None else True,
+        others_write=o_write,
+        permissions=format_permission_string(g_read, g_write, o_read if o_read is not None else True, o_write),
+        searchable=getattr(row, "searchable", True),
+        ai_knowledge=getattr(row, "ai_knowledge", True),
+        chunk_count=getattr(row, "chunk_count", 0),
+        memo=getattr(row, "memo", None),
+        folder_id=str(row.folder_id) if getattr(row, "folder_id", None) else None,
+        folder_name=getattr(row, "folder_name", None),
+        tags=tags or [],
+        created_by_name=getattr(row, "created_by_name", None),
+        updated_by_name=getattr(row, "updated_by_name", None),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +235,7 @@ async def list_documents(
 
     CreatedByUser = aliased(User)
     UpdatedByUser = aliased(User)
+    OwnerUser = aliased(User)
 
     # Subquery for chunk count
     chunk_count_sq = (
@@ -232,26 +247,9 @@ async def list_documents(
         .subquery()
     )
 
-    # Subquery: document IDs the user has explicit read permission on
-    perm_sq = (
-        select(DocumentPermission.document_id)
-        .where(
-            DocumentPermission.user_id == current_user.id,
-            DocumentPermission.can_read.is_(True),
-        )
-        .subquery()
-    )
-
-    # Visibility filter
-    is_admin = _is_admin(current_user)
-    if is_admin:
-        visibility_filter = True  # admin sees everything
-    else:
-        visibility_filter = or_(
-            Document.is_public.is_(True),
-            Document.owner_id == current_user.id,
-            Document.id.in_(select(perm_sq.c.document_id)),
-        )
+    # Unix visibility filter
+    user_group_ids = await get_user_group_ids(db, current_user.id)
+    visibility_filter = build_visibility_filter(current_user, user_group_ids)
 
     # Base query
     base = (
@@ -260,13 +258,20 @@ async def list_documents(
             Document.title,
             Document.source_path,
             Document.file_type,
-            Document.is_public,
+            Document.owner_id,
+            OwnerUser.username.label("owner_name"),
+            Document.group_id,
+            Document.group_read,
+            Document.group_write,
+            Document.others_read,
+            Document.others_write,
             Document.searchable,
             Document.ai_knowledge,
             Document.summary,
             Document.memo,
             Document.folder_id,
             Folder.name.label("folder_name"),
+            Group.name.label("group_name"),
             Document.created_at,
             Document.updated_at,
             func.coalesce(chunk_count_sq.c.chunk_count, 0).label("chunk_count"),
@@ -276,7 +281,9 @@ async def list_documents(
         .outerjoin(chunk_count_sq, Document.id == chunk_count_sq.c.document_id)
         .outerjoin(CreatedByUser, Document.created_by_id == CreatedByUser.id)
         .outerjoin(UpdatedByUser, Document.updated_by_id == UpdatedByUser.id)
+        .outerjoin(OwnerUser, Document.owner_id == OwnerUser.id)
         .outerjoin(Folder, Document.folder_id == Folder.id)
+        .outerjoin(Group, Document.group_id == Group.id)
         .where(visibility_filter)
         .where(Document.deleted_at.is_(None))
     )
@@ -328,25 +335,7 @@ async def list_documents(
     tags_map = await _load_tags_for_docs(db, doc_ids)
 
     items = [
-        DocumentListItem(
-            id=str(row.id),
-            title=row.title,
-            summary=row.summary,
-            source_path=row.source_path,
-            file_type=row.file_type,
-            is_public=row.is_public,
-            searchable=row.searchable,
-            ai_knowledge=row.ai_knowledge,
-            chunk_count=row.chunk_count,
-            memo=row.memo,
-            folder_id=str(row.folder_id) if row.folder_id else None,
-            folder_name=row.folder_name,
-            tags=tags_map.get(row.id, []),
-            created_by_name=row.created_by_name,
-            updated_by_name=row.updated_by_name,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-        )
+        _make_doc_list_item(row, tags=tags_map.get(row.id, []))
         for row in rows
     ]
 
@@ -488,13 +477,32 @@ async def upload_document(
         if folder_id is not None:
             doc.folder_id = folder_id
     else:
+        # Copy permissions from folder if uploading into one
+        doc_group_id = None
+        doc_group_read = False
+        doc_group_write = False
+        doc_others_read = True
+        doc_others_write = False
+        if folder_id:
+            folder_obj = await db.get(Folder, folder_id)
+            if folder_obj:
+                doc_group_id = folder_obj.group_id
+                doc_group_read = folder_obj.group_read
+                doc_group_write = folder_obj.group_write
+                doc_others_read = folder_obj.others_read
+                doc_others_write = folder_obj.others_write
+
         doc = Document(
             title=file.filename,
             source_path=str(storage_path),
             file_type=file_type,
             content="",
             owner_id=current_user.id,
-            is_public=True,
+            group_id=doc_group_id,
+            group_read=doc_group_read,
+            group_write=doc_group_write,
+            others_read=doc_others_read,
+            others_write=doc_others_write,
             created_by_id=current_user.id,
             updated_by_id=current_user.id,
             processing_status="pending",
@@ -528,7 +536,14 @@ async def upload_document(
         summary=doc.summary,
         source_path=doc.source_path,
         file_type=doc.file_type,
-        is_public=doc.is_public,
+        owner_id=str(doc.owner_id) if doc.owner_id else None,
+        owner_name=current_user.username,
+        group_id=str(doc.group_id) if doc.group_id else None,
+        group_read=doc.group_read,
+        group_write=doc.group_write,
+        others_read=doc.others_read,
+        others_write=doc.others_write,
+        permissions=format_permission_string(doc.group_read, doc.group_write, doc.others_read, doc.others_write),
         searchable=doc.searchable,
         ai_knowledge=doc.ai_knowledge,
         chunk_count=0,
@@ -813,6 +828,12 @@ async def get_document(
     files_result = await db.execute(select(File).where(File.document_id == doc.id))
     files = files_result.scalars().all()
 
+    # Get owner name
+    owner_name = None
+    if doc.owner_id:
+        r = await db.execute(select(User.username).where(User.id == doc.owner_id))
+        owner_name = r.scalar_one_or_none()
+
     # Get created_by / updated_by names
     created_by_name = None
     updated_by_name = None
@@ -833,12 +854,26 @@ async def get_document(
     tags_map = await _load_tags_for_docs(db, [doc.id])
     doc_tags = tags_map.get(doc.id, [])
 
+    # Get group name
+    group_name = None
+    if doc.group_id:
+        r = await db.execute(select(Group.name).where(Group.id == doc.group_id))
+        group_name = r.scalar_one_or_none()
+
     return DocumentDetail(
         id=str(doc.id),
         title=doc.title,
         source_path=doc.source_path,
         file_type=doc.file_type,
-        is_public=doc.is_public,
+        owner_id=str(doc.owner_id) if doc.owner_id else None,
+        owner_name=owner_name,
+        group_id=str(doc.group_id) if doc.group_id else None,
+        group_name=group_name,
+        group_read=doc.group_read,
+        group_write=doc.group_write,
+        others_read=doc.others_read,
+        others_write=doc.others_write,
+        permissions=format_permission_string(doc.group_read, doc.group_write, doc.others_read, doc.others_write),
         searchable=doc.searchable,
         ai_knowledge=doc.ai_knowledge,
         content=doc.content,
@@ -873,7 +908,7 @@ async def get_document(
 
 
 # ---------------------------------------------------------------------------
-# 4. PATCH /documents/{id} — update title, memo, is_public
+# 4. PATCH /documents/{id} — update title, memo, permissions
 # ---------------------------------------------------------------------------
 
 
@@ -898,8 +933,16 @@ async def update_document(
         doc.title = body.title
     if body.memo is not None:
         doc.memo = body.memo
-    if body.is_public is not None:
-        doc.is_public = body.is_public
+    if body.group_id is not None:
+        doc.group_id = uuid.UUID(body.group_id) if body.group_id else None
+    if body.group_read is not None:
+        doc.group_read = body.group_read
+    if body.group_write is not None:
+        doc.group_write = body.group_write
+    if body.others_read is not None:
+        doc.others_read = body.others_read
+    if body.others_write is not None:
+        doc.others_write = body.others_write
     if body.searchable is not None:
         doc.searchable = body.searchable
     if body.ai_knowledge is not None:
@@ -934,12 +977,32 @@ async def update_document(
     # tags
     tags_map = await _load_tags_for_docs(db, [doc.id])
 
+    # group name
+    group_name = None
+    if doc.group_id:
+        r = await db.execute(select(Group.name).where(Group.id == doc.group_id))
+        group_name = r.scalar_one_or_none()
+
+    # Owner name
+    _owner_name = None
+    if doc.owner_id:
+        _r = await db.execute(select(User.username).where(User.id == doc.owner_id))
+        _owner_name = _r.scalar_one_or_none()
+
     return DocumentListItem(
         id=str(doc.id),
         title=doc.title,
         source_path=doc.source_path,
         file_type=doc.file_type,
-        is_public=doc.is_public,
+        owner_id=str(doc.owner_id) if doc.owner_id else None,
+        owner_name=_owner_name,
+        group_id=str(doc.group_id) if doc.group_id else None,
+        group_name=group_name,
+        group_read=doc.group_read,
+        group_write=doc.group_write,
+        others_read=doc.others_read,
+        others_write=doc.others_write,
+        permissions=format_permission_string(doc.group_read, doc.group_write, doc.others_read, doc.others_write),
         searchable=doc.searchable,
         ai_knowledge=doc.ai_knowledge,
         chunk_count=chunk_count,
@@ -1089,9 +1152,8 @@ async def bulk_action(
         return {"action": "reindex", "processed": processed}
 
     elif body.action == "set_permissions":
-        if body.permissions is None:
-            raise HTTPException(status_code=400, detail="permissions required for set_permissions action")
         processed = 0
+        group_uuid = uuid.UUID(body.group_id) if body.group_id else None
         for doc_id_str in body.ids:
             try:
                 doc_id = uuid.UUID(doc_id_str)
@@ -1103,26 +1165,26 @@ async def bulk_action(
                 continue
             if doc.owner_id != current_user.id and not _is_admin(current_user):
                 continue
-            await db.execute(
-                delete(DocumentPermission).where(DocumentPermission.document_id == doc.id)
-            )
-            for entry in body.permissions:
-                try:
-                    uid = uuid.UUID(entry.user_id)
-                except ValueError:
-                    continue
-                db.add(DocumentPermission(
-                    document_id=doc.id,
-                    user_id=uid,
-                    can_read=entry.can_read,
-                    can_write=entry.can_write,
-                ))
+            if body.group_id is not None:
+                doc.group_id = group_uuid
+            if body.group_read is not None:
+                doc.group_read = body.group_read
+            if body.group_write is not None:
+                doc.group_write = body.group_write
+            if body.others_read is not None:
+                doc.others_read = body.others_read
+            if body.others_write is not None:
+                doc.others_write = body.others_write
             processed += 1
         await db.flush()
         return {"action": "set_permissions", "processed": processed}
 
     elif body.action == "move_to_folder":
         folder_uuid = uuid.UUID(body.folder_id) if body.folder_id else None
+        # Load target folder to copy permissions
+        target_folder = None
+        if folder_uuid:
+            target_folder = await db.get(Folder, folder_uuid)
         processed = 0
         for doc_id_str in body.ids:
             try:
@@ -1136,6 +1198,13 @@ async def bulk_action(
             if not await _check_doc_access(doc, current_user, need_write=True, db=db):
                 continue
             doc.folder_id = folder_uuid
+            # Apply target folder permissions
+            if target_folder:
+                doc.group_id = target_folder.group_id
+                doc.group_read = target_folder.group_read
+                doc.group_write = target_folder.group_write
+                doc.others_read = target_folder.others_read
+                doc.others_write = target_folder.others_write
             doc.updated_by_id = current_user.id
             processed += 1
         await db.flush()
@@ -1197,88 +1266,86 @@ async def bulk_action(
 
 
 # ---------------------------------------------------------------------------
-# 7. GET /documents/{id}/permissions
+# 7. GET /documents/{id}/permissions — Unix-style permissions
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{document_id}/permissions", response_model=list[PermissionEntry])
+@router.get("/{document_id}/permissions")
 async def get_document_permissions(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Return list of permission entries for the document."""
+    """Return Unix-style permissions for the document."""
     result = await db.execute(select(Document).where(Document.id == document_id))
     doc = result.scalar_one_or_none()
-
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
-
     if not await _check_doc_access(doc, current_user, need_write=False, db=db):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    perms_result = await db.execute(
-        select(DocumentPermission, User.username)
-        .join(User, DocumentPermission.user_id == User.id)
-        .where(DocumentPermission.document_id == doc.id)
-    )
-    rows = perms_result.all()
+    # Owner info
+    owner_name = None
+    if doc.owner_id:
+        r = await db.execute(select(User.username).where(User.id == doc.owner_id))
+        owner_name = r.scalar_one_or_none()
 
-    return [
-        PermissionEntry(
-            user_id=str(perm.user_id),
-            username=username,
-            can_read=perm.can_read,
-            can_write=perm.can_write,
-        )
-        for perm, username in rows
-    ]
+    # Group info
+    group_name = None
+    if doc.group_id:
+        r = await db.execute(select(Group.name).where(Group.id == doc.group_id))
+        group_name = r.scalar_one_or_none()
+
+    return {
+        "owner_id": str(doc.owner_id) if doc.owner_id else None,
+        "owner_name": owner_name,
+        "group_id": str(doc.group_id) if doc.group_id else None,
+        "group_name": group_name,
+        "group_read": doc.group_read,
+        "group_write": doc.group_write,
+        "others_read": doc.others_read,
+        "others_write": doc.others_write,
+        "permissions": format_permission_string(doc.group_read, doc.group_write, doc.others_read, doc.others_write),
+    }
 
 
 # ---------------------------------------------------------------------------
-# 8. PUT /documents/{id}/permissions
+# 8. PATCH /documents/{id}/permissions — Unix-style permissions update
 # ---------------------------------------------------------------------------
 
 
-@router.put("/{document_id}/permissions")
+@router.patch("/{document_id}/permissions")
 async def set_document_permissions(
     document_id: uuid.UUID,
-    body: PermissionsRequest,
+    body: UnixPermissionsRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Replace all permissions for the document. Owner or admin only."""
+    """Update Unix-style permissions for the document. Owner or admin only."""
     result = await db.execute(select(Document).where(Document.id == document_id))
     doc = result.scalar_one_or_none()
-
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
-
-    # Only owner or admin can manage permissions
-    if doc.owner_id != current_user.id and not _is_admin(current_user):
+    effective_owner = doc.owner_id or doc.created_by_id
+    if effective_owner != current_user.id and not _is_admin(current_user):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Delete existing permissions
-    await db.execute(
-        delete(DocumentPermission).where(DocumentPermission.document_id == doc.id)
-    )
-
-    # Create new permissions
-    for entry in body.permissions:
-        try:
-            uid = uuid.UUID(entry.user_id)
-        except ValueError:
-            continue
-        perm = DocumentPermission(
-            document_id=doc.id,
-            user_id=uid,
-            can_read=entry.can_read,
-            can_write=entry.can_write,
-        )
-        db.add(perm)
+    if body.group_id is not None:
+        doc.group_id = uuid.UUID(body.group_id) if body.group_id else None
+    if body.group_read is not None:
+        doc.group_read = body.group_read
+    if body.group_write is not None:
+        doc.group_write = body.group_write
+    if body.others_read is not None:
+        doc.others_read = body.others_read
+    if body.others_write is not None:
+        doc.others_write = body.others_write
 
     await db.flush()
-    return {"status": "ok", "count": len(body.permissions)}
+    return {
+        "status": "ok",
+        "permissions": format_permission_string(doc.group_read, doc.group_write, doc.others_read, doc.others_write),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1343,7 +1410,14 @@ async def reindex_document(
         title=doc.title,
         source_path=doc.source_path,
         file_type=doc.file_type,
-        is_public=doc.is_public,
+        owner_id=str(doc.owner_id) if doc.owner_id else None,
+        owner_name=current_user.username,
+        group_id=str(doc.group_id) if doc.group_id else None,
+        group_read=doc.group_read,
+        group_write=doc.group_write,
+        others_read=doc.others_read,
+        others_write=doc.others_write,
+        permissions=format_permission_string(doc.group_read, doc.group_write, doc.others_read, doc.others_write),
         searchable=doc.searchable,
         ai_knowledge=doc.ai_knowledge,
         chunk_count=len(chunks_text),

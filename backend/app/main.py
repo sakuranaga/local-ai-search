@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import engine, get_db
 from app.deps import get_current_user
 from app.models import Base, Chunk, Document, User
-from app.routers import auth, chat, documents, folders, roles, search, settings, tags, users
+from app.routers import auth, chat, documents, folders, groups, roles, search, settings, tags, users
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,6 +53,76 @@ async def init_db():
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary TEXT DEFAULT ''"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS processing_status VARCHAR(30) DEFAULT 'done' NOT NULL"))
         logger.info("Document table migration columns verified")
+
+    # Phase 0: Role simplification (Admin/User)
+    async with engine.begin() as conn:
+        # Ensure 'admin' and 'user' roles exist
+        await conn.execute(text(
+            "INSERT INTO roles (name, permissions) VALUES ('admin', 'admin') ON CONFLICT (name) DO NOTHING"
+        ))
+        await conn.execute(text(
+            "INSERT INTO roles (name, permissions) VALUES ('user', 'search') ON CONFLICT (name) DO NOTHING"
+        ))
+        # Migrate editor/viewer users to 'user' role
+        user_role_id = (await conn.execute(text(
+            "SELECT id FROM roles WHERE name = 'user'"
+        ))).scalar()
+        if user_role_id:
+            old_roles = (await conn.execute(text(
+                "SELECT id FROM roles WHERE name IN ('editor', 'viewer')"
+            ))).scalars().all()
+            for old_id in old_roles:
+                # Re-assign users from old role to 'user'
+                await conn.execute(text(
+                    "UPDATE user_roles SET role_id = :new_id WHERE role_id = :old_id "
+                    "AND user_id NOT IN (SELECT user_id FROM user_roles WHERE role_id = :new_id)"
+                ), {"new_id": user_role_id, "old_id": old_id})
+                # Remove duplicates
+                await conn.execute(text(
+                    "DELETE FROM user_roles WHERE role_id = :old_id"
+                ), {"old_id": old_id})
+            # Delete old roles
+            await conn.execute(text(
+                "DELETE FROM roles WHERE name IN ('editor', 'viewer')"
+            ))
+        logger.info("Role simplification (Admin/User) done")
+
+    # Phase 1: Unix permissions migration
+    async with engine.begin() as conn:
+        # Document Unix permission columns
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES groups(id) ON DELETE SET NULL"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS group_read BOOLEAN DEFAULT FALSE"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS group_write BOOLEAN DEFAULT FALSE"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS others_read BOOLEAN DEFAULT TRUE"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS others_write BOOLEAN DEFAULT FALSE"))
+
+        # Folder Unix permission columns
+        await conn.execute(text("ALTER TABLE folders ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES users(id) ON DELETE SET NULL"))
+        await conn.execute(text("ALTER TABLE folders ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES groups(id) ON DELETE SET NULL"))
+        await conn.execute(text("ALTER TABLE folders ADD COLUMN IF NOT EXISTS group_read BOOLEAN DEFAULT FALSE"))
+        await conn.execute(text("ALTER TABLE folders ADD COLUMN IF NOT EXISTS group_write BOOLEAN DEFAULT FALSE"))
+        await conn.execute(text("ALTER TABLE folders ADD COLUMN IF NOT EXISTS others_read BOOLEAN DEFAULT TRUE"))
+        await conn.execute(text("ALTER TABLE folders ADD COLUMN IF NOT EXISTS others_write BOOLEAN DEFAULT FALSE"))
+
+        # Migrate is_public → others_read
+        # Check if is_public column exists before migrating
+        col_check = await conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'documents' AND column_name = 'is_public'"
+        ))
+        if col_check.scalar_one_or_none():
+            await conn.execute(text("UPDATE documents SET others_read = is_public WHERE others_read != is_public"))
+            await conn.execute(text("ALTER TABLE documents DROP COLUMN IF EXISTS is_public"))
+            logger.info("Migrated is_public → others_read and dropped is_public column")
+
+        # Set owner_id from created_by_id for existing documents
+        await conn.execute(text(
+            "UPDATE documents SET owner_id = created_by_id WHERE owner_id IS NULL AND created_by_id IS NOT NULL"
+        ))
+
+        # Drop document_permissions table (no longer needed)
+        await conn.execute(text("DROP TABLE IF EXISTS document_permissions"))
+        logger.info("Unix permissions migration done")
 
     async with engine.begin() as conn:
         try:
@@ -100,6 +170,7 @@ app.include_router(settings.router, prefix="/api")
 app.include_router(roles.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(folders.router, prefix="/api")
+app.include_router(groups.router, prefix="/api")
 app.include_router(tags.router, prefix="/api")
 
 

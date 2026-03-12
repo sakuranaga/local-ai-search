@@ -56,11 +56,9 @@ import {
   uploadDocument,
   deleteDocument,
   bulkAction,
-  getDocumentPermissions,
   setDocumentPermissions,
+  getMe,
   reindexDocument,
-  getUsers,
-  getRoles,
   getFolders,
   createFolder,
   updateFolder,
@@ -69,6 +67,7 @@ import {
   createTag,
   updateTag,
   deleteTag,
+  getGroups,
   getTrash,
   restoreFromTrash,
   purgeFromTrash,
@@ -77,12 +76,10 @@ import {
   checkDuplicates,
   type TrashItem,
   type DocumentListItem,
-  type DocumentPermissionEntry,
   type Document,
-  type User,
-  type Role,
   type Folder,
   type TagInfo,
+  type Group,
 } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
@@ -369,7 +366,7 @@ export function FileExplorerPage() {
 
   async function handleBulkAction(action: string, extra?: Record<string, unknown>) {
     try {
-      const res = await bulkAction([...selected], action, undefined, extra);
+      const res = await bulkAction([...selected], action, extra);
       toast.success(`${res.processed}件${action === "delete" ? "ゴミ箱に移動しました" : "処理しました"}`);
       setSelected(new Set());
       setBulkActionOpen(null);
@@ -410,7 +407,7 @@ export function FileExplorerPage() {
     );
 
     try {
-      const res = await bulkAction(docIds, "move_to_folder", undefined, { folder_id: folderId });
+      const res = await bulkAction(docIds, "move_to_folder", { folder_id: folderId });
       toast.success(`${res.processed}件を移動しました`);
       setSelected(new Set());
       // Reload to get accurate data from server
@@ -1530,8 +1527,8 @@ function DocumentDetailModal({
             <EditTab doc={doc} item={item} folders={folders} allTags={allTags} onSaved={onUpdated} onTagsChanged={onTagsChanged} />
           )}
 
-          {tab === "permissions" && (
-            <PermissionsTab docId={item.id} docTitle={item.title} isPublic={item.is_public} />
+          {tab === "permissions" && doc && (
+            <PermissionsTab docId={item.id} doc={doc} />
           )}
         </div>
       </DialogContent>
@@ -1560,7 +1557,6 @@ function EditTab({
 }) {
   const [title, setTitle] = useState(doc.title);
   const [memo, setMemo] = useState(doc.memo ?? "");
-  const [isPublic, setIsPublic] = useState(doc.is_public);
   const [searchable, setSearchable] = useState(doc.searchable);
   const [aiKnowledge, setAiKnowledge] = useState(doc.ai_knowledge);
   const [folderId, setFolderId] = useState(doc.folder_id ?? "");
@@ -1601,7 +1597,6 @@ function EditTab({
       await updateDocument(item.id, {
         title,
         memo,
-        is_public: isPublic,
         searchable,
         ai_knowledge: aiKnowledge,
         folder_id: folderId || null,
@@ -1671,10 +1666,6 @@ function EditTab({
       </div>
       <div className="flex flex-col gap-2">
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
-          公開（全ユーザーが閲覧可能）
-        </label>
-        <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={searchable} onChange={(e) => setSearchable(e.target.checked)} />
           検索対象に含める
         </label>
@@ -1692,124 +1683,114 @@ function EditTab({
 // Permissions Tab
 // ---------------------------------------------------------------------------
 
-function PermissionsTab({ docId, isPublic }: { docId: string; docTitle: string; isPublic: boolean }) {
-  const [perms, setPerms] = useState<DocumentPermissionEntry[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [addUserId, setAddUserId] = useState("");
+function formatPermString(gr: boolean, gw: boolean, or_: boolean, ow: boolean): string {
+  const owner = "rw";
+  const group = (gr ? "r" : "-") + (gw ? "w" : "-");
+  const others = (or_ ? "r" : "-") + (ow ? "w" : "-");
+  return `${owner}${group}${others}`;
+}
+
+function PermissionsTab({ docId, doc }: { docId: string; doc: Document }) {
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupId, setGroupId] = useState(doc.group_id ?? "");
+  const [groupRead, setGroupRead] = useState(doc.group_read);
+  const [groupWrite, setGroupWrite] = useState(doc.group_write);
+  const [othersRead, setOthersRead] = useState(doc.others_read);
+  const [othersWrite, setOthersWrite] = useState(doc.others_write);
   const [saving, setSaving] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
 
   useEffect(() => {
-    getDocumentPermissions(docId).then(setPerms).catch(() => {});
-    getUsers().then(setUsers).catch(() => {});
-    getRoles().then(setRoles).catch(() => {});
+    getGroups().then(setGroups).catch(() => {});
+    getMe().then((me) => {
+      const isOwner = doc.owner_id === me.id;
+      const isAdmin = me.roles.includes("admin");
+      setCanEdit(isOwner || isAdmin);
+    }).catch(() => {});
   }, [docId]);
-
-  function handleToggle(userId: string, field: "can_read" | "can_write") {
-    setPerms((prev) => prev.map((p) => (p.user_id === userId ? { ...p, [field]: !p[field] } : p)));
-  }
-
-  function handleAdd() {
-    if (!addUserId || perms.find((p) => p.user_id === addUserId)) return;
-    const user = users.find((u) => String(u.id) === addUserId);
-    setPerms((prev) => [...prev, { user_id: addUserId, username: user?.username ?? null, can_read: true, can_write: false }]);
-    setAddUserId("");
-  }
-
-  function handleRemove(userId: string) {
-    setPerms((prev) => prev.filter((p) => p.user_id !== userId));
-  }
 
   async function handleSave() {
     setSaving(true);
     try {
-      await setDocumentPermissions(docId, perms);
+      await setDocumentPermissions(docId, {
+        group_id: groupId || null,
+        group_read: groupRead,
+        group_write: groupWrite,
+        others_read: othersRead,
+        others_write: othersWrite,
+      });
       toast.success("権限を保存しました");
     } catch { toast.error("保存失敗"); }
     finally { setSaving(false); }
   }
 
-  const availableUsers = users.filter((u) => !perms.find((p) => p.user_id === String(u.id)));
-
   return (
     <div className="space-y-4 p-1">
-      <div className="flex items-center gap-2">
-        <Badge>{isPublic ? "公開" : "非公開"}</Badge>
-        <span className="text-xs text-muted-foreground">
-          {isPublic ? "全ユーザーが閲覧可能" : "権限のあるユーザーのみ"}
-        </span>
+      <div className="text-sm">
+        <span className="font-medium">オーナー:</span>{" "}
+        <span>{doc.owner_name ?? "不明"}</span>{" "}
+        <Badge variant="outline" className="text-xs ml-1">rw（固定）</Badge>
       </div>
 
-      {roles.length > 0 && (
-        <div>
-          <h4 className="text-sm font-medium mb-1">ロール</h4>
-          <div className="flex flex-wrap gap-2">
-            {roles.map((r) => (
-              <Badge key={r.id} variant="outline" className="text-xs">
-                {r.name}: {r.permissions.join(", ") || "権限なし"}
-              </Badge>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">adminロールのユーザーは全文書にアクセス可能です</p>
+      <Separator />
+
+      <div>
+        <label className="text-sm font-medium">グループ</label>
+        <select
+          value={groupId}
+          onChange={(e) => setGroupId(e.target.value)}
+          disabled={!canEdit}
+          className="w-full h-9 rounded-md border bg-background px-3 text-sm mt-1 disabled:opacity-50"
+        >
+          <option value="">なし</option>
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>{g.name}</option>
+          ))}
+        </select>
+        <div className="flex gap-4 mt-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={groupRead} onChange={(e) => setGroupRead(e.target.checked)} disabled={!canEdit} />
+            読み取り
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={groupWrite} onChange={(e) => setGroupWrite(e.target.checked)} disabled={!canEdit} />
+            書き込み
+          </label>
         </div>
-      )}
+      </div>
 
       <Separator />
-      <h4 className="text-sm font-medium">個別権限</h4>
 
-      {perms.length > 0 && (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ユーザー</TableHead>
-              <TableHead className="w-16">ロール</TableHead>
-              <TableHead className="w-16 text-center">閲覧</TableHead>
-              <TableHead className="w-16 text-center">編集</TableHead>
-              <TableHead className="w-12" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {perms.map((p) => {
-              const user = users.find((u) => String(u.id) === p.user_id);
-              return (
-                <TableRow key={p.user_id}>
-                  <TableCell className="text-sm">{p.username ?? p.user_id}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{user?.roles?.[0] ?? "-"}</TableCell>
-                  <TableCell className="text-center">
-                    <input type="checkbox" checked={p.can_read} onChange={() => handleToggle(p.user_id, "can_read")} />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <input type="checkbox" checked={p.can_write} onChange={() => handleToggle(p.user_id, "can_write")} />
-                  </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="icon-sm" onClick={() => handleRemove(p.user_id)}>
-                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      )}
-
-      {availableUsers.length > 0 && (
-        <div className="flex items-center gap-2">
-          <select
-            value={addUserId}
-            onChange={(e) => setAddUserId(e.target.value)}
-            className="h-9 flex-1 rounded-md border bg-background px-3 text-sm"
-          >
-            <option value="">ユーザーを追加...</option>
-            {availableUsers.map((u) => (
-              <option key={u.id} value={u.id}>{u.username}{u.roles?.[0] ? ` (${u.roles[0]})` : ""}</option>
-            ))}
-          </select>
-          <Button size="sm" onClick={handleAdd} disabled={!addUserId}>追加</Button>
+      <div>
+        <label className="text-sm font-medium">全員（others）</label>
+        <div className="flex gap-4 mt-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={othersRead} onChange={(e) => setOthersRead(e.target.checked)} disabled={!canEdit} />
+            読み取り
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={othersWrite} onChange={(e) => setOthersWrite(e.target.checked)} disabled={!canEdit} />
+            書き込み
+          </label>
         </div>
-      )}
+      </div>
 
-      <Button onClick={handleSave} disabled={saving}>権限を保存</Button>
+      <Separator />
+
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium">パーミッション:</span>
+        <code className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
+          {formatPermString(groupRead, groupWrite, othersRead, othersWrite)}
+        </code>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        {canEdit
+          ? "adminロールのユーザーは全文書にアクセス可能です"
+          : "権限の変更はオーナーまたは管理者のみ可能です"}
+      </p>
+
+      <Button onClick={handleSave} disabled={saving || !canEdit}>権限を保存</Button>
     </div>
   );
 }
@@ -1829,83 +1810,85 @@ function BulkPermissionsDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [users, setUsers] = useState<User[]>([]);
-  const [perms, setPerms] = useState<DocumentPermissionEntry[]>([]);
-  const [addUserId, setAddUserId] = useState("");
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupId, setGroupId] = useState("");
+  const [groupRead, setGroupRead] = useState(false);
+  const [groupWrite, setGroupWrite] = useState(false);
+  const [othersRead, setOthersRead] = useState(true);
+  const [othersWrite, setOthersWrite] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (open) getUsers().then(setUsers).catch(() => {});
+    if (open) getGroups().then(setGroups).catch(() => {});
   }, [open]);
-
-  function handleAdd() {
-    if (!addUserId || perms.find((p) => p.user_id === addUserId)) return;
-    const user = users.find((u) => String(u.id) === addUserId);
-    setPerms((prev) => [...prev, { user_id: addUserId, username: user?.username ?? null, can_read: true, can_write: false }]);
-    setAddUserId("");
-  }
 
   async function handleSave() {
     setSaving(true);
     try {
-      const res = await bulkAction(selectedIds, "set_permissions", perms);
+      const res = await bulkAction(selectedIds, "set_permissions", {
+        group_id: groupId || null,
+        group_read: groupRead,
+        group_write: groupWrite,
+        others_read: othersRead,
+        others_write: othersWrite,
+      });
       toast.success(`${res.processed}件に権限を設定しました`);
       onDone();
     } catch { toast.error("保存失敗"); }
     finally { setSaving(false); }
   }
 
-  const availableUsers = users.filter((u) => !perms.find((p) => p.user_id === String(u.id)));
-
   return (
     <Dialog open={open} onOpenChange={() => onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>一括権限変更</DialogTitle>
           <DialogDescription>{selectedIds.length}件の文書に同じ権限を設定します。</DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
-          {perms.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ユーザー</TableHead>
-                  <TableHead className="w-16 text-center">閲覧</TableHead>
-                  <TableHead className="w-16 text-center">編集</TableHead>
-                  <TableHead className="w-12" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {perms.map((p) => (
-                  <TableRow key={p.user_id}>
-                    <TableCell className="text-sm">{p.username ?? p.user_id}</TableCell>
-                    <TableCell className="text-center">
-                      <input type="checkbox" checked={p.can_read} onChange={() => setPerms((prev) => prev.map((x) => x.user_id === p.user_id ? { ...x, can_read: !x.can_read } : x))} />
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <input type="checkbox" checked={p.can_write} onChange={() => setPerms((prev) => prev.map((x) => x.user_id === p.user_id ? { ...x, can_write: !x.can_write } : x))} />
-                    </TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="icon-sm" onClick={() => setPerms((prev) => prev.filter((x) => x.user_id !== p.user_id))}>
-                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          {availableUsers.length > 0 && (
-            <div className="flex items-center gap-2">
-              <select value={addUserId} onChange={(e) => setAddUserId(e.target.value)} className="h-9 flex-1 rounded-md border bg-background px-3 text-sm">
-                <option value="">ユーザーを追加...</option>
-                {availableUsers.map((u) => (
-                  <option key={u.id} value={u.id}>{u.username}</option>
-                ))}
-              </select>
-              <Button size="sm" onClick={handleAdd} disabled={!addUserId}>追加</Button>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium">グループ</label>
+            <select
+              value={groupId}
+              onChange={(e) => setGroupId(e.target.value)}
+              className="w-full h-9 rounded-md border bg-background px-3 text-sm mt-1"
+            >
+              <option value="">なし</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+            <div className="flex gap-4 mt-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={groupRead} onChange={(e) => setGroupRead(e.target.checked)} />
+                読み取り
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={groupWrite} onChange={(e) => setGroupWrite(e.target.checked)} />
+                書き込み
+              </label>
             </div>
-          )}
+          </div>
+          <Separator />
+          <div>
+            <label className="text-sm font-medium">全員（others）</label>
+            <div className="flex gap-4 mt-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={othersRead} onChange={(e) => setOthersRead(e.target.checked)} />
+                読み取り
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={othersWrite} onChange={(e) => setOthersWrite(e.target.checked)} />
+                書き込み
+              </label>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">パーミッション:</span>
+            <code className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
+              {formatPermString(groupRead, groupWrite, othersRead, othersWrite)}
+            </code>
+          </div>
         </div>
         <DialogFooter showCloseButton>
           <Button onClick={handleSave} disabled={saving}>適用</Button>
@@ -1991,7 +1974,7 @@ function BulkTagDialog({
     if (selectedTags.size === 0) return;
     setSaving(true);
     try {
-      const res = await bulkAction(selectedIds, "add_tags", undefined, { tag_ids: [...selectedTags] });
+      const res = await bulkAction(selectedIds, "add_tags", { tag_ids: [...selectedTags] });
       toast.success(`${res.processed}件にタグを追加しました`);
       setSelectedTags(new Set());
       onDone();

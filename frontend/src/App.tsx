@@ -78,7 +78,7 @@ function NavBar() {
 
       <div className="flex items-center gap-3 shrink-0 ml-auto">
         <ThemeToggle />
-        {currentUser && (currentUser.roles.includes("admin") || currentUser.roles.includes("editor")) && (
+        {currentUser && (
           <Link to="/files" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
             <FolderOpen className="h-4 w-4" />
             <span className="hidden sm:inline">文書管理</span>
