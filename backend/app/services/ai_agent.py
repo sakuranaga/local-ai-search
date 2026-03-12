@@ -14,8 +14,9 @@ from typing import AsyncIterator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Chunk, Document
+from app.models import Chunk, Document, User
 from app.services.llm import chat_completion, stream_chat_raw
+from app.services.permissions import can_access_document
 from app.services.search import grep_search, merged_search, title_search
 from app.services.settings import get_setting
 
@@ -140,7 +141,7 @@ SYSTEM_PROMPT = """\
 
 
 async def _execute_tool(
-    db: AsyncSession, name: str, arguments: dict
+    db: AsyncSession, name: str, arguments: dict, user: User | None = None
 ) -> tuple[str, list[dict]]:
     """Execute a tool and return (result_text, sources).
 
@@ -152,7 +153,7 @@ async def _execute_tool(
         if name == "search":
             query = arguments.get("query", "")
             results, total = await merged_search(
-                db, query, limit=5, offset=0, require_ai_knowledge=True
+                db, query, limit=5, offset=0, require_ai_knowledge=True, user=user
             )
             if not results:
                 return f"「{query}」に一致する文書は見つかりませんでした。", sources
@@ -166,7 +167,7 @@ async def _execute_tool(
 
         elif name == "grep":
             pattern = arguments.get("pattern", "")
-            results = await grep_search(db, pattern, limit=10, require_ai_knowledge=True)
+            results = await grep_search(db, pattern, limit=10, require_ai_knowledge=True, user=user)
             if not results:
                 return f"パターン「{pattern}」に一致するテキストは見つかりませんでした。", sources
 
@@ -179,7 +180,7 @@ async def _execute_tool(
 
         elif name == "search_by_title":
             query = arguments.get("query", "")
-            results = await title_search(db, query, limit=10, require_ai_knowledge=True)
+            results = await title_search(db, query, limit=10, require_ai_knowledge=True, user=user)
             if not results:
                 return f"タイトルに「{query}」を含む文書は見つかりませんでした。", sources
 
@@ -211,6 +212,10 @@ async def _execute_tool(
             if doc is None:
                 return f"文書ID {doc_id} は見つかりませんでした。", sources
 
+            # Permission check
+            if user is not None and not await can_access_document(doc, user, need_write=False, db=db):
+                return f"文書ID {doc_id} へのアクセス権限がありません。", sources
+
             sources.append({"document_id": str(doc.id), "title": doc.title})
             content = doc.content
             if len(content) > 4000:
@@ -223,11 +228,16 @@ async def _execute_tool(
             words = query.split()
             if not words:
                 return "クエリが空です。", sources
+
+            from app.services.search import _get_visibility_filter
+            visibility = await _get_visibility_filter(db, user)
+
             stmt = (
                 select(func.count(func.distinct(Chunk.document_id)))
                 .join(Document, Chunk.document_id == Document.id)
                 .where(Document.deleted_at.is_(None))
                 .where(Document.ai_knowledge.is_(True))
+                .where(visibility)
             )
             for word in words:
                 stmt = stmt.where(Chunk.content.ilike(f"%{word}%"))
@@ -239,6 +249,7 @@ async def _execute_tool(
                 .select_from(Document)
                 .where(Document.deleted_at.is_(None))
                 .where(Document.ai_knowledge.is_(True))
+                .where(visibility)
             )
             for word in words:
                 title_stmt = title_stmt.where(Document.title.ilike(f"%{word}%"))
@@ -373,6 +384,7 @@ async def run_agent(
     db: AsyncSession,
     messages: list[dict],
     existing_context: list[str] | None = None,
+    user: User | None = None,
 ) -> AsyncIterator[dict]:
     """Run the ReAct agent loop.
 
@@ -454,7 +466,7 @@ async def run_agent(
                         "name": "search",
                         "arguments": {"query": user_query},
                     }
-                    result_text, sources = await _execute_tool(db, "search", {"query": user_query})
+                    result_text, sources = await _execute_tool(db, "search", {"query": user_query}, user=user)
                     for s in sources:
                         if s["document_id"] not in seen_doc_ids:
                             seen_doc_ids.add(s["document_id"])
@@ -536,7 +548,7 @@ async def run_agent(
             }
 
             # Execute the tool
-            result_text, sources = await _execute_tool(db, tool_name, tool_args)
+            result_text, sources = await _execute_tool(db, tool_name, tool_args, user=user)
 
             # Track sources
             for s in sources:

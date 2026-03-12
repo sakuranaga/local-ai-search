@@ -39,11 +39,19 @@ import {
   deleteRole,
   getSettings,
   updateSetting,
+  getGroups,
+  createGroup,
+  deleteGroup,
+  getGroupMembers,
+  addGroupMember,
+  removeGroupMember,
   type User,
   type Role,
   type SystemSetting,
+  type Group,
+  type GroupMember,
 } from "@/lib/api";
-import { Plus, Trash2, Settings, Save, Pencil } from "lucide-react";
+import { Plus, Trash2, Settings, Save, Pencil, Users } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -56,7 +64,7 @@ function UsersTab() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
-  const [createForm, setCreateForm] = useState({ username: "", password: "", email: "", display_name: "", role: "viewer" });
+  const [createForm, setCreateForm] = useState({ username: "", password: "", email: "", display_name: "", role: "user" });
   const [editForm, setEditForm] = useState({
     username: "", email: "", display_name: "", avatar_url: "", role: "", password: "", is_active: true,
   });
@@ -93,7 +101,7 @@ function UsersTab() {
       });
       toast.success("ユーザーを作成しました");
       setCreateOpen(false);
-      setCreateForm({ username: "", password: "", email: "", display_name: "", role: "viewer" });
+      setCreateForm({ username: "", password: "", email: "", display_name: "", role: "user" });
       load();
     } catch {
       toast.error("作成に失敗しました");
@@ -620,6 +628,213 @@ function WelcomeTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Groups Tab
+// ---------------------------------------------------------------------------
+
+function GroupsTab() {
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({ name: "", description: "" });
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
+  const [members, setMembers] = useState<GroupMember[]>([]);
+  const [addUserId, setAddUserId] = useState("");
+
+  const load = useCallback(() => {
+    getGroups().then(setGroups).catch(() => toast.error("グループ取得に失敗"));
+    getUsers().then(setUsers).catch(() => {});
+  }, []);
+
+  useEffect(load, [load]);
+
+  async function handleCreate() {
+    try {
+      await createGroup({
+        name: createForm.name,
+        description: createForm.description || undefined,
+      });
+      toast.success("グループを作成しました");
+      setCreateOpen(false);
+      setCreateForm({ name: "", description: "" });
+      load();
+    } catch {
+      toast.error("作成に失敗しました");
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("本当に削除しますか？関連するドキュメント・フォルダのグループ設定が解除されます。")) return;
+    try {
+      await deleteGroup(id);
+      toast.success("削除しました");
+      load();
+    } catch {
+      toast.error("削除に失敗しました");
+    }
+  }
+
+  async function openMembers(g: Group) {
+    setSelectedGroup(g);
+    setMembersOpen(true);
+    try {
+      const m = await getGroupMembers(g.id);
+      setMembers(m);
+    } catch {
+      toast.error("メンバー取得に失敗");
+    }
+  }
+
+  async function handleAddMember() {
+    if (!selectedGroup || !addUserId) return;
+    try {
+      await addGroupMember(selectedGroup.id, addUserId);
+      toast.success("メンバーを追加しました");
+      setAddUserId("");
+      const m = await getGroupMembers(selectedGroup.id);
+      setMembers(m);
+      load();
+    } catch {
+      toast.error("追加に失敗しました");
+    }
+  }
+
+  async function handleRemoveMember(userId: string) {
+    if (!selectedGroup) return;
+    try {
+      await removeGroupMember(selectedGroup.id, userId);
+      toast.success("メンバーを削除しました");
+      const m = await getGroupMembers(selectedGroup.id);
+      setMembers(m);
+      load();
+    } catch {
+      toast.error("削除に失敗しました");
+    }
+  }
+
+  const availableUsers = users.filter((u) => !members.find((m) => m.user_id === u.id));
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-base">グループ一覧</CardTitle>
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Plus className="h-4 w-4 mr-1" /> 追加
+        </Button>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>グループ名</TableHead>
+              <TableHead>説明</TableHead>
+              <TableHead className="w-24 text-center">メンバー数</TableHead>
+              <TableHead className="w-24" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {groups.map((g) => (
+              <TableRow key={g.id} className="cursor-pointer hover:bg-muted/50" onClick={() => openMembers(g)}>
+                <TableCell className="font-medium">{g.name}</TableCell>
+                <TableCell className="text-muted-foreground text-sm">{g.description}</TableCell>
+                <TableCell className="text-center">
+                  <Badge variant="secondary">{g.member_count}</Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openMembers(g); }}>
+                      <Users className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleDelete(g.id); }}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+
+      {/* Create dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>グループ追加</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">グループ名 *</Label>
+              <Input value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">説明</Label>
+              <Input value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>キャンセル</Button>
+            <Button onClick={handleCreate} disabled={!createForm.name.trim()}>作成</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Members dialog */}
+      <Dialog open={membersOpen} onOpenChange={setMembersOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{selectedGroup?.name} - メンバー管理</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {members.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ユーザー名</TableHead>
+                    <TableHead>表示名</TableHead>
+                    <TableHead className="w-12" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {members.map((m) => (
+                    <TableRow key={m.user_id}>
+                      <TableCell className="font-medium">{m.username}</TableCell>
+                      <TableCell className="text-muted-foreground">{m.display_name}</TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="icon" onClick={() => handleRemoveMember(m.user_id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-sm text-muted-foreground">メンバーがいません</p>
+            )}
+            {availableUsers.length > 0 && (
+              <div className="flex items-center gap-2">
+                <select
+                  value={addUserId}
+                  onChange={(e) => setAddUserId(e.target.value)}
+                  className="h-9 flex-1 rounded-md border bg-background px-3 text-sm"
+                >
+                  <option value="">ユーザーを追加...</option>
+                  {availableUsers.map((u) => (
+                    <option key={u.id} value={u.id}>{u.username} ({u.display_name || u.email})</option>
+                  ))}
+                </select>
+                <Button size="sm" onClick={handleAddMember} disabled={!addUserId}>追加</Button>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Admin Page
 // ---------------------------------------------------------------------------
 
@@ -631,6 +846,7 @@ export function AdminPage() {
         <TabsList>
           <TabsTrigger value="settings">設定</TabsTrigger>
           <TabsTrigger value="users">ユーザー管理</TabsTrigger>
+          <TabsTrigger value="groups">グループ管理</TabsTrigger>
           <TabsTrigger value="roles">ロール管理</TabsTrigger>
           <TabsTrigger value="welcome">ウェルカム</TabsTrigger>
         </TabsList>
@@ -639,6 +855,9 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="users" className="mt-4">
           <UsersTab />
+        </TabsContent>
+        <TabsContent value="groups" className="mt-4">
+          <GroupsTab />
         </TabsContent>
         <TabsContent value="roles" className="mt-4">
           <RolesTab />

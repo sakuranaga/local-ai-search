@@ -94,6 +94,47 @@ class UserRole(Base):
     role: Mapped["Role"] = relationship(back_populates="user_roles", lazy="selectin")
 
 
+class Group(Base):
+    __tablename__ = "groups"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=True, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    members: Mapped[list["GroupMember"]] = relationship(
+        back_populates="group", cascade="all, delete-orphan"
+    )
+
+
+class GroupMember(Base):
+    __tablename__ = "group_members"
+    __table_args__ = (
+        UniqueConstraint("group_id", "user_id", name="uq_group_member"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("groups.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    group: Mapped["Group"] = relationship(back_populates="members")
+    user: Mapped["User"] = relationship()
+
+
 class Folder(Base):
     __tablename__ = "folders"
     __table_args__ = (
@@ -107,6 +148,16 @@ class Folder(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("folders.id", ondelete="CASCADE"), nullable=True
     )
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("groups.id", ondelete="SET NULL"), nullable=True
+    )
+    group_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    group_write: Mapped[bool] = mapped_column(Boolean, default=False)
+    others_read: Mapped[bool] = mapped_column(Boolean, default=True)
+    others_write: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -119,6 +170,8 @@ class Folder(Base):
     )
     children: Mapped[list["Folder"]] = relationship(back_populates="parent")
     documents: Mapped[list["Document"]] = relationship(back_populates="folder")
+    owner: Mapped["User | None"] = relationship(foreign_keys=[owner_id])
+    group: Mapped["Group | None"] = relationship()
 
 
 class Tag(Base):
@@ -163,7 +216,13 @@ class Document(Base):
     folder_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("folders.id", ondelete="SET NULL"), nullable=True
     )
-    is_public: Mapped[bool] = mapped_column(Boolean, default=True)
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("groups.id", ondelete="SET NULL"), nullable=True
+    )
+    group_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    group_write: Mapped[bool] = mapped_column(Boolean, default=False)
+    others_read: Mapped[bool] = mapped_column(Boolean, default=True)
+    others_write: Mapped[bool] = mapped_column(Boolean, default=False)
     searchable: Mapped[bool] = mapped_column(Boolean, default=True)
     ai_knowledge: Mapped[bool] = mapped_column(Boolean, default=True)
     summary: Mapped[str] = mapped_column(Text, nullable=True, default="")
@@ -198,9 +257,7 @@ class Document(Base):
     files: Mapped[list["File"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
     )
-    permissions: Mapped[list["DocumentPermission"]] = relationship(
-        back_populates="document", cascade="all, delete-orphan"
-    )
+    doc_group: Mapped["Group | None"] = relationship(foreign_keys=[group_id])
 
 
 class Chunk(Base):
@@ -253,27 +310,3 @@ class File(Base):
     document: Mapped["Document"] = relationship(back_populates="files")
 
 
-class DocumentPermission(Base):
-    __tablename__ = "document_permissions"
-    __table_args__ = (
-        UniqueConstraint("document_id", "user_id", name="uq_doc_user_perm"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    can_read: Mapped[bool] = mapped_column(Boolean, default=True)
-    can_write: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-    document: Mapped["Document"] = relationship(back_populates="permissions")
-    user: Mapped["User"] = relationship()

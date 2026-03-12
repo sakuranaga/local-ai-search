@@ -144,6 +144,13 @@ export interface Folder {
   id: string;
   name: string;
   parent_id: string | null;
+  owner_id: string | null;
+  group_id: string | null;
+  group_name: string | null;
+  group_read: boolean;
+  group_write: boolean;
+  others_read: boolean;
+  others_write: boolean;
   document_count: number;
   created_at: string;
   updated_at: string;
@@ -155,13 +162,20 @@ export interface Document {
   content: string;
   file_type: string;
   source_path: string | null;
-  is_public: boolean;
   searchable: boolean;
   ai_knowledge: boolean;
   chunk_count: number;
   memo: string | null;
   folder_id: string | null;
   folder_name: string | null;
+  owner_id: string | null;
+  owner_name: string | null;
+  group_id: string | null;
+  group_name: string | null;
+  group_read: boolean;
+  group_write: boolean;
+  others_read: boolean;
+  others_write: boolean;
   tags: TagInfo[];
   created_by_name: string | null;
   updated_by_name: string | null;
@@ -186,13 +200,21 @@ export interface DocumentListItem {
   title: string;
   file_type: string;
   source_path: string | null;
-  is_public: boolean;
   searchable: boolean;
   ai_knowledge: boolean;
   chunk_count: number;
   memo: string | null;
   folder_id: string | null;
   folder_name: string | null;
+  owner_id: string | null;
+  owner_name: string | null;
+  group_id: string | null;
+  group_name: string | null;
+  group_read: boolean;
+  group_write: boolean;
+  others_read: boolean;
+  others_write: boolean;
+  permissions: string;
   tags: TagInfo[];
   created_by_name: string | null;
   updated_by_name: string | null;
@@ -207,11 +229,29 @@ export interface DocumentListResponse {
   per_page: number;
 }
 
-export interface DocumentPermissionEntry {
+export interface UnixPermissions {
+  owner_id?: string | null;
+  group_id?: string | null;
+  group_read?: boolean;
+  group_write?: boolean;
+  others_read?: boolean;
+  others_write?: boolean;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  description: string;
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GroupMember {
   user_id: string;
-  username: string | null;
-  can_read: boolean;
-  can_write: boolean;
+  username: string;
+  display_name: string;
+  created_at: string;
 }
 
 export interface StatsResponse {
@@ -456,7 +496,7 @@ export async function checkDuplicates(titles: string[]): Promise<string[]> {
 
 export async function updateDocument(
   id: string,
-  data: { title?: string; memo?: string; is_public?: boolean; searchable?: boolean; ai_knowledge?: boolean; folder_id?: string | null; tag_ids?: number[] },
+  data: { title?: string; memo?: string; searchable?: boolean; ai_knowledge?: boolean; folder_id?: string | null; tag_ids?: number[]; group_id?: string | null; group_read?: boolean; group_write?: boolean; others_read?: boolean; others_write?: boolean },
 ): Promise<Document> {
   return apiFetch(`/documents/${id}`, {
     method: "PATCH",
@@ -499,26 +539,25 @@ export async function bulkDeleteDocuments(ids: string[]): Promise<{ deleted: num
 export async function bulkAction(
   ids: string[],
   action: string,
-  permissions?: DocumentPermissionEntry[],
   extra?: Record<string, unknown>,
 ): Promise<{ action: string; processed: number }> {
   return apiFetch("/documents/bulk-action", {
     method: "POST",
-    body: JSON.stringify({ ids, action, permissions, ...extra }),
+    body: JSON.stringify({ ids, action, ...extra }),
   });
 }
 
-export async function getDocumentPermissions(id: string): Promise<DocumentPermissionEntry[]> {
+export async function getDocumentPermissions(id: string): Promise<UnixPermissions> {
   return apiFetch(`/documents/${id}/permissions`);
 }
 
 export async function setDocumentPermissions(
   id: string,
-  permissions: DocumentPermissionEntry[],
+  permissions: UnixPermissions,
 ): Promise<void> {
   return apiFetch(`/documents/${id}/permissions`, {
-    method: "PUT",
-    body: JSON.stringify({ permissions }),
+    method: "PATCH",
+    body: JSON.stringify(permissions),
   });
 }
 
@@ -681,7 +720,17 @@ export async function createFolder(data: { name: string; parent_id?: string | nu
   });
 }
 
-export async function updateFolder(id: string, data: { name?: string; parent_id?: string | null }): Promise<Folder> {
+export async function updateFolder(id: string, data: {
+  name?: string;
+  parent_id?: string | null;
+  owner_id?: string | null;
+  group_id?: string | null;
+  group_read?: boolean;
+  group_write?: boolean;
+  others_read?: boolean;
+  others_write?: boolean;
+  recursive?: boolean;
+}): Promise<Folder> {
   return apiFetch(`/folders/${id}`, {
     method: "PATCH",
     body: JSON.stringify(data),
@@ -716,4 +765,45 @@ export async function updateTag(id: number, data: { name?: string; color?: strin
 
 export async function deleteTag(id: number): Promise<void> {
   return apiFetch(`/tags/${id}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------------------
+// Groups
+// ---------------------------------------------------------------------------
+
+export async function getGroups(): Promise<Group[]> {
+  return apiFetch("/groups");
+}
+
+export async function createGroup(data: { name: string; description?: string }): Promise<Group> {
+  return apiFetch("/groups", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateGroup(id: string, data: { name?: string; description?: string }): Promise<Group> {
+  return apiFetch(`/groups/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteGroup(id: string): Promise<void> {
+  return apiFetch(`/groups/${id}`, { method: "DELETE" });
+}
+
+export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {
+  return apiFetch(`/groups/${groupId}/members`);
+}
+
+export async function addGroupMember(groupId: string, userId: string): Promise<void> {
+  return apiFetch(`/groups/${groupId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId }),
+  });
+}
+
+export async function removeGroupMember(groupId: string, userId: string): Promise<void> {
+  return apiFetch(`/groups/${groupId}/members/${userId}`, { method: "DELETE" });
 }

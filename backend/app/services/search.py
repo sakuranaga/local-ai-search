@@ -2,32 +2,42 @@ import uuid
 
 from sqlalchemy import case, func, literal_column, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import ColumnElement
 
-from app.models import Chunk, Document
+from app.models import Chunk, Document, User
 from app.services.embedding import get_embedding
+from app.services.permissions import build_visibility_filter, get_user_group_ids, is_admin
 from app.services.settings import get_setting
 from app.services.tokenizer import tokenize_query
+
+
+async def _get_visibility_filter(
+    db: AsyncSession, user: User | None
+) -> ColumnElement[bool]:
+    """Build visibility filter for a user. If user is None, no filter."""
+    if user is None:
+        from sqlalchemy import literal
+        return literal(True)
+    user_group_ids = await get_user_group_ids(db, user.id)
+    return build_visibility_filter(user, user_group_ids)
 
 
 async def fulltext_search(
     db: AsyncSession, query: str, limit: int = 20,
     require_searchable: bool = False, require_ai_knowledge: bool = False,
+    user: User | None = None,
 ) -> list[dict]:
-    """Full-text search using SQL LIKE with pg_bigm GIN index acceleration.
-
-    pg_bigm automatically accelerates LIKE queries through GIN indexes,
-    so a plain LIKE is sufficient -- no special operators needed.
-    """
-    # Tokenize query: extract nouns for Japanese, fallback to whitespace split
+    """Full-text search using SQL LIKE with pg_bigm GIN index acceleration."""
     words = tokenize_query(query)
     if not words:
         return []
 
-    # Build OR conditions and count matching words for ranking
     like_conditions = [Chunk.content.ilike(f"%{word}%") for word in words]
     match_count = sum(
         case((Chunk.content.ilike(f"%{w}%"), 1), else_=0) for w in words
     ).label("match_count")
+
+    visibility = await _get_visibility_filter(db, user)
 
     stmt = (
         select(
@@ -44,6 +54,7 @@ async def fulltext_search(
         .join(Document, Chunk.document_id == Document.id)
         .where(Document.deleted_at.is_(None))
         .where(or_(*like_conditions))
+        .where(visibility)
     )
     if require_searchable:
         stmt = stmt.where(Document.searchable.is_(True))
@@ -73,16 +84,17 @@ async def fulltext_search(
 async def vector_search(
     db: AsyncSession, query: str, limit: int = 20,
     require_searchable: bool = False, require_ai_knowledge: bool = False,
+    user: User | None = None,
 ) -> list[dict]:
     """Semantic search using pgvector cosine distance (<=>)."""
     query_embedding = await get_embedding(query)
 
-    # Read similarity threshold from settings (default 70%)
     threshold_pct = float(await get_setting(db, "vector_similarity_threshold") or "70")
-    max_distance = 1.0 - threshold_pct / 100.0  # e.g. 70% -> 0.3
+    max_distance = 1.0 - threshold_pct / 100.0
 
-    # Use pgvector cosine distance operator
     distance = Chunk.embedding.cosine_distance(query_embedding).label("distance")
+
+    visibility = await _get_visibility_filter(db, user)
 
     stmt = (
         select(
@@ -100,6 +112,7 @@ async def vector_search(
         .where(Chunk.embedding.is_not(None))
         .where(Document.deleted_at.is_(None))
         .where(distance <= max_distance)
+        .where(visibility)
     )
     if require_searchable:
         stmt = stmt.where(Document.searchable.is_(True))
@@ -135,34 +148,27 @@ async def merged_search(
     max_candidates: int = 200,
     require_searchable: bool = False,
     require_ai_knowledge: bool = False,
+    user: User | None = None,
 ) -> tuple[list[dict], int]:
-    """Reciprocal Rank Fusion (RRF) merge of fulltext and vector search results.
-
-    RRF score = sum(1 / (k + rank_i)) for each ranking list.
-    k = 60 is the standard constant.
-
-    Returns (results_page, total_count) with document-level dedup.
-    """
+    """Reciprocal Rank Fusion (RRF) merge of fulltext and vector search results."""
     import asyncio
 
     ft_results, vec_results = await asyncio.gather(
-        fulltext_search(db, query, limit=max_candidates, require_searchable=require_searchable, require_ai_knowledge=require_ai_knowledge),
-        vector_search(db, query, limit=max_candidates, require_searchable=require_searchable, require_ai_knowledge=require_ai_knowledge),
+        fulltext_search(db, query, limit=max_candidates, require_searchable=require_searchable, require_ai_knowledge=require_ai_knowledge, user=user),
+        vector_search(db, query, limit=max_candidates, require_searchable=require_searchable, require_ai_knowledge=require_ai_knowledge, user=user),
     )
 
     k = 60
     scores: dict[str, float] = {}
     chunk_map: dict[str, dict] = {}
-    distances: dict[str, float] = {}  # vector cosine distance per chunk
+    distances: dict[str, float] = {}
 
-    # Score fulltext results by position
     for rank, item in enumerate(ft_results, start=1):
         cid = item["chunk_id"]
         scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
         if cid not in chunk_map:
             chunk_map[cid] = item
 
-    # Score vector results by position
     for rank, item in enumerate(vec_results, start=1):
         cid = item["chunk_id"]
         scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
@@ -171,10 +177,8 @@ async def merged_search(
         if "distance" in item:
             distances[cid] = item["distance"]
 
-    # Sort by RRF score descending
     ranked_ids = sorted(scores.keys(), key=lambda cid: scores[cid], reverse=True)
 
-    # Deduplicate by document — keep the highest-scoring chunk per document
     seen_docs: set[str] = set()
     all_results = []
     for cid in ranked_ids:
@@ -198,11 +202,14 @@ async def merged_search(
 async def title_search(
     db: AsyncSession, query: str, limit: int = 10,
     require_ai_knowledge: bool = False,
+    user: User | None = None,
 ) -> list[dict]:
     """Search documents by title/filename using ILIKE."""
     words = query.split()
     if not words:
         return []
+
+    visibility = await _get_visibility_filter(db, user)
 
     stmt = (
         select(
@@ -211,6 +218,7 @@ async def title_search(
             Document.file_type,
         )
         .where(Document.deleted_at.is_(None))
+        .where(visibility)
     )
     for word in words:
         stmt = stmt.where(Document.title.ilike(f"%{word}%"))
@@ -234,10 +242,13 @@ async def title_search(
 async def grep_search(
     db: AsyncSession, pattern: str, limit: int = 10,
     require_ai_knowledge: bool = False,
+    user: User | None = None,
 ) -> list[dict]:
     """Exact text pattern search across all chunk content."""
     if not pattern.strip():
         return []
+
+    visibility = await _get_visibility_filter(db, user)
 
     stmt = (
         select(
@@ -250,6 +261,7 @@ async def grep_search(
         .join(Document, Chunk.document_id == Document.id)
         .where(Chunk.content.ilike(f"%{pattern}%"))
         .where(Document.deleted_at.is_(None))
+        .where(visibility)
     )
     if require_ai_knowledge:
         stmt = stmt.where(Document.ai_knowledge.is_(True))
