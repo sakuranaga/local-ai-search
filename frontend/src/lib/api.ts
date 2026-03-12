@@ -257,6 +257,8 @@ export interface GroupMember {
 export interface StatsResponse {
   total_documents: number;
   total_chunks: number;
+  disk_used_bytes: number;
+  disk_total_bytes: number;
 }
 
 // ---------------------------------------------------------------------------
