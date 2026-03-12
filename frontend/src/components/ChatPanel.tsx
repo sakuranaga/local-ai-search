@@ -244,14 +244,6 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
     }
   }, [initialQuery, sendMessage]);
 
-  // Stop streaming when query is cleared
-  useEffect(() => {
-    if (!initialQuery) {
-      abortRef.current?.abort();
-      setIsStreaming(false);
-    }
-  }, [initialQuery]);
-
   // Cleanup
   useEffect(() => {
     return () => abortRef.current?.abort();
