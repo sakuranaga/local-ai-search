@@ -49,10 +49,90 @@
 ### 前提条件
 
 - Docker + Docker Compose
-- llama.cpp サーバー 2 台（LLM 用 / Embedding 用）を起動済み
-  - LLM: `llama-server -m <model.gguf> --port 8081 --host 0.0.0.0`
-  - Embedding: `llama-server -m bge-m3-q8_0.gguf --port 8082 --host 0.0.0.0 --embedding`
+- llama.cpp サーバー 2 台（LLM 用 / Embedding 用）を起動済み（下記参照）
 - Node.js 20+ (フロントエンドビルド用)
+
+### llama.cpp サーバーの起動
+
+LLM 用と Embedding 用の 2 台を起動する。`--parallel 4` で同時リクエスト数を指定し、`-c` はスロット数 × 必要コンテキスト長にする（`--parallel N` 指定時、コンテキストが N 分割されるため）。
+
+**LLM サーバー (ポート 8081)**
+
+```bash
+llama-server \
+  -m <model.gguf> \
+  --host 0.0.0.0 --port 8081 \
+  -ngl 99 \
+  -c 32768 \
+  --parallel 4 \
+  --reasoning-budget 0
+```
+
+- `-c 32768 --parallel 4` → 1 スロットあたり 8192 トークン
+- `--reasoning-budget 0`: thinking トークンを無効化（Qwen3.5 等）
+- モデル例: `Qwen3.5-35B-A3B-Q4_K_M.gguf`
+
+**Embedding サーバー (ポート 8082)**
+
+```bash
+llama-server \
+  -m <embedding-model.gguf> \
+  --host 0.0.0.0 --port 8082 \
+  --embedding \
+  -ngl 99 \
+  -c 32768 \
+  --parallel 4
+```
+
+- `--embedding`: Embedding モードで起動
+- モデル例: `bge-m3-q8_0.gguf`（1024 次元）
+
+**systemd サービス化（推奨）**
+
+```bash
+# /etc/systemd/system/llama-server.service
+[Unit]
+Description=llama.cpp Server (LLM)
+After=network-online.target
+
+[Service]
+ExecStart=/path/to/llama-server \
+    -m /path/to/model.gguf \
+    --host 0.0.0.0 --port 8081 \
+    -ngl 99 -c 32768 --reasoning-budget 0 --parallel 4
+User=shuzan
+Group=shuzan
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+# /etc/systemd/system/llama-embed.service
+[Unit]
+Description=llama.cpp Embedding Server
+After=network-online.target
+
+[Service]
+ExecStart=/path/to/llama-server \
+    -m /path/to/embedding-model.gguf \
+    --host 0.0.0.0 --port 8082 \
+    --embedding -ngl 99 -c 32768 --parallel 4
+User=shuzan
+Group=shuzan
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now llama-server llama-embed
+```
 
 ### 1. リポジトリのクローンと設定
 
