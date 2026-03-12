@@ -50,7 +50,7 @@ function NavBar() {
   }
 
   return (
-    <header className="h-14 border-b flex items-center gap-4 px-4 bg-background/80 backdrop-blur-sm sticky top-0 z-50">
+    <header className="h-14 border-b flex items-center gap-4 px-4 mx-[3px] bg-background/80 backdrop-blur-sm sticky top-0 z-50">
       <Link
         to="/"
         className="flex items-center gap-2 hover:opacity-80 transition-opacity shrink-0"
