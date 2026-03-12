@@ -1982,12 +1982,14 @@ function UploadDialog({
   onClose: () => void;
   onUploaded: () => void;
 }) {
-  const [file, setFile] = useState<globalThis.File | null>(null);
+  const [files, setFiles] = useState<globalThis.File[]>([]);
 
   function handleUpload() {
-    if (!file) return;
-    uploadWithProgress(file, onUploaded);
-    setFile(null);
+    if (files.length === 0) return;
+    for (const f of files) {
+      uploadWithProgress(f, onUploaded);
+    }
+    setFiles([]);
     onClose();
   }
 
@@ -1996,13 +1998,17 @@ function UploadDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>ファイルアップロード</DialogTitle>
-          <DialogDescription>対応形式: Markdown, テキスト, PDF, Word</DialogDescription>
+          <DialogDescription>対応形式: Markdown, テキスト, PDF, Word, Excel, 画像 など</DialogDescription>
         </DialogHeader>
-        <Input type="file" accept=".md,.txt,.pdf,.docx,.doc,.markdown,.xlsx,.xls,.csv,.tsv,.html,.htm,.pptx,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.tif,.webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-        {file && <p className="text-sm text-muted-foreground">{file.name} ({formatBytes(file.size)})</p>}
+        <Input type="file" multiple accept=".md,.txt,.pdf,.docx,.doc,.markdown,.xlsx,.xls,.csv,.tsv,.html,.htm,.pptx,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.tif,.webp" onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
+        {files.length > 0 && (
+          <div className="text-sm text-muted-foreground space-y-0.5">
+            {files.map((f, i) => <p key={i}>{f.name} ({formatBytes(f.size)})</p>)}
+          </div>
+        )}
         <DialogFooter showCloseButton>
-          <Button onClick={handleUpload} disabled={!file}>
-            <Upload className="h-4 w-4 mr-2" />アップロード
+          <Button onClick={handleUpload} disabled={files.length === 0}>
+            <Upload className="h-4 w-4 mr-2" />アップロード{files.length > 1 ? ` (${files.length}件)` : ""}
           </Button>
         </DialogFooter>
       </DialogContent>
