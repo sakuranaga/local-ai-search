@@ -641,7 +641,7 @@ export function FileExplorerPage() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-hidden px-0.5">
         {/* Header */}
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold">{showTrash ? "ゴミ箱" : "文書管理"}</h1>
@@ -905,7 +905,7 @@ export function FileExplorerPage() {
         </Card>
 
         {/* Pagination — always visible */}
-        <div className="flex items-center justify-center gap-2 py-3 border-t">
+        <div className="flex items-center justify-center gap-2 py-1.5">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
