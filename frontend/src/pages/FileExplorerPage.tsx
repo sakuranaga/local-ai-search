@@ -231,6 +231,10 @@ export function FileExplorerPage() {
   const [fileDragOver, setFileDragOver] = useState(false);
   const dragCounter = useRef(0);
 
+  // Overwrite confirmation queue (shared by drag-drop and upload dialog)
+  const [overwriteQueue, setOverwriteQueue] = useState<globalThis.File[]>([]);
+
+
   const loadFolders = useCallback(async () => {
     try {
       const f = await getFolders();
@@ -484,7 +488,26 @@ export function FileExplorerPage() {
     if (hasFiles(e)) e.dataTransfer.dropEffect = "copy";
   }
 
-  async function handleFileDrop(e: React.DragEvent) {
+  function startUploadWithCheck(files: globalThis.File[]) {
+    const existingTitles = items.map((i) => i.title);
+    const dups: globalThis.File[] = [];
+    const nonDups: globalThis.File[] = [];
+    for (const f of files) {
+      if (existingTitles.includes(f.name)) dups.push(f);
+      else nonDups.push(f);
+    }
+    // Upload non-duplicates immediately
+    const reload = () => { load(); loadFolders(); };
+    for (const f of nonDups) {
+      uploadWithProgress(f, reload);
+    }
+    // Queue duplicates for one-by-one confirmation
+    if (dups.length > 0) {
+      setOverwriteQueue(dups);
+    }
+  }
+
+  function handleFileDrop(e: React.DragEvent) {
     e.preventDefault();
     dragCounter.current = 0;
     setFileDragOver(false);
@@ -492,11 +515,24 @@ export function FileExplorerPage() {
 
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
+    startUploadWithCheck(files);
+  }
 
-    const reload = () => { load(); loadFolders(); };
-    for (const file of files) {
+  function handleOverwriteConfirm() {
+    const file = overwriteQueue[0];
+    if (file) {
+      const reload = () => { load(); loadFolders(); };
       uploadWithProgress(file, reload);
     }
+    setOverwriteQueue((q) => q.slice(1));
+  }
+
+  function handleOverwriteSkip() {
+    setOverwriteQueue((q) => q.slice(1));
+  }
+
+  function handleOverwriteCancel() {
+    setOverwriteQueue([]);
   }
 
   return (
@@ -1012,13 +1048,36 @@ export function FileExplorerPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Overwrite confirmation (one by one) */}
+      <Dialog open={overwriteQueue.length > 0} onOpenChange={() => handleOverwriteCancel()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>上書き確認</DialogTitle>
+            <DialogDescription>
+              同名のファイルが既に存在します{overwriteQueue.length > 1 ? `（残り ${overwriteQueue.length} 件）` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {overwriteQueue[0] && (
+            <div className="text-sm bg-muted rounded-md p-3">
+              <p className="font-medium">{overwriteQueue[0].name}</p>
+              <p className="text-muted-foreground">{formatBytes(overwriteQueue[0].size)}</p>
+            </div>
+          )}
+          <div className="flex gap-2 justify-end">
+            {overwriteQueue.length > 1 && (
+              <Button variant="ghost" onClick={handleOverwriteCancel}>全てキャンセル</Button>
+            )}
+            <Button variant="outline" onClick={handleOverwriteSkip}>スキップ</Button>
+            <Button variant="destructive" onClick={handleOverwriteConfirm}>上書き</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Upload Dialog */}
       <UploadDialog
         open={uploadOpen}
-        folders={folders}
-        activeFolderId={activeFolderId}
         onClose={() => setUploadOpen(false)}
-        onUploaded={() => { setUploadOpen(false); load(); loadFolders(); }}
+        onSubmit={(files) => { setUploadOpen(false); startUploadWithCheck(files); }}
       />
     </div>
   );
@@ -1974,27 +2033,22 @@ function BulkTagDialog({
 function UploadDialog({
   open,
   onClose,
-  onUploaded,
+  onSubmit,
 }: {
   open: boolean;
-  folders: Folder[];
-  activeFolderId: string | null;
   onClose: () => void;
-  onUploaded: () => void;
+  onSubmit: (files: globalThis.File[]) => void;
 }) {
   const [files, setFiles] = useState<globalThis.File[]>([]);
 
   function handleUpload() {
     if (files.length === 0) return;
-    for (const f of files) {
-      uploadWithProgress(f, onUploaded);
-    }
+    onSubmit(files);
     setFiles([]);
-    onClose();
   }
 
   return (
-    <Dialog open={open} onOpenChange={() => onClose()}>
+    <Dialog open={open} onOpenChange={() => { onClose(); setFiles([]); }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>ファイルアップロード</DialogTitle>
@@ -2003,7 +2057,9 @@ function UploadDialog({
         <Input type="file" multiple accept=".md,.txt,.pdf,.docx,.doc,.markdown,.xlsx,.xls,.csv,.tsv,.html,.htm,.pptx,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.tif,.webp" onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
         {files.length > 0 && (
           <div className="text-sm text-muted-foreground space-y-0.5">
-            {files.map((f, i) => <p key={i}>{f.name} ({formatBytes(f.size)})</p>)}
+            {files.map((f, i) => (
+              <p key={i}>{f.name} ({formatBytes(f.size)})</p>
+            ))}
           </div>
         )}
         <DialogFooter showCloseButton>
