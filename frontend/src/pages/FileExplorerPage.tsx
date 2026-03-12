@@ -74,6 +74,7 @@ import {
   purgeFromTrash,
   emptyTrash,
   getProcessingStatus,
+  checkDuplicates,
   type TrashItem,
   type DocumentListItem,
   type DocumentPermissionEntry,
@@ -488,20 +489,19 @@ export function FileExplorerPage() {
     if (hasFiles(e)) e.dataTransfer.dropEffect = "copy";
   }
 
-  function startUploadWithCheck(files: globalThis.File[]) {
-    const existingTitles = items.map((i) => i.title);
+  async function startUploadWithCheck(files: globalThis.File[]) {
+    const dupTitles = await checkDuplicates(files.map((f) => f.name));
+    const dupSet = new Set(dupTitles);
     const dups: globalThis.File[] = [];
     const nonDups: globalThis.File[] = [];
     for (const f of files) {
-      if (existingTitles.includes(f.name)) dups.push(f);
+      if (dupSet.has(f.name)) dups.push(f);
       else nonDups.push(f);
     }
-    // Upload non-duplicates immediately
     const reload = () => { load(); loadFolders(); };
     for (const f of nonDups) {
       uploadWithProgress(f, reload);
     }
-    // Queue duplicates for one-by-one confirmation
     if (dups.length > 0) {
       setOverwriteQueue(dups);
     }
