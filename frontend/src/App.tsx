@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { getToken, getMe, logout, type User } from "@/lib/api";
 import { LoginPage } from "@/pages/LoginPage";
-import { SearchPage } from "@/pages/SearchPage";
 import { AdminPage } from "@/pages/AdminPage";
 import { FileExplorerPage } from "@/pages/FileExplorerPage";
 import { Toaster } from "@/components/ui/sonner";
@@ -13,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
-import { Search, Settings, LogOut, FolderOpen, Moon, Sun } from "lucide-react";
+import { Search, Settings, LogOut, Moon, Sun } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { type FormEvent, type ReactNode, useState, useEffect } from "react";
 import { useTheme } from "next-themes";
@@ -46,6 +45,8 @@ function NavBar() {
     const q = searchValue.trim();
     if (q) {
       navigate(`/?q=${encodeURIComponent(q)}&_t=${Date.now()}`);
+    } else {
+      navigate("/");
     }
   }
 
@@ -56,7 +57,6 @@ function NavBar() {
         className="flex items-center gap-2 hover:opacity-80 transition-opacity shrink-0"
         onClick={() => {
           setSearchValue("");
-          sessionStorage.removeItem("las_search_cache");
         }}
       >
         <span className="font-bold text-lg tracking-tight">LAS</span>
@@ -78,12 +78,6 @@ function NavBar() {
 
       <div className="flex items-center gap-3 shrink-0 ml-auto">
         <ThemeToggle />
-        {currentUser && (
-          <Link to="/files" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <FolderOpen className="h-4 w-4" />
-            <span className="hidden sm:inline">文書管理</span>
-          </Link>
-        )}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={<button className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" />}
@@ -194,7 +188,7 @@ export default function App() {
           element={
             <AuthGuard>
               <AppLayout>
-                <SearchPage />
+                <FileExplorerPage />
               </AppLayout>
             </AuthGuard>
           }
@@ -209,16 +203,7 @@ export default function App() {
             </AuthGuard>
           }
         />
-        <Route
-          path="/files"
-          element={
-            <AuthGuard>
-              <AppLayout>
-                <FileExplorerPage />
-              </AppLayout>
-            </AuthGuard>
-          }
-        />
+        <Route path="/files" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

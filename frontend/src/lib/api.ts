@@ -110,30 +110,6 @@ export interface Role {
   permissions: string[];
 }
 
-export interface SearchResult {
-  chunk_id: string;
-  document_id: string;
-  document_title: string;
-  document_summary?: string;
-  content: string;
-  file_type: string;
-  source: string;
-  updated_at?: string;
-  rrf_score?: number;
-  distance?: number;
-}
-
-export interface SearchResponse {
-  query: string;
-  tokens: string[];
-  mode: string;
-  page: number;
-  per_page: number;
-  total: number;
-  count: number;
-  results: SearchResult[];
-}
-
 export interface TagInfo {
   id: number;
   name: string;
@@ -159,6 +135,7 @@ export interface Folder {
 export interface Document {
   id: string;
   title: string;
+  summary: string | null;
   content: string;
   file_type: string;
   source_path: string | null;
@@ -309,28 +286,36 @@ export async function getMe(): Promise<User> {
 // Search
 // ---------------------------------------------------------------------------
 
-export async function searchDocuments(
-  query: string,
-  page = 1,
-  perPage = 20,
-): Promise<SearchResponse> {
-  return apiFetch<SearchResponse>(
-    `/search?q=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}`,
-  );
+export interface DocumentSearchItem extends DocumentListItem {
+  rrf_score?: number;
 }
 
-// Alias matching backend response shape
-export interface BackendSearchResponse {
-  query: string;
-  mode: string;
-  count: number;
-  results: Array<{
-    document_id: string;
-    document_title: string;
-    chunk_id: string;
-    content: string;
-    score: number;
-  }>;
+export interface DocumentSearchResponse {
+  items: DocumentSearchItem[];
+  total: number;
+  page: number;
+  per_page: number;
+  tokens: string[];
+}
+
+export async function searchDocumentsList(params: {
+  q: string;
+  page?: number;
+  per_page?: number;
+  folder_id?: string;
+  unfiled?: boolean;
+  tag?: string;
+  file_type?: string;
+}): Promise<DocumentSearchResponse> {
+  const p = new URLSearchParams();
+  p.set("q", params.q);
+  if (params.page) p.set("page", String(params.page));
+  if (params.per_page) p.set("per_page", String(params.per_page));
+  if (params.folder_id) p.set("folder_id", params.folder_id);
+  if (params.unfiled) p.set("unfiled", "true");
+  if (params.tag) p.set("tag", params.tag);
+  if (params.file_type) p.set("file_type", params.file_type);
+  return apiFetch(`/search/documents?${p.toString()}`);
 }
 
 export interface ChatStatus {
@@ -498,7 +483,7 @@ export async function checkDuplicates(titles: string[]): Promise<string[]> {
 
 export async function updateDocument(
   id: string,
-  data: { title?: string; memo?: string; searchable?: boolean; ai_knowledge?: boolean; folder_id?: string | null; tag_ids?: number[]; group_id?: string | null; group_read?: boolean; group_write?: boolean; others_read?: boolean; others_write?: boolean },
+  data: { title?: string; summary?: string; memo?: string; searchable?: boolean; ai_knowledge?: boolean; folder_id?: string | null; tag_ids?: number[]; group_id?: string | null; group_read?: boolean; group_write?: boolean; others_read?: boolean; others_write?: boolean },
 ): Promise<Document> {
   return apiFetch(`/documents/${id}`, {
     method: "PATCH",
