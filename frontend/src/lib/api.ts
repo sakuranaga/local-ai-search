@@ -809,3 +809,63 @@ export async function addGroupMember(groupId: string, userId: string): Promise<v
 export async function removeGroupMember(groupId: string, userId: string): Promise<void> {
   return apiFetch(`/groups/${groupId}/members/${userId}`, { method: "DELETE" });
 }
+
+// ---------------------------------------------------------------------------
+// API Keys
+// ---------------------------------------------------------------------------
+
+export interface ApiKeyInfo {
+  id: string;
+  name: string;
+  key_prefix: string;
+  owner_id: string;
+  owner_name: string;
+  folder_id: string | null;
+  folder_name: string | null;
+  permissions: string[];
+  allow_overwrite: boolean;
+  is_active: boolean;
+  last_used_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface ApiKeyCreateResponse extends ApiKeyInfo {
+  plaintext_key: string;
+}
+
+export async function getApiKeys(): Promise<ApiKeyInfo[]> {
+  return apiFetch("/api-keys");
+}
+
+export async function createApiKey(data: {
+  name: string;
+  owner_id: string;
+  folder_id?: string | null;
+  permissions?: string[];
+  allow_overwrite?: boolean;
+  expires_at?: string | null;
+}): Promise<ApiKeyCreateResponse> {
+  return apiFetch("/api-keys", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateApiKey(id: string, data: {
+  name?: string;
+  folder_id?: string | null;
+  permissions?: string[];
+  allow_overwrite?: boolean;
+  is_active?: boolean;
+  expires_at?: string | null;
+}): Promise<ApiKeyInfo> {
+  return apiFetch(`/api-keys/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteApiKey(id: string): Promise<void> {
+  return apiFetch(`/api-keys/${id}`, { method: "DELETE" });
+}
