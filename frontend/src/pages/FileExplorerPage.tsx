@@ -303,6 +303,16 @@ export function FileExplorerPage() {
   const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
   const [trashSelected, setTrashSelected] = useState<Set<string>>(new Set());
 
+  // Selecting a folder/tag while searching should clear the search query
+  const selectFolder = useCallback((id: string | null) => {
+    setActiveFolderId(id);
+    setPage(1);
+    setShowTrash(false);
+    if (isSearching) {
+      navigate("/", { replace: true });
+    }
+  }, [isSearching, navigate]);
+
   // File drop upload
   const [fileDragOver, setFileDragOver] = useState(false);
   const dragCounter = useRef(0);
@@ -397,6 +407,19 @@ export function FileExplorerPage() {
 
   const totalPages = Math.ceil(total / perPage);
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
+
+  // Build breadcrumb path for active folder (e.g. "親フォルダ > 子フォルダ")
+  const folderBreadcrumb = useMemo(() => {
+    if (!activeFolderId || activeFolderId === "unfiled") return null;
+    const map = new Map(folders.map((f) => [f.id, f]));
+    const parts: { id: string; name: string }[] = [];
+    let cur = map.get(activeFolderId);
+    while (cur) {
+      parts.unshift({ id: cur.id, name: cur.name });
+      cur = cur.parent_id ? map.get(cur.parent_id) : undefined;
+    }
+    return parts;
+  }, [activeFolderId, folders]);
   const folderDocTotal = useMemo(() => folders.reduce((s, f) => s + f.document_count, 0), [folders]);
   const unfiledCount = Math.max(0, allDocCount - folderDocTotal);
 
@@ -672,20 +695,20 @@ export function FileExplorerPage() {
           </div>
           <div className="space-y-0.5">
             <button
-              onClick={() => { setActiveFolderId(null); setPage(1); setShowTrash(false); }}
+              onClick={() => selectFolder(null)}
               className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${activeFolderId === null && !showTrash ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
             >
               <FolderIcon className="h-3.5 w-3.5" />
               <span className="truncate">すべて</span>
               <span className="ml-auto text-xs text-muted-foreground">{allDocCount}</span>
             </button>
-            <DropTarget folderId={null} onDrop={handleDropOnFolder} label="未整理" count={unfiledCount} isActive={activeFolderId === "unfiled" && !showTrash} onClick={() => { setActiveFolderId("unfiled"); setPage(1); setShowTrash(false); }} icon={<FileText className="h-3.5 w-3.5" />} />
+            <DropTarget folderId={null} onDrop={handleDropOnFolder} label="未整理" count={unfiledCount} isActive={activeFolderId === "unfiled" && !showTrash} onClick={() => selectFolder("unfiled")} icon={<FileText className="h-3.5 w-3.5" />} />
             {folderTree.map((node) => (
               <FolderTreeItem
                 key={node.id}
                 node={node}
                 activeFolderId={activeFolderId}
-                onSelect={(id) => { setActiveFolderId(id); setPage(1); setShowTrash(false); }}
+                onSelect={(id) => selectFolder(id)}
                 onReload={() => { loadFolders(); load(); }}
                 onDrop={handleDropOnFolder}
                 allFolders={folders}
@@ -707,7 +730,7 @@ export function FileExplorerPage() {
           <div className="space-y-0.5">
             {activeTag && (
               <button
-                onClick={() => { setActiveTag(null); setPage(1); }}
+                onClick={() => { setActiveTag(null); setPage(1); if (isSearching) navigate("/", { replace: true }); }}
                 className="w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 hover:bg-muted text-muted-foreground"
               >
                 <X className="h-3 w-3" />フィルタ解除
@@ -718,7 +741,7 @@ export function FileExplorerPage() {
                 key={tag.id}
                 tag={tag}
                 isActive={activeTag === tag.name}
-                onSelect={() => { setActiveTag(activeTag === tag.name ? null : tag.name); setPage(1); setShowTrash(false); }}
+                onSelect={() => { setActiveTag(activeTag === tag.name ? null : tag.name); setPage(1); setShowTrash(false); if (isSearching) navigate("/", { replace: true }); }}
                 onDeleted={() => {
                   setAllTags((prev) => prev.filter((t) => t.id !== tag.id));
                   if (activeTag === tag.name) setActiveTag(null);
@@ -799,7 +822,21 @@ export function FileExplorerPage() {
       <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-hidden px-0.5">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold">{showTrash ? "ゴミ箱" : isSearching ? `検索結果: ${urlQ}` : "ドキュメント"}</h1>
+          <h1 className="text-xl font-bold">
+            {showTrash ? "ゴミ箱" : isSearching ? `検索結果: ${urlQ}` : folderBreadcrumb ? (
+              folderBreadcrumb.map((seg, i) => (
+                <span key={seg.id}>
+                  {i > 0 && <span className="mx-1 text-muted-foreground font-normal">&gt;</span>}
+                  <button
+                    className={i === folderBreadcrumb.length - 1 ? "" : "text-muted-foreground font-normal hover:text-foreground hover:underline"}
+                    onClick={() => selectFolder(seg.id)}
+                  >
+                    {seg.name}
+                  </button>
+                </span>
+              ))
+            ) : activeFolderId === "unfiled" ? "未整理" : "ドキュメント"}
+          </h1>
           {showTrash ? (
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => { setShowTrash(false); setTrashSelected(new Set()); }}>
