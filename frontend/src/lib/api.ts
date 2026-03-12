@@ -421,11 +421,14 @@ export async function updateDocument(
   });
 }
 
-export async function uploadDocument(file: File): Promise<Document> {
+export async function uploadDocument(file: File, folderId?: string | null): Promise<Document> {
   const token = getToken();
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE}/documents/upload`, {
+  const url = folderId
+    ? `${API_BASE}/documents/upload?folder_id=${encodeURIComponent(folderId)}`
+    : `${API_BASE}/documents/upload`;
+  const res = await fetch(url, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,
