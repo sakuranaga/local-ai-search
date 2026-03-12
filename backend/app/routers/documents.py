@@ -435,6 +435,7 @@ async def _process_document_background(doc_id: uuid.UUID, storage_path: str, fil
 async def upload_document(
     file: UploadFile,
     background_tasks: BackgroundTasks,
+    folder_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -484,6 +485,8 @@ async def upload_document(
         doc.content = ""
         doc.processing_status = "pending"
         doc.updated_by_id = current_user.id
+        if folder_id is not None:
+            doc.folder_id = folder_id
     else:
         doc = Document(
             title=file.filename,
@@ -495,6 +498,7 @@ async def upload_document(
             created_by_id=current_user.id,
             updated_by_id=current_user.id,
             processing_status="pending",
+            folder_id=folder_id,
         )
         db.add(doc)
     await db.flush()

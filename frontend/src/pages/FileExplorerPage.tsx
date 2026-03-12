@@ -126,10 +126,11 @@ const STATUS_LABELS: Record<string, string> = {
 async function uploadWithProgress(
   file: globalThis.File,
   onUploaded: () => void,
+  folderId?: string | null,
 ): Promise<void> {
   const toastId = toast.loading(`${file.name}: アップロード中...`);
   try {
-    const doc = await uploadDocument(file);
+    const doc = await uploadDocument(file, folderId);
     onUploaded();
 
     // Poll processing status
@@ -489,6 +490,8 @@ export function FileExplorerPage() {
     if (hasFiles(e)) e.dataTransfer.dropEffect = "copy";
   }
 
+  const uploadFolderId = activeFolderId && activeFolderId !== "unfiled" ? activeFolderId : null;
+
   async function startUploadWithCheck(files: globalThis.File[]) {
     const dupTitles = await checkDuplicates(files.map((f) => f.name));
     const dupSet = new Set(dupTitles);
@@ -500,7 +503,7 @@ export function FileExplorerPage() {
     }
     const reload = () => { load(); loadFolders(); };
     for (const f of nonDups) {
-      uploadWithProgress(f, reload);
+      uploadWithProgress(f, reload, uploadFolderId);
     }
     if (dups.length > 0) {
       setOverwriteQueue(dups);
@@ -522,7 +525,7 @@ export function FileExplorerPage() {
     const file = overwriteQueue[0];
     if (file) {
       const reload = () => { load(); loadFolders(); };
-      uploadWithProgress(file, reload);
+      uploadWithProgress(file, reload, uploadFolderId);
     }
     setOverwriteQueue((q) => q.slice(1));
   }
