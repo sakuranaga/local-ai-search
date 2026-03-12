@@ -439,7 +439,13 @@ async def upload_document(
     storage_dir.mkdir(parents=True, exist_ok=True)
 
     file_id = uuid.uuid4()
-    stored_filename = f"{file_id}_{file.filename}"
+    # Truncate stored filename to stay within 255-byte filesystem limit
+    # UUID (36) + underscore (1) = 37 bytes reserved for prefix
+    suffix = Path(file.filename).suffix  # e.g. ".md"
+    max_name_bytes = 255 - 37 - len(suffix.encode("utf-8"))
+    base_name = Path(file.filename).stem
+    truncated = base_name.encode("utf-8")[:max_name_bytes].decode("utf-8", errors="ignore")
+    stored_filename = f"{file_id}_{truncated}{suffix}"
     storage_path = storage_dir / stored_filename
 
     content_bytes = await file.read()
