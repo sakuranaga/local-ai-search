@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { DocumentPreview } from "@/components/DocumentPreview";
 import { ChatPanel } from "@/components/ChatPanel";
@@ -51,6 +51,9 @@ import {
   Undo2,
   Download,
   Sparkles,
+  History,
+  Pin,
+  PinOff,
 } from "lucide-react";
 import {
   getDocuments,
@@ -107,6 +110,65 @@ function formatBytes(bytes: number): string {
 }
 
 const FILE_TYPES = ["", "md", "pdf", "docx"] as const;
+
+// ---------------------------------------------------------------------------
+// Search History (localStorage, max 50)
+// ---------------------------------------------------------------------------
+
+const SEARCH_HISTORY_KEY = "las_search_history";
+const SEARCH_HISTORY_MAX = 50;
+
+interface SearchHistoryEntry {
+  query: string;
+  pinned: boolean;
+  timestamp: number;
+}
+
+function loadSearchHistory(): SearchHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSearchHistory(entries: SearchHistoryEntry[]) {
+  try {
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(entries));
+  } catch {}
+}
+
+function addSearchHistory(query: string): SearchHistoryEntry[] {
+  const entries = loadSearchHistory();
+  // Remove existing duplicate (case-sensitive)
+  const filtered = entries.filter((e) => e.query !== query);
+  const newEntry: SearchHistoryEntry = { query, pinned: false, timestamp: Date.now() };
+  // Pinned entries from old list (preserve their state)
+  const existing = entries.find((e) => e.query === query);
+  if (existing?.pinned) newEntry.pinned = true;
+  filtered.unshift(newEntry);
+  // Enforce max: keep all pinned + trim unpinned from the end
+  const pinned = filtered.filter((e) => e.pinned);
+  const unpinned = filtered.filter((e) => !e.pinned);
+  const result = [...pinned, ...unpinned].slice(0, SEARCH_HISTORY_MAX);
+  saveSearchHistory(result);
+  return result;
+}
+
+function togglePinSearchHistory(query: string): SearchHistoryEntry[] {
+  const entries = loadSearchHistory();
+  const entry = entries.find((e) => e.query === query);
+  if (entry) entry.pinned = !entry.pinned;
+  saveSearchHistory(entries);
+  return entries;
+}
+
+function removeSearchHistory(query: string): SearchHistoryEntry[] {
+  const entries = loadSearchHistory().filter((e) => e.query !== query);
+  saveSearchHistory(entries);
+  return entries;
+}
 
 const TAG_COLORS = [
   "#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4",
@@ -209,6 +271,10 @@ export function FileExplorerPage() {
 
   // AI chat panel visibility for small screens
   const [chatOpen, setChatOpen] = useState(false);
+
+  // Search history
+  const navigate = useNavigate();
+  const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>(loadSearchHistory);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
 
@@ -323,8 +389,11 @@ export function FileExplorerPage() {
   // Re-trigger search when URL timestamp changes (re-search same query)
   useEffect(() => { if (urlT) load(); }, [urlT]);
   useEffect(() => { loadFolders(); loadTags(); loadTrash(); }, []);
-  // Reset page when search query changes
-  useEffect(() => { setPage(1); }, [urlQ]);
+  // Reset page when search query changes & record search history
+  useEffect(() => {
+    setPage(1);
+    if (urlQ) setSearchHistory(addSearchHistory(urlQ));
+  }, [urlQ]);
 
   const totalPages = Math.ceil(total / perPage);
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
@@ -592,7 +661,7 @@ export function FileExplorerPage() {
         </div>
       )}
       {/* Sidebar */}
-      <div className="w-56 flex-shrink-0 space-y-4 overflow-y-auto">
+      <div className="w-56 flex-shrink-0 flex flex-col gap-4 overflow-y-auto">
         {/* Folder tree */}
         <div>
           <div className="flex items-center justify-between mb-1">
@@ -665,7 +734,57 @@ export function FileExplorerPage() {
           </div>
         </div>
 
-        {/* Trash */}
+        {/* Search History */}
+        {searchHistory.length > 0 && (
+          <>
+            <Separator />
+            <div>
+              <h3 className="text-sm font-semibold text-muted-foreground mb-1 flex items-center gap-1">
+                <History className="h-3.5 w-3.5" />検索履歴
+              </h3>
+              <div className="space-y-0.5">
+                {/* Pinned first, then unpinned (each group by recency) */}
+                {[...searchHistory.filter((e) => e.pinned), ...searchHistory.filter((e) => !e.pinned)].map((entry) => (
+                  <div
+                    key={entry.query}
+                    className={`group flex items-center text-sm rounded hover:bg-muted ${urlQ === entry.query ? "bg-primary/10 text-primary font-medium" : ""}`}
+                  >
+                    <button
+                      onClick={() => navigate(`/?q=${encodeURIComponent(entry.query)}&_t=${Date.now()}`)}
+                      className="flex items-center gap-1.5 flex-1 min-w-0 px-2 py-1"
+                    >
+                      {entry.pinned ? (
+                        <Pin className="h-3 w-3 text-primary flex-shrink-0" />
+                      ) : (
+                        <SearchIcon className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                      )}
+                      <span className="truncate">{entry.query}</span>
+                    </button>
+                    <div className="hidden group-hover:flex items-center gap-0.5 mr-0.5">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSearchHistory(togglePinSearchHistory(entry.query)); }}
+                        className="p-0.5 hover:bg-muted rounded"
+                        title={entry.pinned ? "ピン解除" : "ピン留め"}
+                      >
+                        {entry.pinned ? <PinOff className="h-3 w-3 text-muted-foreground" /> : <Pin className="h-3 w-3 text-muted-foreground" />}
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSearchHistory(removeSearchHistory(entry.query)); }}
+                        className="p-0.5 hover:bg-muted rounded"
+                        title="削除"
+                      >
+                        <X className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Trash — always at bottom */}
+        <div className="mt-auto pt-4">
         <Separator />
         <TrashDropTarget
           isActive={showTrash}
@@ -673,6 +792,7 @@ export function FileExplorerPage() {
           onClick={() => { setShowTrash(true); loadTrash(); }}
           onDrop={handleDropOnTrash}
         />
+        </div>
       </div>
 
       {/* Main content */}
