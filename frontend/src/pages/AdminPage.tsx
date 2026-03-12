@@ -45,13 +45,20 @@ import {
   getGroupMembers,
   addGroupMember,
   removeGroupMember,
+  getApiKeys,
+  createApiKey,
+  updateApiKey,
+  deleteApiKey,
+  getFolders,
   type User,
   type Role,
   type SystemSetting,
   type Group,
   type GroupMember,
+  type ApiKeyInfo,
+  type Folder,
 } from "@/lib/api";
-import { Plus, Trash2, Settings, Save, Pencil, Users } from "lucide-react";
+import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -835,6 +842,235 @@ function GroupsTab() {
 }
 
 // ---------------------------------------------------------------------------
+// API Keys Tab
+// ---------------------------------------------------------------------------
+
+const ALL_PERMISSIONS = ["upload", "delete", "search", "overwrite"] as const;
+
+function ApiKeysTab() {
+  const [keys, setKeys] = useState<ApiKeyInfo[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    owner_id: "",
+    folder_id: "" as string,
+    permissions: ["upload"] as string[],
+    allow_overwrite: false,
+    expires_at: "",
+  });
+
+  const load = useCallback(() => {
+    getApiKeys().then(setKeys).catch(() => toast.error("API キーの取得に失敗"));
+  }, []);
+
+  useEffect(() => {
+    load();
+    getUsers().then(setUsers).catch(() => {});
+    getFolders().then(setFolders).catch(() => {});
+  }, [load]);
+
+  const handleCreate = async () => {
+    try {
+      const res = await createApiKey({
+        name: form.name,
+        owner_id: form.owner_id,
+        folder_id: form.folder_id || null,
+        permissions: form.permissions,
+        allow_overwrite: form.allow_overwrite,
+        expires_at: form.expires_at || null,
+      });
+      setCreatedKey(res.plaintext_key);
+      load();
+    } catch {
+      toast.error("作成に失敗しました");
+    }
+  };
+
+  const handleToggleActive = async (key: ApiKeyInfo) => {
+    try {
+      await updateApiKey(key.id, { is_active: !key.is_active });
+      load();
+    } catch {
+      toast.error("更新に失敗しました");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteApiKey(id);
+      load();
+    } catch {
+      toast.error("削除に失敗しました");
+    }
+  };
+
+  const togglePerm = (perm: string) => {
+    setForm((f) => ({
+      ...f,
+      permissions: f.permissions.includes(perm)
+        ? f.permissions.filter((p) => p !== perm)
+        : [...f.permissions, perm],
+    }));
+  };
+
+  const handleCopy = () => {
+    if (createdKey) {
+      navigator.clipboard.writeText(createdKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const resetForm = () => {
+    setForm({ name: "", owner_id: "", folder_id: "", permissions: ["upload"], allow_overwrite: false, expires_at: "" });
+    setCreatedKey(null);
+    setCopied(false);
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between">
+        <CardTitle className="flex items-center gap-2"><Key className="h-5 w-5" />API キー管理</CardTitle>
+        <Button size="sm" onClick={() => { resetForm(); setCreateOpen(true); }}><Plus className="h-4 w-4 mr-1" />新規作成</Button>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>名前</TableHead>
+              <TableHead>プレフィックス</TableHead>
+              <TableHead>ユーザー</TableHead>
+              <TableHead>フォルダ</TableHead>
+              <TableHead>権限</TableHead>
+              <TableHead>上書き</TableHead>
+              <TableHead>有効</TableHead>
+              <TableHead>最終使用</TableHead>
+              <TableHead></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {keys.map((k) => (
+              <TableRow key={k.id}>
+                <TableCell className="font-medium">{k.name}</TableCell>
+                <TableCell><code className="text-xs">{k.key_prefix}...</code></TableCell>
+                <TableCell>{k.owner_name}</TableCell>
+                <TableCell>{k.folder_name || "—"}</TableCell>
+                <TableCell className="space-x-1">
+                  {k.permissions.map((p) => (
+                    <Badge key={p} variant="secondary" className="text-xs">{p}</Badge>
+                  ))}
+                </TableCell>
+                <TableCell>{k.allow_overwrite ? "OK" : "—"}</TableCell>
+                <TableCell>
+                  <Switch checked={k.is_active} onCheckedChange={() => handleToggleActive(k)} />
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString("ja-JP") : "未使用"}
+                </TableCell>
+                <TableCell>
+                  <Button variant="ghost" size="sm" onClick={() => handleDelete(k.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+            {keys.length === 0 && (
+              <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">API キーがありません</TableCell></TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+
+      {/* Create / Show Key Dialog */}
+      <Dialog open={createOpen} onOpenChange={(open) => { if (!open) { setCreateOpen(false); setCreatedKey(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{createdKey ? "API キーが作成されました" : "API キーを作成"}</DialogTitle>
+          </DialogHeader>
+
+          {createdKey ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">このキーは一度だけ表示されます。安全な場所に保存してください。</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 break-all rounded bg-muted p-3 text-sm">{createdKey}</code>
+                <Button variant="outline" size="sm" onClick={handleCopy}>
+                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => { setCreateOpen(false); setCreatedKey(null); }}>閉じる</Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>名前</Label>
+                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="wiki同期用" />
+              </div>
+              <div className="space-y-2">
+                <Label>操作ユーザー</Label>
+                <Select value={form.owner_id || undefined} onValueChange={(v) => setForm({ ...form, owner_id: v ?? "" })}>
+                  <SelectTrigger><SelectValue placeholder="ユーザーを選択" /></SelectTrigger>
+                  <SelectContent>
+                    {users.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>{u.display_name || u.username}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>対象フォルダ（空 = 制限なし）</Label>
+                <Select value={form.folder_id || undefined} onValueChange={(v) => setForm({ ...form, folder_id: v === "__none__" || !v ? "" : v })}>
+                  <SelectTrigger><SelectValue placeholder="フォルダを選択" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">制限なし</SelectItem>
+                    {folders.map((f) => (
+                      <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>権限</Label>
+                <div className="flex gap-2 flex-wrap">
+                  {ALL_PERMISSIONS.map((perm) => (
+                    <Button
+                      key={perm}
+                      type="button"
+                      size="sm"
+                      variant={form.permissions.includes(perm) ? "default" : "outline"}
+                      onClick={() => togglePerm(perm)}
+                    >
+                      {perm}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={form.allow_overwrite} onCheckedChange={(v) => setForm({ ...form, allow_overwrite: v })} />
+                <Label>同名ファイルの上書きを許可</Label>
+              </div>
+              <div className="space-y-2">
+                <Label>有効期限（空 = 無期限）</Label>
+                <Input type="date" value={form.expires_at} onChange={(e) => setForm({ ...form, expires_at: e.target.value })} />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCreateOpen(false)}>キャンセル</Button>
+                <Button onClick={handleCreate} disabled={!form.name || !form.owner_id}>作成</Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Admin Page
 // ---------------------------------------------------------------------------
 
@@ -848,6 +1084,7 @@ export function AdminPage() {
           <TabsTrigger value="users">ユーザー管理</TabsTrigger>
           <TabsTrigger value="groups">グループ管理</TabsTrigger>
           <TabsTrigger value="roles">ロール管理</TabsTrigger>
+          <TabsTrigger value="apikeys">APIキー</TabsTrigger>
           <TabsTrigger value="welcome">ウェルカム</TabsTrigger>
         </TabsList>
         <TabsContent value="settings" className="mt-4">
@@ -861,6 +1098,9 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="roles" className="mt-4">
           <RolesTab />
+        </TabsContent>
+        <TabsContent value="apikeys" className="mt-4">
+          <ApiKeysTab />
         </TabsContent>
         <TabsContent value="welcome" className="mt-4">
           <WelcomeTab />
