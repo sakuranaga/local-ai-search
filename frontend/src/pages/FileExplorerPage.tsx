@@ -270,7 +270,7 @@ export function FileExplorerPage() {
   const [searchTokens, setSearchTokens] = useState<string[]>([]);
 
   // AI chat panel visibility for small screens
-  const [chatOpen, setChatOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
 
   // Search history
   const navigate = useNavigate();
@@ -959,15 +959,17 @@ export function FileExplorerPage() {
             ))}
           </select>
           <span className="text-sm text-muted-foreground ml-auto">{total.toLocaleString()}件</span>
-          {/* AI chat toggle for small screens */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="xl:hidden"
-            onClick={() => setChatOpen(!chatOpen)}
-          >
-            <Sparkles className="h-4 w-4" />
-          </Button>
+          {/* AI chat toggle */}
+          {!chatOpen && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setChatOpen(true)}
+              title="AIチャットを開く"
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
+          )}
         </div>
 
         {/* Bulk actions — always visible */}
@@ -1136,27 +1138,22 @@ export function FileExplorerPage() {
         )}
       </div>
 
-      {/* AI Chat Panel — xl: inline column, smaller: fixed overlay toggled by chatOpen */}
-      <div className={`
-        w-[36rem] flex-shrink-0 min-h-0
-        max-xl:fixed max-xl:inset-y-0 max-xl:right-0 max-xl:z-50 max-xl:max-w-[90vw] max-xl:bg-background max-xl:border-l max-xl:shadow-xl
-        ${chatOpen ? "" : "max-xl:hidden"}
-      `}>
-        <div className="xl:hidden flex items-center justify-between px-3 py-2 border-b">
-          <span className="text-sm font-medium flex items-center gap-1.5"><Sparkles className="h-4 w-4" />AI チャット</span>
-          <Button variant="ghost" size="sm" onClick={() => setChatOpen(false)}><X className="h-4 w-4" /></Button>
-        </div>
-        <div className="min-h-0 h-[calc(100%-3rem)] xl:h-full">
+      {/* AI Chat Panel — slide in/out */}
+      <div
+        className="flex-shrink-0 min-h-0 transition-[width,opacity] duration-300 ease-in-out overflow-hidden"
+        style={{ width: chatOpen ? "36rem" : "0", opacity: chatOpen ? 1 : 0 }}
+      >
+        <div className="w-[36rem] h-full px-px py-px">
           <ChatPanel
             initialQuery={urlQ || undefined}
             onSourceClick={(docId) => {
               const found = items.find((i) => i.id === docId);
-              if (found) { setDetailDoc(found); setChatOpen(false); }
+              if (found) setDetailDoc(found);
             }}
+            onCollapse={() => setChatOpen(false)}
           />
         </div>
       </div>
-      {chatOpen && <div className="xl:hidden fixed inset-0 z-40 bg-black/30" onClick={() => setChatOpen(false)} />}
 
       {/* Detail Modal */}
       <DocumentDetailModal

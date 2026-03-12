@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sparkles, Send, Trash2, User, Search, FileText, TextSearch, Hash, Loader2 } from "lucide-react";
+import { Sparkles, Send, Trash2, User, Search, FileText, TextSearch, Hash, Loader2, ChevronRight } from "lucide-react";
 import {
   streamChat,
   getChatStatus,
@@ -90,6 +90,7 @@ function ToolStepLine({ step, isActive }: { step: ToolStepDisplay; isActive: boo
 interface ChatPanelProps {
   initialQuery?: string;
   onSourceClick?: (documentId: string) => void;
+  onCollapse?: () => void;
 }
 
 function LoadingDots() {
@@ -102,7 +103,7 @@ function LoadingDots() {
   );
 }
 
-export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
+export function ChatPanel({ initialQuery, onSourceClick, onCollapse }: ChatPanelProps) {
   const navigate = useNavigate();
 
   const cached = useRef(loadChatCache());
@@ -274,8 +275,19 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
 
   if (messages.length === 0) {
     return (
-      <Card className="h-full border-dashed">
-        <CardContent className="flex flex-col items-center justify-center h-full min-h-48 text-muted-foreground gap-2">
+      <Card className="h-full border-dashed flex flex-col !py-0 !gap-0">
+        {onCollapse && (
+          <div className="flex items-center justify-between px-4 py-1.5 border-b shrink-0">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Sparkles className="h-4 w-4 text-primary" />
+              AI チャット
+            </div>
+            <Button variant="ghost" size="sm" onClick={onCollapse} className="h-7 px-2" title="閉じる">
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
+        <CardContent className="flex flex-col items-center justify-center flex-1 min-h-48 text-muted-foreground gap-2">
           <Sparkles className="h-8 w-8" />
           <p className="text-sm">検索するとAIが回答を生成します</p>
           {chatStatus && (
@@ -305,11 +317,18 @@ export function ChatPanel({ initialQuery, onSourceClick }: ChatPanelProps) {
             )
           )}
         </div>
-        {messages.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={handleClear} className="h-7 px-2">
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        )}
+        <div className="flex items-center">
+          {messages.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={handleClear} className="h-7 px-2">
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          {onCollapse && (
+            <Button variant="ghost" size="sm" onClick={onCollapse} className="h-7 px-2" title="閉じる">
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
