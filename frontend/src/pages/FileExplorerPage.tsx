@@ -301,6 +301,20 @@ export function FileExplorerPage() {
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: DocumentListItem } | null>(null);
+  const [contextMenuPos, setContextMenuPos] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+  const contextMenuRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node || !contextMenu) return;
+    const rect = node.getBoundingClientRect();
+    const top = contextMenu.y + rect.height > window.innerHeight
+      ? Math.max(4, contextMenu.y - rect.height)
+      : contextMenu.y;
+    const left = contextMenu.x + rect.width > window.innerWidth
+      ? Math.max(4, contextMenu.x - rect.width)
+      : contextMenu.x;
+    if (left !== contextMenuPos.left || top !== contextMenuPos.top) {
+      setContextMenuPos({ left, top });
+    }
+  }, [contextMenu]);
 
   // Rename dialog
   const [renameTarget, setRenameTarget] = useState<DocumentListItem | null>(null);
@@ -504,11 +518,10 @@ export function FileExplorerPage() {
 
   function handleContextMenu(e: React.MouseEvent, item: DocumentListItem) {
     e.preventDefault();
-    // If right-clicked item is already in a multi-selection, keep the selection
-    // Otherwise, select only the right-clicked item
     if (!selected.has(item.id)) {
       setSelected(new Set([item.id]));
     }
+    setContextMenuPos({ left: e.clientX, top: e.clientY });
     setContextMenu({ x: e.clientX, y: e.clientY, item });
   }
 
@@ -1204,8 +1217,9 @@ export function FileExplorerPage() {
           <>
             <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />
             <div
+              ref={contextMenuRef}
               className="fixed z-50 min-w-[180px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 animate-in fade-in-0 zoom-in-95"
-              style={{ left: contextMenu.x, top: contextMenu.y }}
+              style={{ left: contextMenuPos.left, top: contextMenuPos.top }}
             >
               {isMultiContext && (
                 <div className="px-2 py-1 text-xs text-muted-foreground font-medium">{contextCount}件選択中</div>
