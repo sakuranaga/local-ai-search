@@ -1130,7 +1130,7 @@ export function FileExplorerPage() {
                     key={item.id}
                     draggable
                     onDragStart={(e) => handleDragStart(e, item.id)}
-                    className={`cursor-pointer select-none ${selected.has(item.id) ? "bg-muted/50" : "hover:bg-muted/30"}`}
+                    className={`cursor-pointer select-none ${selected.has(item.id) ? "bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-50 dark:hover:bg-blue-950/30" : ""}`}
                     onClick={(e) => handleRowClick(item, e)}
                     onDoubleClick={() => handleRowDoubleClick(item)}
                     onContextMenu={(e) => handleContextMenu(e, item)}
