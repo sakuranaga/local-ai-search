@@ -28,7 +28,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   ChevronLeft,
-  ChevronRight,
   ChevronDown,
   ChevronRightIcon,
   ArrowUpDown,
@@ -263,10 +262,13 @@ export function FileExplorerPage() {
 
   const [items, setItems] = useState<DocumentListItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [perPage] = useState(30);
+  const pageRef = useRef(1);
+  const [hasMore, setHasMore] = useState(true);
+  const perPage = 30;
   const [sortBy, setSortBy] = useState("updated_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
   const [filterType, setFilterType] = useState("");
   const [searchTokens, setSearchTokens] = useState<string[]>([]);
 
@@ -328,7 +330,7 @@ export function FileExplorerPage() {
   // Selecting a folder/tag while searching should clear the search query
   const selectFolder = useCallback((id: string | null) => {
     setActiveFolderId(id);
-    setPage(1);
+
     setShowTrash(false);
     if (isSearching) {
       navigate("/", { replace: true });
@@ -365,14 +367,16 @@ export function FileExplorerPage() {
     } catch { /* ignore */ }
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (reset = false) => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     setLoading(true);
     try {
+      const currentPage = reset ? 1 : pageRef.current;
       if (isSearching) {
-        // Search mode: use merged search endpoint
         const searchParams: Parameters<typeof searchDocumentsList>[0] = {
           q: urlQ,
-          page,
+          page: currentPage,
           per_page: perPage,
           file_type: filterType || undefined,
         };
@@ -385,13 +389,13 @@ export function FileExplorerPage() {
           searchParams.tag = activeTag;
         }
         const data = await searchDocumentsList(searchParams);
-        setItems(data.items);
+        setItems((prev) => reset ? data.items : [...prev, ...data.items]);
         setTotal(data.total);
+        setHasMore(currentPage * perPage < data.total);
         setSearchTokens(data.tokens ?? []);
       } else {
-        // Browse mode: use documents list endpoint
         const params: Parameters<typeof getDocuments>[0] = {
-          page,
+          page: currentPage,
           per_page: perPage,
           sort_by: sortBy,
           sort_dir: sortDir,
@@ -406,28 +410,45 @@ export function FileExplorerPage() {
           params.tag = activeTag;
         }
         const data = await getDocuments(params);
-        setItems(data.items);
+        setItems((prev) => reset ? data.items : [...prev, ...data.items]);
         setTotal(data.total);
+        setHasMore(currentPage * perPage < data.total);
         setSearchTokens([]);
       }
+      if (reset) pageRef.current = 1;
     } catch {
       toast.error("文書一覧の取得に失敗");
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
-  }, [page, perPage, sortBy, sortDir, filterType, activeFolderId, activeTag, isSearching, urlQ]);
+  }, [perPage, sortBy, sortDir, filterType, activeFolderId, activeTag, isSearching, urlQ]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(true); }, [load]);
   // Re-trigger search when URL timestamp changes (re-search same query)
-  useEffect(() => { if (urlT) load(); }, [urlT]);
+  useEffect(() => { if (urlT) load(true); }, [urlT]);
   useEffect(() => { loadFolders(); loadTags(); loadTrash(); }, []);
-  // Reset page when search query changes & record search history
+  // Reset when search query changes & record search history
   useEffect(() => {
-    setPage(1);
     if (urlQ) setSearchHistory(addSearchHistory(urlQ));
   }, [urlQ]);
 
-  const totalPages = Math.ceil(total / perPage);
+  // Infinite scroll via IntersectionObserver
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingRef.current) {
+          pageRef.current += 1;
+          load();
+        }
+      },
+      { threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, load]);
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
 
   // Build breadcrumb path for active folder (e.g. "親フォルダ > 子フォルダ")
@@ -448,7 +469,7 @@ export function FileExplorerPage() {
   function handleSort(col: string) {
     if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortBy(col); setSortDir("desc"); }
-    setPage(1);
+
   }
 
   function SortIcon({ col }: { col: string }) {
@@ -823,7 +844,7 @@ export function FileExplorerPage() {
           <div className="space-y-0.5">
             {activeTag && (
               <button
-                onClick={() => { setActiveTag(null); setPage(1); if (isSearching) navigate("/", { replace: true }); }}
+                onClick={() => { setActiveTag(null); if (isSearching) navigate("/", { replace: true }); }}
                 className="w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 hover:bg-muted text-muted-foreground"
               >
                 <X className="h-3 w-3" />フィルタ解除
@@ -834,7 +855,7 @@ export function FileExplorerPage() {
                 key={tag.id}
                 tag={tag}
                 isActive={activeTag === tag.name}
-                onSelect={() => { setActiveTag(activeTag === tag.name ? null : tag.name); setPage(1); setShowTrash(false); if (isSearching) navigate("/", { replace: true }); }}
+                onSelect={() => { setActiveTag(activeTag === tag.name ? null : tag.name); setShowTrash(false); if (isSearching) navigate("/", { replace: true }); }}
                 onDeleted={() => {
                   setAllTags((prev) => prev.filter((t) => t.id !== tag.id));
                   if (activeTag === tag.name) setActiveTag(null);
@@ -1043,7 +1064,7 @@ export function FileExplorerPage() {
           )}
           <select
             value={filterType}
-            onChange={(e) => { setFilterType(e.target.value); setPage(1); }}
+            onChange={(e) => { setFilterType(e.target.value); }}
             className="h-9 rounded-md border bg-background px-3 text-sm"
           >
             <option value="">すべての種別</option>
@@ -1161,6 +1182,11 @@ export function FileExplorerPage() {
                 )}
               </TableBody>
             </Table>
+            {/* Infinite scroll sentinel */}
+            {hasMore && <div ref={sentinelRef} className="h-4" />}
+            {loading && items.length > 0 && (
+              <div className="flex justify-center py-2 text-sm text-muted-foreground">読み込み中…</div>
+            )}
           </ScrollArea>
         </Card>
 
@@ -1212,37 +1238,6 @@ export function FileExplorerPage() {
           </>
         )}
 
-        {/* Pagination — always visible */}
-        <div className="flex items-center justify-center gap-2 py-1.5">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          {Array.from({ length: totalPages }, (_, i) => i + 1)
-            .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
-            .reduce<(number | "...")[]>((acc, p, idx, arr) => {
-              if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("...");
-              acc.push(p);
-              return acc;
-            }, [])
-            .map((item, idx) =>
-              item === "..." ? (
-                <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground">…</span>
-              ) : (
-                <Button
-                  key={item}
-                  variant={item === page ? "default" : "outline"}
-                  size="sm"
-                  className="min-w-[36px]"
-                  onClick={() => setPage(item as number)}
-                >
-                  {item}
-                </Button>
-              ),
-            )}
-          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
         </>
         )}
       </div>
