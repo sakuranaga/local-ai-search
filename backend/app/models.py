@@ -320,8 +320,8 @@ class ApiKey(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    owner: Mapped["User"] = relationship(foreign_keys=[owner_id])
-    folder: Mapped["Folder | None"] = relationship(foreign_keys=[folder_id])
+    owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="selectin")
+    folder: Mapped["Folder | None"] = relationship(foreign_keys=[folder_id], lazy="selectin")
 
 
 class File(Base):
