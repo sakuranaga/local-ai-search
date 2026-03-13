@@ -125,9 +125,8 @@ def tokenize_query(query: str) -> list[str]:
     if not query:
         return []
 
-    # Split by whitespace first (user may have manually separated terms)
-    segments = query.split()
-
+    # Extract quoted phrases first (keep as-is, no tokenization)
+    # Then split remaining text by whitespace
     all_keywords: list[str] = []
     seen: set[str] = set()
 
@@ -136,6 +135,16 @@ def tokenize_query(query: str) -> list[str]:
         if word and word not in seen:
             seen.add(word)
             all_keywords.append(word)
+
+    # Split into quoted and unquoted parts
+    segments: list[str] = []
+    remainder = query
+    for match in re.finditer(r'"([^"]+)"', query):
+        _add(match.group(1))
+    # Remove quoted parts and split the rest by whitespace
+    remainder = re.sub(r'"[^"]*"', ' ', query).strip()
+    if remainder:
+        segments = remainder.split()
 
     for segment in segments:
         # Non-Japanese text (model numbers, codes, etc.) → keep as-is

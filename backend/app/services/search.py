@@ -247,7 +247,7 @@ async def title_search(
     user: User | None = None,
 ) -> list[dict]:
     """Search documents by title/filename using ILIKE."""
-    words = query.split()
+    words = tokenize_query(query)
     if not words:
         return []
 
