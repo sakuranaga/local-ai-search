@@ -1070,7 +1070,7 @@ export function FileExplorerPage() {
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className={isSearching ? "" : "cursor-pointer select-none"} onClick={isSearching ? undefined : () => handleSort("title")}>
+                <TableHead className={`pl-4 ${isSearching ? "" : "cursor-pointer select-none"}`} onClick={isSearching ? undefined : () => handleSort("title")}>
                   <span className="flex items-center">タイトル {!isSearching && <SortIcon col="title" />}</span>
                 </TableHead>
                 <TableHead className="w-16">種別</TableHead>
@@ -1096,7 +1096,7 @@ export function FileExplorerPage() {
                     onDoubleClick={() => handleRowDoubleClick(item)}
                     onContextMenu={(e) => handleContextMenu(e, item)}
                   >
-                    <TableCell>
+                    <TableCell className="pl-4">
                       <span className="font-medium text-sm max-w-[400px] truncate block">
                         {item.title}
                       </span>
