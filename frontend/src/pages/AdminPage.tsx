@@ -3,7 +3,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -572,69 +571,6 @@ function SettingsTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Welcome Message Tab
-// ---------------------------------------------------------------------------
-
-function WelcomeTab() {
-  const [value, setValue] = useState("");
-  const [original, setOriginal] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    getSettings()
-      .then((s) => {
-        const wm = s.find((x) => x.key === "welcome_message");
-        if (wm) {
-          setValue(wm.value);
-          setOriginal(wm.value);
-        }
-      })
-      .catch(() => toast.error("設定の取得に失敗"));
-  }, []);
-
-  async function handleSave() {
-    setSaving(true);
-    try {
-      await updateSetting("welcome_message", value);
-      setOriginal(value);
-      toast.success("保存しました");
-    } catch {
-      toast.error("保存に失敗しました");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const isEdited = value !== original;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">ウェルカムメッセージ</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          ホーム画面（検索前）に表示されるメッセージです。Markdown記法が使えます。
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Textarea
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Markdownで記述..."
-          className={`min-h-[250px] font-mono text-sm ${isEdited ? "border-orange-400" : ""}`}
-          rows={12}
-        />
-        <div className="flex justify-end">
-          <Button onClick={handleSave} disabled={!isEdited || saving}>
-            <Save className="h-4 w-4 mr-2" />
-            保存
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Groups Tab
 // ---------------------------------------------------------------------------
 
@@ -1085,7 +1021,6 @@ export function AdminPage() {
           <TabsTrigger value="groups">グループ管理</TabsTrigger>
           <TabsTrigger value="roles">ロール管理</TabsTrigger>
           <TabsTrigger value="apikeys">APIキー</TabsTrigger>
-          <TabsTrigger value="welcome">ウェルカム</TabsTrigger>
         </TabsList>
         <TabsContent value="settings" className="mt-4">
           <SettingsTab />
@@ -1101,9 +1036,6 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="apikeys" className="mt-4">
           <ApiKeysTab />
-        </TabsContent>
-        <TabsContent value="welcome" className="mt-4">
-          <WelcomeTab />
         </TabsContent>
       </Tabs>
     </div>

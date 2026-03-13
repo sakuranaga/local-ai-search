@@ -24,7 +24,7 @@ class SettingUpdate(BaseModel):
 
 
 # Public settings readable by any authenticated user
-PUBLIC_KEYS = {"welcome_message"}
+PUBLIC_KEYS: set[str] = set()
 
 
 @router.get("/public/{key}")

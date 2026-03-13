@@ -67,27 +67,6 @@ DEFAULTS = {
         "description": "AI自律検索の最大ラウンド数",
         "placeholder": "3",
     },
-    "welcome_message": {
-        "value": """## LAS — Local AI Search へようこそ
-
-社内ドキュメントをAIで横断検索できるシステムです。
-
-### 使い方
-- 上部の**検索バー**にキーワードを入力して検索
-- 検索結果をクリックすると文書の詳細を表示
-- 右側の**AIチャット**で検索内容について質問・深掘りできます
-
-### 対応ドキュメント
-- PukiWiki（自動同期）
-- Markdown / テキストファイル
-- PDF / Word ファイル（アップロード）
-
----
-*管理者はこのメッセージを「設定」画面から編集できます。*""",
-        "description": "ホーム画面のウェルカムメッセージ（Markdown対応）",
-        "placeholder": "Markdownで記述できます",
-        "multiline": True,
-    },
 }
 
 
