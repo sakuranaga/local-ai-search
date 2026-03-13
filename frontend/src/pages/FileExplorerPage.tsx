@@ -54,6 +54,7 @@ import {
   History,
   Pin,
   PinOff,
+  FolderInput,
 } from "lucide-react";
 import {
   getDocuments,
@@ -298,6 +299,13 @@ export function FileExplorerPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [bulkActionOpen, setBulkActionOpen] = useState<string | null>(null);
 
+  // Context menu
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: DocumentListItem } | null>(null);
+
+  // Rename dialog
+  const [renameTarget, setRenameTarget] = useState<DocumentListItem | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
   // Trash
   const [showTrash, setShowTrash] = useState(false);
   const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
@@ -492,6 +500,74 @@ export function FileExplorerPage() {
       await updateDocument(item.id, { [field]: !item[field] });
       setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, [field]: !i[field] } : i)));
     } catch { toast.error("更新に失敗"); }
+  }
+
+  function handleContextMenu(e: React.MouseEvent, item: DocumentListItem) {
+    e.preventDefault();
+    // Select the right-clicked item if not already selected
+    if (!selected.has(item.id)) {
+      setSelected(new Set([item.id]));
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY, item });
+  }
+
+  function contextAction(action: string) {
+    const item = contextMenu?.item;
+    if (!item) return;
+    setContextMenu(null);
+
+    // Ensure the item is selected for bulk action dialogs
+    if (!selected.has(item.id)) {
+      setSelected(new Set([item.id]));
+    }
+
+    switch (action) {
+      case "rename":
+        setRenameTarget(item);
+        setRenameValue(item.title);
+        break;
+      case "download":
+        (async () => {
+          try {
+            const token = localStorage.getItem("las_token");
+            const res = await fetch(`/api/documents/${item.id}/download`, {
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
+            if (!res.ok) throw new Error();
+            const blob = await res.blob();
+            const disposition = res.headers.get("content-disposition");
+            const filenameMatch = disposition?.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
+            const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : item.title;
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(a.href);
+          } catch { toast.error("ダウンロード失敗"); }
+        })();
+        break;
+      case "move_folder":
+        setBulkActionOpen("move_folder");
+        break;
+      case "permissions":
+        setBulkActionOpen("permissions");
+        break;
+      case "add_tags":
+        setBulkActionOpen("add_tags");
+        break;
+      case "reindex":
+        setBulkActionOpen("reindex");
+        break;
+      case "toggle_searchable":
+        handleToggleFlag(item, "searchable");
+        break;
+      case "toggle_ai":
+        handleToggleFlag(item, "ai_knowledge");
+        break;
+      case "delete":
+        setBulkActionOpen("delete");
+        break;
+    }
   }
 
   async function handleBulkAction(action: string, extra?: Record<string, unknown>) {
@@ -1025,6 +1101,7 @@ export function FileExplorerPage() {
                     className={`cursor-pointer select-none ${selected.has(item.id) ? "bg-muted/50" : "hover:bg-muted/30"}`}
                     onClick={(e) => handleRowClick(item, e)}
                     onDoubleClick={() => handleRowDoubleClick(item)}
+                    onContextMenu={(e) => handleContextMenu(e, item)}
                   >
                     <TableCell
                       data-checkbox-cell
@@ -1102,6 +1179,48 @@ export function FileExplorerPage() {
             </Table>
           </ScrollArea>
         </Card>
+
+        {/* Context menu */}
+        {contextMenu && (
+          <>
+            <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />
+            <div
+              className="fixed z-50 min-w-[180px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 animate-in fade-in-0 zoom-in-95"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+            >
+              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("rename")}>
+                <Pencil className="h-4 w-4" />名前変更
+              </button>
+              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("download")}>
+                <Download className="h-4 w-4" />ダウンロード
+              </button>
+              <div className="-mx-1 my-1 h-px bg-border" />
+              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("move_folder")}>
+                <FolderInput className="h-4 w-4" />フォルダ移動
+              </button>
+              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("permissions")}>
+                <Shield className="h-4 w-4" />権限設定
+              </button>
+              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("add_tags")}>
+                <TagIcon className="h-4 w-4" />タグ追加
+              </button>
+              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("reindex")}>
+                <RefreshCw className="h-4 w-4" />ベクトル再構築
+              </button>
+              <div className="-mx-1 my-1 h-px bg-border" />
+              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("toggle_searchable")}>
+                <SearchIcon className="h-4 w-4" />検索 {contextMenu.item.searchable ? "OFF" : "ON"}
+              </button>
+              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("toggle_ai")}>
+                <Brain className="h-4 w-4" />AI {contextMenu.item.ai_knowledge ? "OFF" : "ON"}
+              </button>
+              <div className="-mx-1 my-1 h-px bg-border" />
+              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10" onClick={() => contextAction("delete")}>
+                <Trash2 className="h-4 w-4" />ゴミ箱に移動
+              </button>
+            </div>
+          </>
+        )}
 
         {/* Pagination — always visible */}
         <div className="flex items-center justify-center gap-2 py-1.5">
@@ -1215,6 +1334,41 @@ export function FileExplorerPage() {
         onClose={() => setBulkActionOpen(null)}
         onDone={() => { setBulkActionOpen(null); setSelected(new Set()); load(); loadTags(); }}
       />
+
+      {/* Rename Dialog */}
+      <Dialog open={!!renameTarget} onOpenChange={(open) => { if (!open) setRenameTarget(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>名前変更</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && renameValue.trim() && renameTarget) {
+                updateDocument(renameTarget.id, { title: renameValue.trim() })
+                  .then(() => { setRenameTarget(null); load(); toast.success("名前を変更しました"); })
+                  .catch(() => toast.error("名前変更に失敗"));
+              }
+            }}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameTarget(null)}>キャンセル</Button>
+            <Button
+              disabled={!renameValue.trim()}
+              onClick={() => {
+                if (!renameTarget) return;
+                updateDocument(renameTarget.id, { title: renameValue.trim() })
+                  .then(() => { setRenameTarget(null); load(); toast.success("名前を変更しました"); })
+                  .catch(() => toast.error("名前変更に失敗"));
+              }}
+            >
+              変更
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* New Folder Dialog */}
       <Dialog open={newFolderOpen} onOpenChange={() => setNewFolderOpen(false)}>
