@@ -457,23 +457,15 @@ export function FileExplorerPage() {
   }
 
   const lastClickedIdx = useRef<number | null>(null);
-  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
 
   function handleRowClick(item: DocumentListItem, e: React.MouseEvent) {
     // Ignore clicks on checkbox cell (handled separately)
     if ((e.target as HTMLElement).closest('[data-checkbox-cell]')) return;
-    if (clickTimer.current) clearTimeout(clickTimer.current);
-    clickTimer.current = setTimeout(() => {
-      clickTimer.current = null;
-      toggleSelect(item.id, e);
-    }, 250);
+    toggleSelect(item.id, e);
   }
 
   function handleRowDoubleClick(item: DocumentListItem) {
-    if (clickTimer.current) {
-      clearTimeout(clickTimer.current);
-      clickTimer.current = null;
-    }
     setDetailDoc(item);
   }
 
