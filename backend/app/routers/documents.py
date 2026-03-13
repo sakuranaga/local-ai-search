@@ -104,7 +104,7 @@ class BulkDeleteRequest(BaseModel):
 
 class BulkActionRequest(BaseModel):
     ids: list[str]
-    action: str  # "delete" | "reindex" | "set_permissions" | "move_to_folder" | "add_tags" | "remove_tags"
+    action: str  # "delete" | "reindex" | "set_permissions" | "move_to_folder" | "add_tags" | "remove_tags" | "set_searchable" | "set_ai_knowledge"
     # For set_permissions action (Unix-style)
     group_id: str | None = None  # UUID string or "" to unset
     group_read: bool | None = None
@@ -115,6 +115,9 @@ class BulkActionRequest(BaseModel):
     folder_id: str | None = None  # "" to unset
     # For add_tags / remove_tags actions
     tag_ids: list[int] | None = None
+    # For set_searchable / set_ai_knowledge actions
+    searchable: bool | None = None
+    ai_knowledge: bool | None = None
 
 
 class UnixPermissionsRequest(BaseModel):
@@ -1269,6 +1272,28 @@ async def bulk_action(
             processed += 1
         await db.flush()
         return {"action": "remove_tags", "processed": processed}
+
+    elif body.action in ("set_searchable", "set_ai_knowledge"):
+        field = "searchable" if body.action == "set_searchable" else "ai_knowledge"
+        new_val = body.searchable if field == "searchable" else body.ai_knowledge
+        if new_val is None:
+            raise HTTPException(status_code=400, detail=f"{field} required")
+        processed = 0
+        for doc_id_str in body.ids:
+            try:
+                doc_id = uuid.UUID(doc_id_str)
+            except ValueError:
+                continue
+            result = await db.execute(select(Document).where(Document.id == doc_id))
+            doc = result.scalar_one_or_none()
+            if doc is None:
+                continue
+            if not await _check_doc_access(doc, current_user, need_write=True, db=db):
+                continue
+            setattr(doc, field, new_val)
+            processed += 1
+        await db.flush()
+        return {"action": body.action, "processed": processed}
 
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {body.action}")
