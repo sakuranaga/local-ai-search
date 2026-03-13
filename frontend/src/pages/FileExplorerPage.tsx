@@ -1073,28 +1073,30 @@ export function FileExplorerPage() {
         </div>
 
         {/* Table */}
-        <Card className="!py-0 !gap-0 flex-1 min-h-0 overflow-hidden">
-          <ScrollArea className="w-full h-full">
+        <Card className="!py-0 !gap-0 flex-1 min-h-0 overflow-hidden flex flex-col">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="w-10 px-0 cursor-pointer select-none" onClick={toggleSelectAll}>
+                  <div className="flex items-center justify-center px-3">
+                    <input type="checkbox" checked={items.length > 0 && selected.size === items.length} readOnly className="pointer-events-none" />
+                  </div>
+                </TableHead>
+                <TableHead className={isSearching ? "" : "cursor-pointer select-none"} onClick={isSearching ? undefined : () => handleSort("title")}>
+                  <span className="flex items-center">タイトル {!isSearching && <SortIcon col="title" />}</span>
+                </TableHead>
+                <TableHead className="w-16">種別</TableHead>
+                <TableHead className="w-14">チャンク</TableHead>
+                <TableHead className="w-24">登録者</TableHead>
+                <TableHead className={`w-24 ${isSearching ? "" : "cursor-pointer select-none"}`} onClick={isSearching ? undefined : () => handleSort("updated_at")}>
+                  <span className="flex items-center">更新日 {!isSearching && <SortIcon col="updated_at" />}</span>
+                </TableHead>
+                <TableHead className="w-28 text-center">検索 / AI</TableHead>
+              </TableRow>
+            </TableHeader>
+          </Table>
+          <ScrollArea className="w-full flex-1 min-h-0">
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10 px-0 cursor-pointer select-none" onClick={toggleSelectAll}>
-                    <div className="flex items-center justify-center px-3">
-                      <input type="checkbox" checked={items.length > 0 && selected.size === items.length} readOnly className="pointer-events-none" />
-                    </div>
-                  </TableHead>
-                  <TableHead className={isSearching ? "" : "cursor-pointer select-none"} onClick={isSearching ? undefined : () => handleSort("title")}>
-                    <span className="flex items-center">タイトル {!isSearching && <SortIcon col="title" />}</span>
-                  </TableHead>
-                  <TableHead className="w-16">種別</TableHead>
-                  <TableHead className="w-14">チャンク</TableHead>
-                  <TableHead className="w-24">登録者</TableHead>
-                  <TableHead className={`w-24 ${isSearching ? "" : "cursor-pointer select-none"}`} onClick={isSearching ? undefined : () => handleSort("updated_at")}>
-                    <span className="flex items-center">更新日 {!isSearching && <SortIcon col="updated_at" />}</span>
-                  </TableHead>
-                  <TableHead className="w-28 text-center">検索 / AI</TableHead>
-                </TableRow>
-              </TableHeader>
               <TableBody>
                 {items.map((item) => (
                   <TableRow
