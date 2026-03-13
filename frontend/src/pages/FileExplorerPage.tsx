@@ -933,7 +933,7 @@ export function FileExplorerPage() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-hidden px-0.5">
+      <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-hidden px-0.5 pb-0.5">
         {/* Header */}
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold">
@@ -1106,7 +1106,7 @@ export function FileExplorerPage() {
           </Table>
           <ScrollArea className="w-full flex-1 min-h-0">
             <Table>
-              <TableBody>
+              <TableBody className="[&_tr:last-child]:border-b">
                 {items.map((item) => (
                   <TableRow
                     key={item.id}
