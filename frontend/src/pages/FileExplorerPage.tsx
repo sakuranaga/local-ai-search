@@ -1088,24 +1088,40 @@ export function FileExplorerPage() {
 
         {/* Table */}
         <Card className="!py-0 !gap-0 flex-1 min-h-0 overflow-hidden flex flex-col">
-          <Table>
+          <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+            <colgroup>
+              <col />
+              <col style={{ width: 64 }} />
+              <col style={{ width: 56 }} />
+              <col style={{ width: 96 }} />
+              <col style={{ width: 96 }} />
+              <col style={{ width: 112 }} />
+            </colgroup>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className={`pl-4 ${isSearching ? "" : "cursor-pointer select-none"}`} onClick={isSearching ? undefined : () => handleSort("title")}>
                   <span className="flex items-center">タイトル {!isSearching && <SortIcon col="title" />}</span>
                 </TableHead>
-                <TableHead className="w-16">種別</TableHead>
-                <TableHead className="w-14">チャンク</TableHead>
-                <TableHead className="w-24">登録者</TableHead>
-                <TableHead className={`w-24 ${isSearching ? "" : "cursor-pointer select-none"}`} onClick={isSearching ? undefined : () => handleSort("updated_at")}>
+                <TableHead>種別</TableHead>
+                <TableHead>チャンク</TableHead>
+                <TableHead>登録者</TableHead>
+                <TableHead className={isSearching ? "" : "cursor-pointer select-none"} onClick={isSearching ? undefined : () => handleSort("updated_at")}>
                   <span className="flex items-center">更新日 {!isSearching && <SortIcon col="updated_at" />}</span>
                 </TableHead>
-                <TableHead className="w-28 text-center">検索 / AI</TableHead>
+                <TableHead className="text-center">検索 / AI</TableHead>
               </TableRow>
             </TableHeader>
-          </Table>
+          </table>
           <ScrollArea className="w-full flex-1 min-h-0">
-            <Table>
+            <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+              <colgroup>
+                <col />
+                <col style={{ width: 64 }} />
+                <col style={{ width: 56 }} />
+                <col style={{ width: 96 }} />
+                <col style={{ width: 96 }} />
+                <col style={{ width: 112 }} />
+              </colgroup>
               <TableBody className="[&_tr:last-child]:border-b">
                 {items.map((item) => (
                   <TableRow
@@ -1181,7 +1197,7 @@ export function FileExplorerPage() {
                   </TableRow>
                 )}
               </TableBody>
-            </Table>
+            </table>
             {/* Infinite scroll sentinel */}
             {hasMore && <div ref={sentinelRef} className="h-4" />}
             {loading && items.length > 0 && (
