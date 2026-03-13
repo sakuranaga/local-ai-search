@@ -504,12 +504,17 @@ export function FileExplorerPage() {
 
   function handleContextMenu(e: React.MouseEvent, item: DocumentListItem) {
     e.preventDefault();
-    // Select the right-clicked item if not already selected
+    // If right-clicked item is already in a multi-selection, keep the selection
+    // Otherwise, select only the right-clicked item
     if (!selected.has(item.id)) {
       setSelected(new Set([item.id]));
     }
     setContextMenu({ x: e.clientX, y: e.clientY, item });
   }
+
+  // Number of items targeted by the context menu
+  const contextCount = contextMenu ? Math.max(selected.size, 1) : 0;
+  const isMultiContext = contextCount > 1;
 
   function contextAction(action: string) {
     const item = contextMenu?.item;
@@ -527,24 +532,30 @@ export function FileExplorerPage() {
         setRenameValue(item.title);
         break;
       case "download":
-        (async () => {
-          try {
-            const token = localStorage.getItem("las_token");
-            const res = await fetch(`/api/documents/${item.id}/download`, {
-              headers: token ? { Authorization: `Bearer ${token}` } : {},
-            });
-            if (!res.ok) throw new Error();
-            const blob = await res.blob();
-            const disposition = res.headers.get("content-disposition");
-            const filenameMatch = disposition?.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
-            const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : item.title;
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            a.download = filename;
-            a.click();
-            URL.revokeObjectURL(a.href);
-          } catch { toast.error("ダウンロード失敗"); }
-        })();
+        // Download all selected items
+        {
+          const targets = isMultiContext ? items.filter((i) => selected.has(i.id)) : [item];
+          const token = localStorage.getItem("las_token");
+          for (const t of targets) {
+            (async () => {
+              try {
+                const res = await fetch(`/api/documents/${t.id}/download`, {
+                  headers: token ? { Authorization: `Bearer ${token}` } : {},
+                });
+                if (!res.ok) throw new Error();
+                const blob = await res.blob();
+                const disposition = res.headers.get("content-disposition");
+                const filenameMatch = disposition?.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
+                const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : t.title;
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(a.href);
+              } catch { toast.error(`ダウンロード失敗: ${t.title}`); }
+            })();
+          }
+        }
         break;
       case "move_folder":
         setBulkActionOpen("move_folder");
@@ -559,10 +570,18 @@ export function FileExplorerPage() {
         setBulkActionOpen("reindex");
         break;
       case "toggle_searchable":
-        handleToggleFlag(item, "searchable");
+        if (isMultiContext) {
+          handleBulkAction("set_searchable", { searchable: !item.searchable });
+        } else {
+          handleToggleFlag(item, "searchable");
+        }
         break;
       case "toggle_ai":
-        handleToggleFlag(item, "ai_knowledge");
+        if (isMultiContext) {
+          handleBulkAction("set_ai_knowledge", { ai_knowledge: !item.ai_knowledge });
+        } else {
+          handleToggleFlag(item, "ai_knowledge");
+        }
         break;
       case "delete":
         setBulkActionOpen("delete");
@@ -1188,11 +1207,16 @@ export function FileExplorerPage() {
               className="fixed z-50 min-w-[180px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 animate-in fade-in-0 zoom-in-95"
               style={{ left: contextMenu.x, top: contextMenu.y }}
             >
-              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("rename")}>
-                <Pencil className="h-4 w-4" />名前変更
-              </button>
+              {isMultiContext && (
+                <div className="px-2 py-1 text-xs text-muted-foreground font-medium">{contextCount}件選択中</div>
+              )}
+              {!isMultiContext && (
+                <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("rename")}>
+                  <Pencil className="h-4 w-4" />名前変更
+                </button>
+              )}
               <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("download")}>
-                <Download className="h-4 w-4" />ダウンロード
+                <Download className="h-4 w-4" />ダウンロード{isMultiContext ? ` (${contextCount}件)` : ""}
               </button>
               <div className="-mx-1 my-1 h-px bg-border" />
               <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("move_folder")}>
@@ -1216,7 +1240,7 @@ export function FileExplorerPage() {
               </button>
               <div className="-mx-1 my-1 h-px bg-border" />
               <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10" onClick={() => contextAction("delete")}>
-                <Trash2 className="h-4 w-4" />ゴミ箱に移動
+                <Trash2 className="h-4 w-4" />ゴミ箱に移動{isMultiContext ? ` (${contextCount}件)` : ""}
               </button>
             </div>
           </>
