@@ -1177,6 +1177,7 @@ async def bulk_action(
                 continue
             if doc.owner_id != current_user.id and not _is_admin(current_user):
                 continue
+            original_updated_at = doc.updated_at
             if body.group_id is not None:
                 doc.group_id = group_uuid
             if body.group_read is not None:
@@ -1187,6 +1188,7 @@ async def bulk_action(
                 doc.others_read = body.others_read
             if body.others_write is not None:
                 doc.others_write = body.others_write
+            doc.updated_at = original_updated_at
             processed += 1
         await db.flush()
         return {"action": "set_permissions", "processed": processed}
@@ -1209,6 +1211,7 @@ async def bulk_action(
                 continue
             if not await _check_doc_access(doc, current_user, need_write=True, db=db):
                 continue
+            original_updated_at = doc.updated_at
             doc.folder_id = folder_uuid
             # Apply target folder permissions
             if target_folder:
@@ -1217,7 +1220,8 @@ async def bulk_action(
                 doc.group_write = target_folder.group_write
                 doc.others_read = target_folder.others_read
                 doc.others_write = target_folder.others_write
-            doc.updated_by_id = current_user.id
+            # Preserve original updated_at (folder move is not a content change)
+            doc.updated_at = original_updated_at
             processed += 1
         await db.flush()
         return {"action": "move_to_folder", "processed": processed}
@@ -1290,7 +1294,9 @@ async def bulk_action(
                 continue
             if not await _check_doc_access(doc, current_user, need_write=True, db=db):
                 continue
+            original_updated_at = doc.updated_at
             setattr(doc, field, new_val)
+            doc.updated_at = original_updated_at
             processed += 1
         await db.flush()
         return {"action": body.action, "processed": processed}
