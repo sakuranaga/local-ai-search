@@ -460,8 +460,6 @@ export function FileExplorerPage() {
 
 
   function handleRowClick(item: DocumentListItem, e: React.MouseEvent) {
-    // Ignore clicks on checkbox cell (handled separately)
-    if ((e.target as HTMLElement).closest('[data-checkbox-cell]')) return;
     toggleSelect(item.id, e);
   }
 
@@ -494,11 +492,6 @@ export function FileExplorerPage() {
       });
     }
     lastClickedIdx.current = idx;
-  }
-
-  function toggleSelectAll() {
-    if (selected.size === items.length) setSelected(new Set());
-    else setSelected(new Set(items.map((i) => i.id)));
   }
 
   async function handleToggleFlag(item: DocumentListItem, field: "searchable" | "ai_knowledge") {
@@ -1077,11 +1070,6 @@ export function FileExplorerPage() {
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className="w-10 px-0 cursor-pointer select-none" onClick={toggleSelectAll}>
-                  <div className="flex items-center justify-center px-3">
-                    <input type="checkbox" checked={items.length > 0 && selected.size === items.length} readOnly className="pointer-events-none" />
-                  </div>
-                </TableHead>
                 <TableHead className={isSearching ? "" : "cursor-pointer select-none"} onClick={isSearching ? undefined : () => handleSort("title")}>
                   <span className="flex items-center">タイトル {!isSearching && <SortIcon col="title" />}</span>
                 </TableHead>
@@ -1108,15 +1096,6 @@ export function FileExplorerPage() {
                     onDoubleClick={() => handleRowDoubleClick(item)}
                     onContextMenu={(e) => handleContextMenu(e, item)}
                   >
-                    <TableCell
-                      data-checkbox-cell
-                      className="cursor-pointer select-none px-0"
-                      onClick={(e) => { e.stopPropagation(); toggleSelect(item.id, e); }}
-                    >
-                      <div className="flex items-center justify-center w-full h-full py-2 px-3">
-                        <input type="checkbox" checked={selected.has(item.id)} readOnly className="pointer-events-none" />
-                      </div>
-                    </TableCell>
                     <TableCell>
                       <span className="font-medium text-sm max-w-[400px] truncate block">
                         {item.title}
