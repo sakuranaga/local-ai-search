@@ -612,11 +612,12 @@ export function FileExplorerPage() {
         setRenameValue(item.title);
         break;
       case "download":
-        // Download all selected items
         {
           const targets = isMultiContext ? items.filter((i) => selected.has(i.id)) : [item];
           const token = localStorage.getItem("las_token");
-          for (const t of targets) {
+          if (targets.length === 1) {
+            // Single file download
+            const t = targets[0];
             (async () => {
               try {
                 const res = await fetch(`/api/documents/${t.id}/download`, {
@@ -633,6 +634,28 @@ export function FileExplorerPage() {
                 a.click();
                 URL.revokeObjectURL(a.href);
               } catch { toast.error(`ダウンロード失敗: ${t.title}`); }
+            })();
+          } else {
+            // Multiple files: download as zip
+            (async () => {
+              try {
+                const res = await fetch("/api/documents/download-zip", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                  },
+                  body: JSON.stringify({ ids: targets.map((t) => t.id) }),
+                });
+                if (!res.ok) throw new Error();
+                const blob = await res.blob();
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = "documents.zip";
+                a.click();
+                URL.revokeObjectURL(a.href);
+                toast.success(`${targets.length}件をZipでダウンロードしました`);
+              } catch { toast.error("Zipダウンロードに失敗しました"); }
             })();
           }
         }
