@@ -464,6 +464,51 @@ export function FileExplorerPage() {
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [hasMore, load]);
+  // Keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Ignore when typing in input/textarea/contenteditable
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable) return;
+      // Ignore when a dialog is open
+      if (detailDoc || bulkActionOpen || uploadOpen || newFolderOpen) return;
+      if (showTrash) return;
+
+      const isMod = e.metaKey || e.ctrlKey;
+
+      // Ctrl/Cmd+A: select all
+      if (isMod && e.key === "a") {
+        e.preventDefault();
+        setSelected(new Set(items.map((i) => i.id)));
+        return;
+      }
+
+      // Escape: clear selection
+      if (e.key === "Escape") {
+        setSelected(new Set());
+        return;
+      }
+
+      // Delete / Backspace: move selected to trash (no dialog)
+      if ((e.key === "Delete" || e.key === "Backspace") && selected.size > 0) {
+        e.preventDefault();
+        const ids = [...selected];
+        bulkAction(ids, "delete").then((res) => {
+          toast.success(`${res.processed}件をゴミ箱に移動しました`);
+          setSelected(new Set());
+          setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
+          setTotal((prev) => Math.max(0, prev - ids.length));
+          loadFolders();
+          loadTrash();
+        }).catch(() => toast.error("削除に失敗しました"));
+        return;
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [items, selected, showTrash, detailDoc, bulkActionOpen, uploadOpen, newFolderOpen]);
+
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
 
   // Build breadcrumb path for active folder (e.g. "親フォルダ > 子フォルダ")
