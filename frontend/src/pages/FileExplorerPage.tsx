@@ -624,15 +624,27 @@ export function FileExplorerPage() {
   }
 
   async function handleBulkAction(action: string, extra?: Record<string, unknown>) {
+    const ids = [...selected];
     try {
-      const res = await bulkAction([...selected], action, extra);
+      const res = await bulkAction(ids, action, extra);
       toast.success(`${res.processed}件${action === "delete" ? "ゴミ箱に移動しました" : "処理しました"}`);
-      setSelected(new Set());
       setBulkActionOpen(null);
-      load();
-      loadFolders();
-      loadTags();
-      if (action === "delete") loadTrash();
+
+      // For toggle-style actions: optimistically update items & keep selection
+      if (action === "set_searchable" && extra && "searchable" in extra) {
+        const idSet = new Set(ids);
+        setItems((prev) => prev.map((i) => idSet.has(i.id) ? { ...i, searchable: extra.searchable as boolean } : i));
+      } else if (action === "set_ai_knowledge" && extra && "ai_knowledge" in extra) {
+        const idSet = new Set(ids);
+        setItems((prev) => prev.map((i) => idSet.has(i.id) ? { ...i, ai_knowledge: extra.ai_knowledge as boolean } : i));
+      } else {
+        // For destructive/structural actions: clear selection & reload
+        setSelected(new Set());
+        load();
+        loadFolders();
+        loadTags();
+        if (action === "delete") loadTrash();
+      }
     } catch { toast.error("処理に失敗しました"); }
   }
 
