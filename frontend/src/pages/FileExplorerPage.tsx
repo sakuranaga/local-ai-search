@@ -1100,7 +1100,20 @@ export function FileExplorerPage() {
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className={`pl-4 ${isSearching ? "" : "cursor-pointer select-none"}`} onClick={isSearching ? undefined : () => handleSort("title")}>
-                  <span className="flex items-center">タイトル {!isSearching && <SortIcon col="title" />}</span>
+                  <span className="flex items-center gap-2">
+                    タイトル {!isSearching && <SortIcon col="title" />}
+                    {selected.size > 0 && (
+                      <>
+                        <span className="text-xs font-normal text-muted-foreground">{selected.size}件選択中</span>
+                        <button
+                          className="text-xs font-normal text-muted-foreground hover:text-foreground underline"
+                          onClick={(e) => { e.stopPropagation(); setSelected(new Set()); }}
+                        >
+                          選択解除
+                        </button>
+                      </>
+                    )}
+                  </span>
                 </TableHead>
                 <TableHead>種別</TableHead>
                 <TableHead>チャンク</TableHead>
