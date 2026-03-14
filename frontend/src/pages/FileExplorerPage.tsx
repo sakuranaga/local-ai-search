@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentDetailModal } from "@/components/DocumentDetailModal";
+import { DocumentContextMenu, type ContextMenuState } from "@/components/DocumentContextMenu";
 import { BulkPermissionsDialog, BulkFolderDialog, BulkTagDialog, UploadDialog } from "@/components/BulkActionDialogs";
 import { SidebarTagItem, DropTarget, TrashDropTarget, FolderTreeItem } from "@/components/FolderSidebarItems";
 import { Card } from "@/components/ui/card";
@@ -33,7 +34,6 @@ import {
   ArrowDown,
   Upload,
   Trash2,
-  Shield,
   RefreshCw,
   Search as SearchIcon,
   FileText,
@@ -43,14 +43,11 @@ import {
   Plus,
   X,
   Tag as TagIcon,
-  Pencil,
   Undo2,
-  Download,
   Sparkles,
   History,
   Pin,
   PinOff,
-  FolderInput,
 } from "lucide-react";
 import {
   getDocuments,
@@ -139,21 +136,7 @@ export function FileExplorerPage() {
   const [bulkActionOpen, setBulkActionOpen] = useState<string | null>(null);
 
   // Context menu
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: DocumentListItem } | null>(null);
-  const [contextMenuPos, setContextMenuPos] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
-  const contextMenuRef = useCallback((node: HTMLDivElement | null) => {
-    if (!node || !contextMenu) return;
-    const rect = node.getBoundingClientRect();
-    const top = contextMenu.y + rect.height > window.innerHeight
-      ? Math.max(4, contextMenu.y - rect.height)
-      : contextMenu.y;
-    const left = contextMenu.x + rect.width > window.innerWidth
-      ? Math.max(4, contextMenu.x - rect.width)
-      : contextMenu.x;
-    if (left !== contextMenuPos.left || top !== contextMenuPos.top) {
-      setContextMenuPos({ left, top });
-    }
-  }, [contextMenu]);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   // Rename dialog
   const [renameTarget, setRenameTarget] = useState<DocumentListItem | null>(null);
@@ -422,7 +405,6 @@ export function FileExplorerPage() {
     if (!selected.has(item.id)) {
       setSelected(new Set([item.id]));
     }
-    setContextMenuPos({ left: e.clientX, top: e.clientY });
     setContextMenu({ x: e.clientX, y: e.clientY, item });
   }
 
@@ -1157,50 +1139,12 @@ export function FileExplorerPage() {
 
         {/* Context menu */}
         {contextMenu && (
-          <>
-            <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />
-            <div
-              ref={contextMenuRef}
-              className="fixed z-50 min-w-[180px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 animate-in fade-in-0 zoom-in-95"
-              style={{ left: contextMenuPos.left, top: contextMenuPos.top }}
-            >
-              {isMultiContext && (
-                <div className="px-2 py-1 text-xs text-muted-foreground font-medium">{contextCount}件選択中</div>
-              )}
-              {!isMultiContext && (
-                <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("rename")}>
-                  <Pencil className="h-4 w-4" />名前変更
-                </button>
-              )}
-              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("download")}>
-                <Download className="h-4 w-4" />ダウンロード{isMultiContext ? ` (${contextCount}件)` : ""}
-              </button>
-              <div className="-mx-1 my-1 h-px bg-border" />
-              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("move_folder")}>
-                <FolderInput className="h-4 w-4" />フォルダ移動
-              </button>
-              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("permissions")}>
-                <Shield className="h-4 w-4" />権限設定
-              </button>
-              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("add_tags")}>
-                <TagIcon className="h-4 w-4" />タグ追加
-              </button>
-              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("reindex")}>
-                <RefreshCw className="h-4 w-4" />ベクトル再構築
-              </button>
-              <div className="-mx-1 my-1 h-px bg-border" />
-              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("toggle_searchable")}>
-                <SearchIcon className="h-4 w-4" />検索 {contextMenu.item.searchable ? "OFF" : "ON"}
-              </button>
-              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("toggle_ai")}>
-                <Bot className="h-4 w-4" />AI {contextMenu.item.ai_knowledge ? "OFF" : "ON"}
-              </button>
-              <div className="-mx-1 my-1 h-px bg-border" />
-              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10" onClick={() => contextAction("delete")}>
-                <Trash2 className="h-4 w-4" />ゴミ箱に移動{isMultiContext ? ` (${contextCount}件)` : ""}
-              </button>
-            </div>
-          </>
+          <DocumentContextMenu
+            menu={contextMenu}
+            selectedCount={selected.size}
+            onClose={() => setContextMenu(null)}
+            onAction={contextAction}
+          />
         )}
 
         </>
