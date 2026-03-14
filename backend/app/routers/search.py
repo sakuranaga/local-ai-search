@@ -66,7 +66,7 @@ async def search_documents_list(
     current_user: User = Depends(get_current_user),
 ):
     """Search documents and return document-level results with metadata."""
-    from app.routers.documents import _load_tags_for_docs, _make_doc_list_item
+    from app.services.document_processing import load_tags_for_docs, make_doc_list_item
 
     offset = (page - 1) * per_page
     results, total = await merged_search(
@@ -128,7 +128,7 @@ async def search_documents_list(
     row_map = {row.id: row for row in rows}
 
     # Batch-load tags
-    tags_map = await _load_tags_for_docs(db, doc_ids_ordered)
+    tags_map = await load_tags_for_docs(db, doc_ids_ordered)
 
     # Build items in RRF score order
     items = []
@@ -136,7 +136,7 @@ async def search_documents_list(
         row = row_map.get(doc_id)
         if not row:
             continue
-        item = _make_doc_list_item(row, tags=tags_map.get(doc_id, []))
+        item = make_doc_list_item(row, tags=tags_map.get(doc_id, []))
         item_dict = item.model_dump()
         item_dict["rrf_score"] = rrf_scores.get(str(doc_id), 0)
         items.append(item_dict)

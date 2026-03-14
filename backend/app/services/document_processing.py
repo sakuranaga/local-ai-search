@@ -1,0 +1,191 @@
+"""Document processing helpers: file type detection, list item building,
+tag loading, and background processing pipeline."""
+
+import logging
+import uuid
+from pathlib import Path
+
+from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db import async_session
+from app.models import Chunk, Document, DocumentTag, Tag
+from app.schemas.documents import DocumentListItem, TagInfo
+from app.services.embedding import get_embeddings
+from app.services.llm import generate_summary
+from app.services.parser import chunk_text, parse_file
+from app.services.permissions import format_permission_string
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# File type detection
+# ---------------------------------------------------------------------------
+
+def get_file_type(filename: str) -> str:
+    ext = Path(filename).suffix.lower().lstrip(".")
+    type_map = {
+        "md": "md",
+        "markdown": "md",
+        "txt": "md",
+        "pdf": "pdf",
+        "docx": "docx",
+        "doc": "docx",
+        "xlsx": "xlsx",
+        "xls": "xlsx",
+        "csv": "csv",
+        "tsv": "csv",
+        "html": "html",
+        "htm": "html",
+        "pptx": "pptx",
+        "png": "png",
+        "jpg": "jpg",
+        "jpeg": "jpg",
+        "gif": "gif",
+        "bmp": "bmp",
+        "tiff": "tiff",
+        "tif": "tiff",
+        "webp": "webp",
+    }
+    return type_map.get(ext, "md")
+
+
+# ---------------------------------------------------------------------------
+# Build DocumentListItem from query row
+# ---------------------------------------------------------------------------
+
+def make_doc_list_item(
+    row, tags: list[TagInfo] | None = None, group_name: str | None = None,
+) -> DocumentListItem:
+    """Build a DocumentListItem from a query row with Unix permission fields."""
+    g_read = getattr(row, "group_read", False) or False
+    g_write = getattr(row, "group_write", False) or False
+    o_read = getattr(row, "others_read", True)
+    o_write = getattr(row, "others_write", False) or False
+    return DocumentListItem(
+        id=str(row.id),
+        title=row.title,
+        summary=getattr(row, "summary", None),
+        source_path=getattr(row, "source_path", None),
+        file_type=row.file_type,
+        owner_id=str(row.owner_id) if getattr(row, "owner_id", None) else None,
+        owner_name=getattr(row, "owner_name", None),
+        group_id=str(row.group_id) if getattr(row, "group_id", None) else None,
+        group_name=group_name or getattr(row, "group_name", None),
+        group_read=g_read,
+        group_write=g_write,
+        others_read=o_read if o_read is not None else True,
+        others_write=o_write,
+        permissions=format_permission_string(g_read, g_write, o_read if o_read is not None else True, o_write),
+        searchable=getattr(row, "searchable", True),
+        ai_knowledge=getattr(row, "ai_knowledge", True),
+        chunk_count=getattr(row, "chunk_count", 0),
+        memo=getattr(row, "memo", None),
+        folder_id=str(row.folder_id) if getattr(row, "folder_id", None) else None,
+        folder_name=getattr(row, "folder_name", None),
+        tags=tags or [],
+        created_by_name=getattr(row, "created_by_name", None),
+        updated_by_name=getattr(row, "updated_by_name", None),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Batch-load tags for documents
+# ---------------------------------------------------------------------------
+
+async def load_tags_for_docs(db: AsyncSession, doc_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[TagInfo]]:
+    """Load tags for a batch of documents. Returns {doc_id: [TagInfo, ...]}."""
+    if not doc_ids:
+        return {}
+    result = await db.execute(
+        select(DocumentTag.document_id, Tag.id, Tag.name, Tag.color)
+        .join(Tag, DocumentTag.tag_id == Tag.id)
+        .where(DocumentTag.document_id.in_(doc_ids))
+        .order_by(Tag.name)
+    )
+    tags_map: dict[uuid.UUID, list[TagInfo]] = {}
+    for row in result.all():
+        tags_map.setdefault(row[0], []).append(
+            TagInfo(id=row[1], name=row[2], color=row[3])
+        )
+    return tags_map
+
+
+# ---------------------------------------------------------------------------
+# Background processing pipeline
+# ---------------------------------------------------------------------------
+
+async def process_document_background(doc_id: uuid.UUID, storage_path: str, file_type: str, filename: str):
+    """Background task: parse → chunk → embed → summarize."""
+    async with async_session() as db:
+        try:
+            result = await db.execute(select(Document).where(Document.id == doc_id))
+            doc = result.scalar_one_or_none()
+            if not doc:
+                logger.warning(f"Background task: document not found {doc_id}")
+                return
+
+            # Phase 1: Parse / OCR
+            doc.processing_status = "parsing"
+            await db.commit()
+
+            try:
+                text_content = await parse_file(storage_path, file_type)
+            except Exception as e:
+                logger.error(f"Parse failed for {filename}: {e}")
+                doc.processing_status = "error"
+                await db.commit()
+                return
+
+            doc.content = text_content
+
+            # Phase 2: Chunking
+            doc.processing_status = "chunking"
+            await db.commit()
+
+            chunks_text = chunk_text(text_content)
+
+            # Phase 3: Embedding
+            doc.processing_status = "embedding"
+            await db.commit()
+
+            try:
+                embeddings = await get_embeddings(chunks_text)
+            except Exception:
+                embeddings = [None] * len(chunks_text)
+
+            # Remove old chunks and create new ones
+            await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
+            for i, (chunk_content, embedding) in enumerate(zip(chunks_text, embeddings)):
+                db.add(Chunk(
+                    document_id=doc.id,
+                    chunk_index=i,
+                    content=chunk_content,
+                    embedding=embedding,
+                ))
+
+            # Phase 4: Summary
+            doc.processing_status = "summarizing"
+            await db.commit()
+
+            try:
+                summary = await generate_summary(text_content, filename)
+                if summary:
+                    doc.summary = summary
+            except Exception:
+                pass
+
+            doc.processing_status = "done"
+            await db.commit()
+            logger.info(f"Background processing complete: {filename} ({doc_id})")
+
+        except Exception as e:
+            logger.error(f"Background processing error for {doc_id}: {e}")
+            try:
+                doc.processing_status = "error"
+                await db.commit()
+            except Exception:
+                pass
