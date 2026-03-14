@@ -206,6 +206,10 @@ class Document(Base):
         Index("ix_documents_title_bigm", "title",
               postgresql_using="gin",
               postgresql_ops={"title": "gin_bigm_ops"}),
+        Index("ix_documents_deleted_at", "deleted_at"),
+        Index("ix_documents_folder_id", "folder_id"),
+        Index("ix_documents_owner_id", "owner_id"),
+        Index("ix_documents_group_id", "group_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
