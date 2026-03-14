@@ -54,6 +54,7 @@ import {
 } from "lucide-react";
 import {
   getDocuments,
+  getFilterOptions,
   updateDocument,
   bulkAction,
   getFolders,
@@ -74,6 +75,7 @@ import {
   type Folder,
   type TagInfo,
   type Group,
+  type FilterOptions,
 } from "@/lib/api";
 import {
   formatDate,
@@ -85,7 +87,6 @@ import {
   togglePinSearchHistory,
   removeSearchHistory,
   TAG_COLORS,
-  FILE_TYPES,
   formatPermString,
   type FolderNode,
   type SearchHistoryEntry,
@@ -112,6 +113,10 @@ export function FileExplorerPage() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
   const [filterType, setFilterType] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterCreatedBy, setFilterCreatedBy] = useState("");
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({ file_types: [], creators: [] });
   const [searchTokens, setSearchTokens] = useState<string[]>([]);
 
   // AI chat panel visibility for small screens
@@ -249,6 +254,9 @@ export function FileExplorerPage() {
           sort_by: sortBy,
           sort_dir: sortDir,
           file_type: filterType || undefined,
+          date_from: filterDateFrom || undefined,
+          date_to: filterDateTo || undefined,
+          created_by: filterCreatedBy || undefined,
         };
         if (activeFolderId === "unfiled") {
           params.unfiled = true;
@@ -271,12 +279,12 @@ export function FileExplorerPage() {
       setLoading(false);
       loadingRef.current = false;
     }
-  }, [perPage, sortBy, sortDir, filterType, activeFolderId, activeTag, isSearching, urlQ]);
+  }, [perPage, sortBy, sortDir, filterType, filterDateFrom, filterDateTo, filterCreatedBy, activeFolderId, activeTag, isSearching, urlQ]);
 
   useEffect(() => { load(true); }, [load]);
   // Re-trigger search when URL timestamp changes (re-search same query)
   useEffect(() => { if (urlT) load(true); }, [urlT]);
-  useEffect(() => { loadFolders(); loadTags(); loadTrash(); }, []);
+  useEffect(() => { loadFolders(); loadTags(); loadTrash(); getFilterOptions().then(setFilterOptions).catch(() => {}); }, []);
   // Reset when search query changes & record search history
   useEffect(() => {
     if (urlQ) setSearchHistory(addSearchHistory(urlQ));
@@ -1015,7 +1023,7 @@ export function FileExplorerPage() {
         ) : (
         <>
         {/* Filters */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
           {isSearching && searchTokens.length > 0 && searchTokens.join(" ") !== urlQ && (
             <div className="flex items-center gap-1">
               <span className="text-xs text-muted-foreground">検索語:</span>
@@ -1027,13 +1035,48 @@ export function FileExplorerPage() {
           <select
             value={filterType}
             onChange={(e) => { setFilterType(e.target.value); }}
-            className="h-9 rounded-md border bg-background px-3 text-sm"
+            className="h-8 rounded-md border bg-background px-2 text-xs"
           >
-            <option value="">すべての種別</option>
-            {FILE_TYPES.filter(Boolean).map((t) => (
+            <option value="">種別</option>
+            {filterOptions.file_types.map((t) => (
               <option key={t} value={t}>{t.toUpperCase()}</option>
             ))}
           </select>
+          <select
+            value={filterCreatedBy}
+            onChange={(e) => { setFilterCreatedBy(e.target.value); }}
+            className="h-8 rounded-md border bg-background px-2 text-xs"
+          >
+            <option value="">登録者</option>
+            {filterOptions.creators.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          <div className="flex items-center gap-1">
+            <input
+              type="date"
+              value={filterDateFrom}
+              onChange={(e) => setFilterDateFrom(e.target.value)}
+              className="h-8 rounded-md border bg-background px-2 text-xs"
+              title="更新日From"
+            />
+            <span className="text-xs text-muted-foreground">〜</span>
+            <input
+              type="date"
+              value={filterDateTo}
+              onChange={(e) => setFilterDateTo(e.target.value)}
+              className="h-8 rounded-md border bg-background px-2 text-xs"
+              title="更新日To"
+            />
+          </div>
+          {(filterType || filterDateFrom || filterDateTo || filterCreatedBy) && (
+            <button
+              onClick={() => { setFilterType(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterCreatedBy(""); }}
+              className="text-xs text-muted-foreground hover:text-foreground underline"
+            >
+              クリア
+            </button>
+          )}
           <span className="text-sm text-muted-foreground ml-auto">{total.toLocaleString()}件</span>
           {/* AI chat toggle */}
           {!chatOpen && (

@@ -63,6 +63,9 @@ async def list_documents(
     folder_id: str | None = Query(None),
     unfiled: bool = Query(False),
     tag: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    created_by: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -132,6 +135,12 @@ async def list_documents(
         base = base.where(Document.folder_id == uuid.UUID(folder_id))
     elif unfiled:
         base = base.where(Document.folder_id.is_(None))
+    if date_from:
+        base = base.where(Document.updated_at >= date_from)
+    if date_to:
+        base = base.where(Document.updated_at < date_to + "T23:59:59.999999")
+    if created_by:
+        base = base.where(Document.created_by_id == uuid.UUID(created_by))
     if tag:
         tag_sq = (
             select(DocumentTag.document_id)
@@ -322,6 +331,39 @@ async def upload_document(
         created_at=doc.created_at,
         updated_at=doc.updated_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# Filter options (for frontend dropdowns)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/filter-options")
+async def get_filter_options(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return distinct file types and creators for filter dropdowns."""
+    # Distinct file types
+    ft_result = await db.execute(
+        select(Document.file_type)
+        .where(Document.deleted_at.is_(None))
+        .group_by(Document.file_type)
+        .order_by(Document.file_type)
+    )
+    file_types = [row[0] for row in ft_result.all()]
+
+    # Distinct creators
+    creators_result = await db.execute(
+        select(User.id, User.username)
+        .join(Document, Document.created_by_id == User.id)
+        .where(Document.deleted_at.is_(None))
+        .group_by(User.id, User.username)
+        .order_by(User.username)
+    )
+    creators = [{"id": str(row[0]), "name": row[1]} for row in creators_result.all()]
+
+    return {"file_types": file_types, "creators": creators}
 
 
 # ---------------------------------------------------------------------------

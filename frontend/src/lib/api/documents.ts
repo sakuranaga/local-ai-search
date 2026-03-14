@@ -15,6 +15,9 @@ export async function getDocuments(params: {
   folder_id?: string;
   unfiled?: boolean;
   tag?: string;
+  date_from?: string;
+  date_to?: string;
+  created_by?: string;
 } = {}): Promise<DocumentListResponse> {
   const p = new URLSearchParams();
   if (params.page) p.set("page", String(params.page));
@@ -26,7 +29,19 @@ export async function getDocuments(params: {
   if (params.folder_id) p.set("folder_id", params.folder_id);
   if (params.unfiled) p.set("unfiled", "true");
   if (params.tag) p.set("tag", params.tag);
+  if (params.date_from) p.set("date_from", params.date_from);
+  if (params.date_to) p.set("date_to", params.date_to);
+  if (params.created_by) p.set("created_by", params.created_by);
   return apiFetch(`/documents?${p.toString()}`);
+}
+
+export interface FilterOptions {
+  file_types: string[];
+  creators: { id: string; name: string }[];
+}
+
+export async function getFilterOptions(): Promise<FilterOptions> {
+  return apiFetch("/documents/filter-options");
 }
 
 export async function getDocument(id: string): Promise<Document> {
