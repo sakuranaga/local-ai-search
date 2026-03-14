@@ -202,6 +202,11 @@ class DocumentTag(Base):
 
 class Document(Base):
     __tablename__ = "documents"
+    __table_args__ = (
+        Index("ix_documents_title_bigm", "title",
+              postgresql_using="gin",
+              postgresql_ops={"title": "gin_bigm_ops"}),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -266,6 +271,10 @@ class Chunk(Base):
         Index("ix_chunks_embedding_cosine", "embedding", postgresql_using="ivfflat",
               postgresql_with={"lists": 100},
               postgresql_ops={"embedding": "vector_cosine_ops"}),
+        Index("ix_chunks_content_bigm", "content",
+              postgresql_using="gin",
+              postgresql_ops={"content": "gin_bigm_ops"}),
+        Index("ix_chunks_document_id", "document_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
