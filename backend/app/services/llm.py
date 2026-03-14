@@ -15,6 +15,10 @@ class CancelledByClient(Exception):
 
 logger = logging.getLogger(__name__)
 
+# Shared timeout for LLM API calls
+_DEFAULT_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+_SUMMARY_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+
 
 async def _get_llm_config() -> tuple[str, str, str]:
     async with async_session() as db:
@@ -29,6 +33,13 @@ def _build_headers(api_key: str) -> dict[str, str]:
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     return headers
+
+
+def _error_response(content: str) -> dict:
+    """Build a minimal error response dict matching the OpenAI chat format."""
+    return {
+        "choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": "stop"}]
+    }
 
 
 async def generate_summary(content: str, title: str = "") -> str:
@@ -56,7 +67,7 @@ async def generate_summary(content: str, title: str = "") -> str:
         return ""
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as client:
+        async with httpx.AsyncClient(timeout=_SUMMARY_TIMEOUT) as client:
             response = await client.post(
                 f"{url}/chat/completions",
                 json={
@@ -94,9 +105,7 @@ async def chat_completion(
     url, model, api_key = await _get_llm_config()
 
     if not url:
-        return {
-            "choices": [{"message": {"role": "assistant", "content": "LLMサーバーが設定されていません。"}, "finish_reason": "stop"}]
-        }
+        return _error_response("LLMサーバーが設定されていません。")
 
     payload: dict = {
         "model": model,
@@ -111,7 +120,7 @@ async def chat_completion(
         payload["tool_choice"] = "auto"
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
+        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
             # Wrap the POST in a task so we can cancel it when the client disconnects
             post_coro = client.post(
                 f"{url}/chat/completions",
@@ -135,21 +144,15 @@ async def chat_completion(
 
             if response.status_code != 200:
                 logger.error(f"LLM API error {response.status_code}: {response.text}")
-                return {
-                    "choices": [{"message": {"role": "assistant", "content": f"LLM APIエラー: {response.status_code}"}, "finish_reason": "stop"}]
-                }
+                return _error_response(f"LLM APIエラー: {response.status_code}")
             return response.json()
     except CancelledByClient:
         raise
     except httpx.ConnectError:
-        return {
-            "choices": [{"message": {"role": "assistant", "content": "LLMサーバーに接続できません。"}, "finish_reason": "stop"}]
-        }
+        return _error_response("LLMサーバーに接続できません。")
     except Exception as e:
         logger.exception("LLM completion error")
-        return {
-            "choices": [{"message": {"role": "assistant", "content": f"LLMエラー: {e}"}, "finish_reason": "stop"}]
-        }
+        return _error_response(f"LLMエラー: {e}")
 
 
 async def stream_chat_raw(
@@ -180,7 +183,7 @@ async def stream_chat_raw(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
+        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
             async with client.stream(
                 "POST",
                 f"{url}/chat/completions",
