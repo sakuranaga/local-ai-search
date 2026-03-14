@@ -274,6 +274,7 @@ export function FileExplorerPage() {
 
   // AI chat panel visibility for small screens
   const [chatOpen, setChatOpen] = useState(true);
+  const [aiStreaming, setAiStreaming] = useState(false);
 
   // Search history
   const navigate = useNavigate();
@@ -1095,7 +1096,7 @@ export function FileExplorerPage() {
               onClick={() => setChatOpen(true)}
               title="AIチャットを開く"
             >
-              <Sparkles className="h-4 w-4" />
+              <Sparkles className={`h-4 w-4 ${aiStreaming ? "animate-ai-glow text-primary" : ""}`} />
             </Button>
           )}
         </div>
@@ -1298,6 +1299,7 @@ export function FileExplorerPage() {
               if (found) setDetailDoc(found);
             }}
             onCollapse={() => setChatOpen(false)}
+            onStreamingChange={setAiStreaming}
           />
         </div>
       </div>

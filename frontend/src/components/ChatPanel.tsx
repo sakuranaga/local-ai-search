@@ -91,6 +91,7 @@ interface ChatPanelProps {
   initialQuery?: string;
   onSourceClick?: (documentId: string) => void;
   onCollapse?: () => void;
+  onStreamingChange?: (streaming: boolean) => void;
 }
 
 function LoadingDots() {
@@ -103,7 +104,7 @@ function LoadingDots() {
   );
 }
 
-export function ChatPanel({ initialQuery, onSourceClick, onCollapse }: ChatPanelProps) {
+export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreamingChange }: ChatPanelProps) {
   const navigate = useNavigate();
 
   const cached = useRef(loadChatCache());
@@ -118,6 +119,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse }: ChatPanel
   );
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  useEffect(() => { onStreamingChange?.(isStreaming); }, [isStreaming, onStreamingChange]);
   const [chatStatus, setChatStatus] = useState<ChatStatus | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -279,7 +281,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse }: ChatPanel
         {onCollapse && (
           <div className="flex items-center justify-between px-4 py-1.5 border-b shrink-0">
             <div className="flex items-center gap-2 text-sm font-medium">
-              <Sparkles className="h-4 w-4 text-primary" />
+              <Sparkles className={`h-4 w-4 text-primary ${isStreaming ? "animate-ai-glow" : ""}`} />
               AI チャット
             </div>
             <Button variant="ghost" size="sm" onClick={onCollapse} className="h-7 px-2" title="閉じる">
@@ -307,7 +309,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse }: ChatPanel
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-1.5 border-b shrink-0">
         <div className="flex items-center gap-2 text-sm font-medium">
-          <Sparkles className="h-4 w-4 text-primary" />
+          <Sparkles className={`h-4 w-4 text-primary ${isStreaming ? "animate-ai-glow" : ""}`} />
           AI チャット
           {chatStatus && (
             chatStatus.available ? (

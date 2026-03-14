@@ -117,6 +117,19 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+@keyframes ai-glow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+@keyframes ai-spin-step {
+  0%, 35% { transform: rotate(0deg); }
+  45%, 85% { transform: rotate(180deg); }
+  95%, 100% { transform: rotate(360deg); }
+}
+.animate-ai-glow {
+  animation: ai-glow 1.2s ease-in-out infinite, ai-spin-step 2.4s ease-in-out infinite;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
