@@ -1321,6 +1321,7 @@ export function FileExplorerPage() {
         open={bulkActionOpen === "move_folder"}
         folders={folders}
         selectedIds={[...selected]}
+        items={items}
         onClose={() => setBulkActionOpen(null)}
         onMove={(folderId) => {
           setBulkActionOpen(null);
@@ -2286,16 +2287,29 @@ function BulkFolderDialog({
   open,
   folders,
   selectedIds,
+  items,
   onClose,
   onMove,
 }: {
   open: boolean;
   folders: Folder[];
   selectedIds: string[];
+  items: DocumentListItem[];
   onClose: () => void;
   onMove: (folderId: string | null) => void;
 }) {
+  // Pre-select folder if all selected docs share the same folder
+  const initialFolder = useMemo(() => {
+    const selectedItems = items.filter((i) => selectedIds.includes(i.id));
+    if (selectedItems.length === 0) return "";
+    const first = selectedItems[0].folder_id ?? "";
+    return selectedItems.every((i) => (i.folder_id ?? "") === first) ? first : "";
+  }, [items, selectedIds]);
   const [targetFolder, setTargetFolder] = useState("");
+
+  useEffect(() => {
+    if (open) setTargetFolder(initialFolder);
+  }, [open, initialFolder]);
 
   return (
     <Dialog open={open} onOpenChange={() => onClose()}>
