@@ -32,6 +32,7 @@ export interface Folder {
   name: string;
   parent_id: string | null;
   owner_id: string | null;
+  owner_name: string | null;
   group_id: string | null;
   group_name: string | null;
   group_read: boolean;
