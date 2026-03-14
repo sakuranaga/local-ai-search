@@ -926,6 +926,7 @@ async def get_document(
     return DocumentDetail(
         id=str(doc.id),
         title=doc.title,
+        summary=doc.summary,
         source_path=doc.source_path,
         file_type=doc.file_type,
         owner_id=str(doc.owner_id) if doc.owner_id else None,
