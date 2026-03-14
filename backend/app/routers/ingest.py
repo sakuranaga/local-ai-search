@@ -175,6 +175,7 @@ async def _ingest_single_file(
         doc.content = ""
         doc.processing_status = "pending"
         doc.updated_by_id = user.id
+        doc.updated_at = func.now()
         if folder_id is not None:
             doc.folder_id = folder_id
     else:

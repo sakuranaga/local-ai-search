@@ -24,7 +24,6 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   ChevronLeft,
@@ -268,6 +267,7 @@ export function FileExplorerPage() {
   const [sortBy, setSortBy] = useState("updated_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
   const [filterType, setFilterType] = useState("");
   const [searchTokens, setSearchTokens] = useState<string[]>([]);
@@ -451,7 +451,8 @@ export function FileExplorerPage() {
   // Infinite scroll via IntersectionObserver
   useEffect(() => {
     const sentinel = sentinelRef.current;
-    if (!sentinel) return;
+    const root = scrollContainerRef.current;
+    if (!sentinel || !root) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loadingRef.current) {
@@ -459,11 +460,11 @@ export function FileExplorerPage() {
           load();
         }
       },
-      { threshold: 0 },
+      { root, threshold: 0 },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, load]);
+  }, [hasMore, load, loading]);
   // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -1197,7 +1198,7 @@ export function FileExplorerPage() {
               </TableRow>
             </TableHeader>
           </table>
-          <ScrollArea className="w-full flex-1 min-h-0">
+          <div className="w-full flex-1 min-h-0 overflow-y-auto" ref={scrollContainerRef}>
             <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
               <colgroup>
                 <col />
@@ -1288,7 +1289,7 @@ export function FileExplorerPage() {
             {loading && items.length > 0 && (
               <div className="flex justify-center py-2 text-sm text-muted-foreground">読み込み中…</div>
             )}
-          </ScrollArea>
+          </div>
         </Card>
 
         {/* Context menu */}

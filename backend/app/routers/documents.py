@@ -484,6 +484,7 @@ async def upload_document(
         doc.content = ""
         doc.processing_status = "pending"
         doc.updated_by_id = current_user.id
+        doc.updated_at = func.now()
         if folder_id is not None:
             doc.folder_id = folder_id
     else:
@@ -939,12 +940,18 @@ async def update_document(
     if not await _check_doc_access(doc, current_user, need_write=True, db=db):
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # Content-level changes update updated_at; metadata-only changes do not.
+    is_content_change = False
+
     if body.title is not None:
         doc.title = body.title
+        is_content_change = True
     if body.summary is not None:
         doc.summary = body.summary
+        is_content_change = True
     if body.memo is not None:
         doc.memo = body.memo
+        is_content_change = True
     if body.group_id is not None:
         doc.group_id = uuid.UUID(body.group_id) if body.group_id else None
     if body.group_read is not None:
@@ -968,7 +975,9 @@ async def update_document(
         for tid in body.tag_ids:
             db.add(DocumentTag(document_id=doc.id, tag_id=tid))
 
-    doc.updated_by_id = current_user.id
+    if is_content_change:
+        doc.updated_by_id = current_user.id
+        doc.updated_at = func.now()
 
     await db.flush()
     await db.refresh(doc)
@@ -1159,6 +1168,7 @@ async def bulk_action(
                     embedding=embedding,
                 ))
             doc.updated_by_id = current_user.id
+            doc.updated_at = func.now()
             processed += 1
         await db.flush()
         return {"action": "reindex", "processed": processed}
@@ -1177,7 +1187,6 @@ async def bulk_action(
                 continue
             if doc.owner_id != current_user.id and not _is_admin(current_user):
                 continue
-            original_updated_at = doc.updated_at
             if body.group_id is not None:
                 doc.group_id = group_uuid
             if body.group_read is not None:
@@ -1188,7 +1197,6 @@ async def bulk_action(
                 doc.others_read = body.others_read
             if body.others_write is not None:
                 doc.others_write = body.others_write
-            doc.updated_at = original_updated_at
             processed += 1
         await db.flush()
         return {"action": "set_permissions", "processed": processed}
@@ -1211,7 +1219,6 @@ async def bulk_action(
                 continue
             if not await _check_doc_access(doc, current_user, need_write=True, db=db):
                 continue
-            original_updated_at = doc.updated_at
             doc.folder_id = folder_uuid
             # Apply target folder permissions
             if target_folder:
@@ -1220,8 +1227,6 @@ async def bulk_action(
                 doc.group_write = target_folder.group_write
                 doc.others_read = target_folder.others_read
                 doc.others_write = target_folder.others_write
-            # Preserve original updated_at (folder move is not a content change)
-            doc.updated_at = original_updated_at
             processed += 1
         await db.flush()
         return {"action": "move_to_folder", "processed": processed}
@@ -1294,9 +1299,7 @@ async def bulk_action(
                 continue
             if not await _check_doc_access(doc, current_user, need_write=True, db=db):
                 continue
-            original_updated_at = doc.updated_at
             setattr(doc, field, new_val)
-            doc.updated_at = original_updated_at
             processed += 1
         await db.flush()
         return {"action": body.action, "processed": processed}
@@ -1441,6 +1444,7 @@ async def reindex_document(
         db.add(chunk)
 
     doc.updated_by_id = current_user.id
+    doc.updated_at = func.now()
 
     await db.flush()
     await db.refresh(doc)
