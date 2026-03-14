@@ -22,7 +22,7 @@ from app.config import settings
 from app.db import get_db
 from app.deps import get_api_key, get_current_user
 from app.models import ApiKey, Chunk, Document, File, Folder, User
-from app.routers.documents import _get_file_type, _process_document_background
+from app.services.document_processing import get_file_type, process_document_background
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ async def _ingest_single_file(
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
-    file_type = _get_file_type(file.filename)
+    file_type = get_file_type(file.filename)
 
     # Save to storage
     storage_dir = Path(settings.STORAGE_PATH) / "uploads" / str(user.id)
@@ -228,7 +228,7 @@ async def _ingest_single_file(
 
     # Background processing
     background_tasks.add_task(
-        _process_document_background, doc.id, str(storage_path), file_type, file.filename
+        process_document_background, doc.id, str(storage_path), file_type, file.filename
     )
 
     return IngestResponse(

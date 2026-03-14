@@ -300,7 +300,7 @@ export function FileExplorerPage() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, load, loading]);
+  }, [hasMore, load, loading, showTrash]);
   // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {

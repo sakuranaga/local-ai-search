@@ -5,17 +5,33 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.config import settings
-from app.db import async_session, get_db
+from app.db import get_db
 from app.deps import get_current_user
 from app.models import Chunk, Document, DocumentTag, File, Folder, Group, Tag, User
+from app.schemas.documents import (
+    BulkActionRequest,
+    BulkDeleteRequest,
+    DocumentDetail,
+    DocumentListItem,
+    DocumentListResponse,
+    DocumentUpdateRequest,
+    TagInfo,
+    TrashActionRequest,
+    TrashItem,
+    UnixPermissionsRequest,
+)
+from app.services.document_processing import (
+    get_file_type,
+    load_tags_for_docs,
+    make_doc_list_item,
+    process_document_background,
+)
 from app.services.embedding import get_embeddings
-from app.services.llm import generate_summary
 from app.services.parser import chunk_text, parse_file
 from app.services.permissions import (
     is_admin as _is_admin,
@@ -29,196 +45,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-# ---------------------------------------------------------------------------
-# Response / request models
-# ---------------------------------------------------------------------------
-
-
-class TagInfo(BaseModel):
-    id: int
-    name: str
-    color: str | None
-
-
-class DocumentListItem(BaseModel):
-    id: str
-    title: str
-    summary: str | None = None
-    source_path: str | None
-    file_type: str
-    owner_id: str | None = None
-    owner_name: str | None = None
-    group_id: str | None = None
-    group_name: str | None = None
-    group_read: bool = False
-    group_write: bool = False
-    others_read: bool = True
-    others_write: bool = False
-    permissions: str = "rw--r-"  # Unix-style string
-    searchable: bool
-    ai_knowledge: bool
-    chunk_count: int
-    memo: str | None
-    folder_id: str | None = None
-    folder_name: str | None = None
-    tags: list[TagInfo] = []
-    created_by_name: str | None
-    updated_by_name: str | None
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class DocumentListResponse(BaseModel):
-    items: list[DocumentListItem]
-    total: int
-    page: int
-    per_page: int
-
-
-class DocumentDetail(DocumentListItem):
-    content: str
-    files: list[dict]
-    chunks: list[dict]
-
-
-class DocumentUpdateRequest(BaseModel):
-    title: str | None = None
-    summary: str | None = None
-    memo: str | None = None
-    group_id: str | None = None  # UUID string or "" to unset
-    group_read: bool | None = None
-    group_write: bool | None = None
-    others_read: bool | None = None
-    others_write: bool | None = None
-    searchable: bool | None = None
-    ai_knowledge: bool | None = None
-    folder_id: str | None = None  # UUID string or "" to unset
-    tag_ids: list[int] | None = None  # replace all tags
-
-
-class BulkDeleteRequest(BaseModel):
-    ids: list[str]
-
-
-class BulkActionRequest(BaseModel):
-    ids: list[str]
-    action: str  # "delete" | "reindex" | "set_permissions" | "move_to_folder" | "add_tags" | "remove_tags" | "set_searchable" | "set_ai_knowledge"
-    # For set_permissions action (Unix-style)
-    group_id: str | None = None  # UUID string or "" to unset
-    group_read: bool | None = None
-    group_write: bool | None = None
-    others_read: bool | None = None
-    others_write: bool | None = None
-    # For move_to_folder action
-    folder_id: str | None = None  # "" to unset
-    # For add_tags / remove_tags actions
-    tag_ids: list[int] | None = None
-    # For set_searchable / set_ai_knowledge actions
-    searchable: bool | None = None
-    ai_knowledge: bool | None = None
-
-
-class UnixPermissionsRequest(BaseModel):
-    group_id: str | None = None  # UUID string or "" to unset
-    group_read: bool | None = None
-    group_write: bool | None = None
-    others_read: bool | None = None
-    others_write: bool | None = None
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _get_file_type(filename: str) -> str:
-    ext = Path(filename).suffix.lower().lstrip(".")
-    type_map = {
-        "md": "md",
-        "markdown": "md",
-        "txt": "md",
-        "pdf": "pdf",
-        "docx": "docx",
-        "doc": "docx",
-        "xlsx": "xlsx",
-        "xls": "xlsx",
-        "csv": "csv",
-        "tsv": "csv",
-        "html": "html",
-        "htm": "html",
-        "pptx": "pptx",
-        "png": "png",
-        "jpg": "jpg",
-        "jpeg": "jpg",
-        "gif": "gif",
-        "bmp": "bmp",
-        "tiff": "tiff",
-        "tif": "tiff",
-        "webp": "webp",
-    }
-    return type_map.get(ext, "md")
-
-
-def _make_doc_list_item(
-    row, tags: list[TagInfo] | None = None, group_name: str | None = None,
-) -> DocumentListItem:
-    """Build a DocumentListItem from a query row with Unix permission fields."""
-    g_read = getattr(row, "group_read", False) or False
-    g_write = getattr(row, "group_write", False) or False
-    o_read = getattr(row, "others_read", True)
-    o_write = getattr(row, "others_write", False) or False
-    return DocumentListItem(
-        id=str(row.id),
-        title=row.title,
-        summary=getattr(row, "summary", None),
-        source_path=getattr(row, "source_path", None),
-        file_type=row.file_type,
-        owner_id=str(row.owner_id) if getattr(row, "owner_id", None) else None,
-        owner_name=getattr(row, "owner_name", None),
-        group_id=str(row.group_id) if getattr(row, "group_id", None) else None,
-        group_name=group_name or getattr(row, "group_name", None),
-        group_read=g_read,
-        group_write=g_write,
-        others_read=o_read if o_read is not None else True,
-        others_write=o_write,
-        permissions=format_permission_string(g_read, g_write, o_read if o_read is not None else True, o_write),
-        searchable=getattr(row, "searchable", True),
-        ai_knowledge=getattr(row, "ai_knowledge", True),
-        chunk_count=getattr(row, "chunk_count", 0),
-        memo=getattr(row, "memo", None),
-        folder_id=str(row.folder_id) if getattr(row, "folder_id", None) else None,
-        folder_name=getattr(row, "folder_name", None),
-        tags=tags or [],
-        created_by_name=getattr(row, "created_by_name", None),
-        updated_by_name=getattr(row, "updated_by_name", None),
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
 
 
 # ---------------------------------------------------------------------------
 # 1. GET /documents/ — list with pagination, sorting, filtering
 # ---------------------------------------------------------------------------
-
-
-async def _load_tags_for_docs(db: AsyncSession, doc_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[TagInfo]]:
-    """Load tags for a batch of documents. Returns {doc_id: [TagInfo, ...]}."""
-    if not doc_ids:
-        return {}
-    result = await db.execute(
-        select(DocumentTag.document_id, Tag.id, Tag.name, Tag.color)
-        .join(Tag, DocumentTag.tag_id == Tag.id)
-        .where(DocumentTag.document_id.in_(doc_ids))
-        .order_by(Tag.name)
-    )
-    tags_map: dict[uuid.UUID, list[TagInfo]] = {}
-    for row in result.all():
-        tags_map.setdefault(row[0], []).append(
-            TagInfo(id=row[1], name=row[2], color=row[3])
-        )
-    return tags_map
 
 
 @router.get("", response_model=DocumentListResponse)
@@ -336,10 +167,10 @@ async def list_documents(
 
     # Batch-load tags for returned documents
     doc_ids = [row.id for row in rows]
-    tags_map = await _load_tags_for_docs(db, doc_ids)
+    tags_map = await load_tags_for_docs(db, doc_ids)
 
     items = [
-        _make_doc_list_item(row, tags=tags_map.get(row.id, []))
+        make_doc_list_item(row, tags=tags_map.get(row.id, []))
         for row in rows
     ]
 
@@ -349,79 +180,6 @@ async def list_documents(
 # ---------------------------------------------------------------------------
 # 2. POST /documents/upload
 # ---------------------------------------------------------------------------
-
-
-async def _process_document_background(doc_id: uuid.UUID, storage_path: str, file_type: str, filename: str):
-    """Background task: parse → chunk → embed → summarize."""
-    async with async_session() as db:
-        try:
-            result = await db.execute(select(Document).where(Document.id == doc_id))
-            doc = result.scalar_one_or_none()
-            if not doc:
-                logger.warning(f"Background task: document not found {doc_id}")
-                return
-
-            # Phase 1: Parse / OCR
-            doc.processing_status = "parsing"
-            await db.commit()
-
-            try:
-                text_content = await parse_file(storage_path, file_type)
-            except Exception as e:
-                logger.error(f"Parse failed for {filename}: {e}")
-                doc.processing_status = "error"
-                await db.commit()
-                return
-
-            doc.content = text_content
-
-            # Phase 2: Chunking
-            doc.processing_status = "chunking"
-            await db.commit()
-
-            chunks_text = chunk_text(text_content)
-
-            # Phase 3: Embedding
-            doc.processing_status = "embedding"
-            await db.commit()
-
-            try:
-                embeddings = await get_embeddings(chunks_text)
-            except Exception:
-                embeddings = [None] * len(chunks_text)
-
-            # Remove old chunks and create new ones
-            await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
-            for i, (chunk_content, embedding) in enumerate(zip(chunks_text, embeddings)):
-                db.add(Chunk(
-                    document_id=doc.id,
-                    chunk_index=i,
-                    content=chunk_content,
-                    embedding=embedding,
-                ))
-
-            # Phase 4: Summary
-            doc.processing_status = "summarizing"
-            await db.commit()
-
-            try:
-                summary = await generate_summary(text_content, filename)
-                if summary:
-                    doc.summary = summary
-            except Exception:
-                pass
-
-            doc.processing_status = "done"
-            await db.commit()
-            logger.info(f"Background processing complete: {filename} ({doc_id})")
-
-        except Exception as e:
-            logger.error(f"Background processing error for {doc_id}: {e}")
-            try:
-                doc.processing_status = "error"
-                await db.commit()
-            except Exception:
-                pass
 
 
 @router.post("/upload", response_model=DocumentListItem, status_code=status.HTTP_201_CREATED)
@@ -436,7 +194,7 @@ async def upload_document(
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
-    file_type = _get_file_type(file.filename)
+    file_type = get_file_type(file.filename)
 
     # Save uploaded file to storage
     storage_dir = Path(settings.STORAGE_PATH) / "uploads" / str(current_user.id)
@@ -538,7 +296,7 @@ async def upload_document(
 
     # Launch background processing (runs after response is sent)
     background_tasks.add_task(
-        _process_document_background, doc.id, str(storage_path), file_type, file.filename
+        process_document_background, doc.id, str(storage_path), file_type, file.filename
     )
 
     return DocumentListItem(
@@ -609,17 +367,6 @@ async def check_duplicates(
 # ---------------------------------------------------------------------------
 # Trash (soft-deleted documents) — must be before /{document_id} routes
 # ---------------------------------------------------------------------------
-
-
-class TrashItem(BaseModel):
-    id: str
-    title: str
-    file_type: str
-    deleted_at: datetime
-
-
-class TrashActionRequest(BaseModel):
-    ids: list[str]
 
 
 @router.get("/trash/list", response_model=list[TrashItem])
@@ -914,7 +661,7 @@ async def get_document(
         folder_name = r.scalar_one_or_none()
 
     # Load tags
-    tags_map = await _load_tags_for_docs(db, [doc.id])
+    tags_map = await load_tags_for_docs(db, [doc.id])
     doc_tags = tags_map.get(doc.id, [])
 
     # Get group name
@@ -1049,7 +796,7 @@ async def update_document(
         folder_name = r.scalar_one_or_none()
 
     # tags
-    tags_map = await _load_tags_for_docs(db, [doc.id])
+    tags_map = await load_tags_for_docs(db, [doc.id])
 
     # group name
     group_name = None
