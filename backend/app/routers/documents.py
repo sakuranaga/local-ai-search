@@ -790,6 +790,58 @@ async def download_document_file(
     return resp
 
 
+@router.post("/download-zip")
+async def download_zip(
+    body: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Download multiple documents as a zip file."""
+    import io
+    import zipfile
+    from fastapi.responses import StreamingResponse as ZipStreamingResponse
+
+    doc_ids = body.get("ids", [])
+    if not doc_ids:
+        raise HTTPException(status_code=400, detail="No document IDs provided")
+
+    # Fetch documents and files
+    uuids = [uuid.UUID(d) for d in doc_ids]
+    result = await db.execute(
+        select(Document, File)
+        .join(File, File.document_id == Document.id)
+        .where(Document.id.in_(uuids), Document.deleted_at.is_(None))
+    )
+    rows = result.all()
+
+    buf = io.BytesIO()
+    seen_names: dict[str, int] = {}
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for doc, file_record in rows:
+            if not await _check_doc_access(doc, current_user, need_write=False, db=db):
+                continue
+            fpath = Path(file_record.storage_path)
+            if not fpath.exists():
+                continue
+            # Deduplicate filenames
+            name = file_record.filename or doc.title
+            if name in seen_names:
+                seen_names[name] += 1
+                stem = Path(name).stem
+                suffix = Path(name).suffix
+                name = f"{stem} ({seen_names[name]}){suffix}"
+            else:
+                seen_names[name] = 0
+            zf.write(fpath, name)
+
+    buf.seek(0)
+    return ZipStreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="documents.zip"'},
+    )
+
+
 @router.get("/{document_id}/preview")
 async def preview_document(
     request: Request,
