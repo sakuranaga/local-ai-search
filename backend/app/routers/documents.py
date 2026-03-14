@@ -154,9 +154,9 @@ async def list_documents(
     }
     sort_col = allowed_sort_cols.get(sort_by, Document.updated_at)
     if sort_dir.lower() == "asc":
-        base = base.order_by(sort_col.asc())
+        base = base.order_by(sort_col.asc(), Document.id.asc())
     else:
-        base = base.order_by(sort_col.desc())
+        base = base.order_by(sort_col.desc(), Document.id.desc())
 
     # Pagination
     offset = (page - 1) * per_page
@@ -619,56 +619,50 @@ async def get_document(
     current_user: User = Depends(get_current_user),
 ):
     """Get full document details including chunks and files."""
-    result = await db.execute(select(Document).where(Document.id == document_id, Document.deleted_at.is_(None)))
-    doc = result.scalar_one_or_none()
+    from sqlalchemy.orm import aliased
+    OwnerUser = aliased(User)
+    CreatedByUser = aliased(User)
+    UpdatedByUser = aliased(User)
 
-    if doc is None:
+    # Single query with JOINs for all related names (replaces 5 individual SELECTs)
+    result = await db.execute(
+        select(
+            Document,
+            OwnerUser.username.label("owner_name"),
+            CreatedByUser.username.label("created_by_name"),
+            UpdatedByUser.username.label("updated_by_name"),
+            Folder.name.label("folder_name"),
+            Group.name.label("group_name"),
+        )
+        .outerjoin(OwnerUser, Document.owner_id == OwnerUser.id)
+        .outerjoin(CreatedByUser, Document.created_by_id == CreatedByUser.id)
+        .outerjoin(UpdatedByUser, Document.updated_by_id == UpdatedByUser.id)
+        .outerjoin(Folder, Document.folder_id == Folder.id)
+        .outerjoin(Group, Document.group_id == Group.id)
+        .where(Document.id == document_id, Document.deleted_at.is_(None))
+    )
+    row = result.one_or_none()
+
+    if row is None:
         raise HTTPException(status_code=404, detail="Document not found")
+
+    doc = row[0]
 
     if not await _check_doc_access(doc, current_user, need_write=False, db=db):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Get chunks
+    # Get chunks and files
     chunks_result = await db.execute(
         select(Chunk).where(Chunk.document_id == doc.id).order_by(Chunk.chunk_index)
     )
     chunks = chunks_result.scalars().all()
 
-    # Get files
     files_result = await db.execute(select(File).where(File.document_id == doc.id))
     files = files_result.scalars().all()
-
-    # Get owner name
-    owner_name = None
-    if doc.owner_id:
-        r = await db.execute(select(User.username).where(User.id == doc.owner_id))
-        owner_name = r.scalar_one_or_none()
-
-    # Get created_by / updated_by names
-    created_by_name = None
-    updated_by_name = None
-    if doc.created_by_id:
-        r = await db.execute(select(User.username).where(User.id == doc.created_by_id))
-        created_by_name = r.scalar_one_or_none()
-    if doc.updated_by_id:
-        r = await db.execute(select(User.username).where(User.id == doc.updated_by_id))
-        updated_by_name = r.scalar_one_or_none()
-
-    # Load folder name
-    folder_name = None
-    if doc.folder_id:
-        r = await db.execute(select(Folder.name).where(Folder.id == doc.folder_id))
-        folder_name = r.scalar_one_or_none()
 
     # Load tags
     tags_map = await load_tags_for_docs(db, [doc.id])
     doc_tags = tags_map.get(doc.id, [])
-
-    # Get group name
-    group_name = None
-    if doc.group_id:
-        r = await db.execute(select(Group.name).where(Group.id == doc.group_id))
-        group_name = r.scalar_one_or_none()
 
     return DocumentDetail(
         id=str(doc.id),
@@ -677,9 +671,9 @@ async def get_document(
         source_path=doc.source_path,
         file_type=doc.file_type,
         owner_id=str(doc.owner_id) if doc.owner_id else None,
-        owner_name=owner_name,
+        owner_name=row.owner_name,
         group_id=str(doc.group_id) if doc.group_id else None,
-        group_name=group_name,
+        group_name=row.group_name,
         group_read=doc.group_read,
         group_write=doc.group_write,
         others_read=doc.others_read,
@@ -691,10 +685,10 @@ async def get_document(
         chunk_count=len(chunks),
         memo=doc.memo,
         folder_id=str(doc.folder_id) if doc.folder_id else None,
-        folder_name=folder_name,
+        folder_name=row.folder_name,
         tags=doc_tags,
-        created_by_name=created_by_name,
-        updated_by_name=updated_by_name,
+        created_by_name=row.created_by_name,
+        updated_by_name=row.updated_by_name,
         created_at=doc.created_at,
         updated_at=doc.updated_at,
         chunks=[
@@ -913,39 +907,49 @@ async def bulk_action(
 
     Actions: delete, reindex, set_permissions
     """
-    if body.action == "delete":
-        deleted = 0
-        now = datetime.now(timezone.utc)
-        for doc_id_str in body.ids:
-            try:
-                doc_id = uuid.UUID(doc_id_str)
-            except ValueError:
-                continue
-            result = await db.execute(select(Document).where(Document.id == doc_id, Document.deleted_at.is_(None)))
-            doc = result.scalar_one_or_none()
+    # --- Batch-fetch all requested documents in one query ---
+    doc_uuids = []
+    for doc_id_str in body.ids:
+        try:
+            doc_uuids.append(uuid.UUID(doc_id_str))
+        except ValueError:
+            continue
+
+    if not doc_uuids:
+        return {"action": body.action, "processed": 0}
+
+    result = await db.execute(
+        select(Document).where(Document.id.in_(doc_uuids))
+    )
+    all_docs = {doc.id: doc for doc in result.scalars().all()}
+
+    # Filter by access permission (write access required for all bulk actions)
+    async def _accessible_docs(need_owner_only: bool = False) -> list[Document]:
+        docs = []
+        for uid in doc_uuids:
+            doc = all_docs.get(uid)
             if doc is None:
                 continue
-            if not await _check_doc_access(doc, current_user, need_write=True, db=db):
-                continue
+            if need_owner_only:
+                if doc.owner_id != current_user.id and not _is_admin(current_user):
+                    continue
+            else:
+                if not await _check_doc_access(doc, current_user, need_write=True, db=db):
+                    continue
+            docs.append(doc)
+        return docs
+
+    if body.action == "delete":
+        docs = [d for d in (await _accessible_docs()) if d.deleted_at is None]
+        now = datetime.now(timezone.utc)
+        for doc in docs:
             doc.deleted_at = now
-            deleted += 1
         await db.flush()
-        return {"action": "delete", "processed": deleted}
+        return {"action": "delete", "processed": len(docs)}
 
     elif body.action == "reindex":
-        processed = 0
-        for doc_id_str in body.ids:
-            try:
-                doc_id = uuid.UUID(doc_id_str)
-            except ValueError:
-                continue
-            result = await db.execute(select(Document).where(Document.id == doc_id))
-            doc = result.scalar_one_or_none()
-            if doc is None:
-                continue
-            if not await _check_doc_access(doc, current_user, need_write=True, db=db):
-                continue
-
+        docs = await _accessible_docs()
+        for doc in docs:
             text_content = doc.content
             if doc.source_path and Path(doc.source_path).exists():
                 try:
@@ -969,24 +973,13 @@ async def bulk_action(
                 ))
             doc.updated_by_id = current_user.id
             doc.updated_at = func.now()
-            processed += 1
         await db.flush()
-        return {"action": "reindex", "processed": processed}
+        return {"action": "reindex", "processed": len(docs)}
 
     elif body.action == "set_permissions":
-        processed = 0
+        docs = await _accessible_docs(need_owner_only=True)
         group_uuid = uuid.UUID(body.group_id) if body.group_id else None
-        for doc_id_str in body.ids:
-            try:
-                doc_id = uuid.UUID(doc_id_str)
-            except ValueError:
-                continue
-            result = await db.execute(select(Document).where(Document.id == doc_id))
-            doc = result.scalar_one_or_none()
-            if doc is None:
-                continue
-            if doc.owner_id != current_user.id and not _is_admin(current_user):
-                continue
+        for doc in docs:
             if body.group_id is not None:
                 doc.group_id = group_uuid
             if body.group_read is not None:
@@ -997,137 +990,87 @@ async def bulk_action(
                 doc.others_read = body.others_read
             if body.others_write is not None:
                 doc.others_write = body.others_write
-            processed += 1
         await db.flush()
-        return {"action": "set_permissions", "processed": processed}
+        return {"action": "set_permissions", "processed": len(docs)}
 
     elif body.action == "move_to_folder":
+        docs = await _accessible_docs()
         folder_uuid = uuid.UUID(body.folder_id) if body.folder_id else None
-        # Load target folder to copy permissions
-        target_folder = None
-        if folder_uuid:
-            target_folder = await db.get(Folder, folder_uuid)
-        processed = 0
-        for doc_id_str in body.ids:
-            try:
-                doc_id = uuid.UUID(doc_id_str)
-            except ValueError:
-                continue
-            result = await db.execute(select(Document).where(Document.id == doc_id))
-            doc = result.scalar_one_or_none()
-            if doc is None:
-                continue
-            if not await _check_doc_access(doc, current_user, need_write=True, db=db):
-                continue
+        target_folder = await db.get(Folder, folder_uuid) if folder_uuid else None
+        for doc in docs:
             doc.folder_id = folder_uuid
-            # Apply target folder permissions
             if target_folder:
                 doc.group_id = target_folder.group_id
                 doc.group_read = target_folder.group_read
                 doc.group_write = target_folder.group_write
                 doc.others_read = target_folder.others_read
                 doc.others_write = target_folder.others_write
-            processed += 1
         await db.flush()
-        return {"action": "move_to_folder", "processed": processed}
+        return {"action": "move_to_folder", "processed": len(docs)}
 
     elif body.action == "add_tags":
         if not body.tag_ids:
             raise HTTPException(status_code=400, detail="tag_ids required")
-        processed = 0
-        for doc_id_str in body.ids:
-            try:
-                doc_id = uuid.UUID(doc_id_str)
-            except ValueError:
-                continue
-            result = await db.execute(select(Document).where(Document.id == doc_id))
-            doc = result.scalar_one_or_none()
-            if doc is None:
-                continue
-            if not await _check_doc_access(doc, current_user, need_write=True, db=db):
-                continue
-            existing = await db.execute(
-                select(DocumentTag.tag_id).where(DocumentTag.document_id == doc_id)
-            )
-            existing_ids = {row[0] for row in existing.all()}
+        docs = await _accessible_docs()
+        doc_ids = [doc.id for doc in docs]
+        # Batch-load existing tags for all documents
+        existing_result = await db.execute(
+            select(DocumentTag.document_id, DocumentTag.tag_id)
+            .where(DocumentTag.document_id.in_(doc_ids))
+        )
+        existing_map: dict[uuid.UUID, set[int]] = {}
+        for row in existing_result.all():
+            existing_map.setdefault(row[0], set()).add(row[1])
+        for doc in docs:
+            existing_ids = existing_map.get(doc.id, set())
             for tid in body.tag_ids:
                 if tid not in existing_ids:
-                    db.add(DocumentTag(document_id=doc_id, tag_id=tid))
-            processed += 1
+                    db.add(DocumentTag(document_id=doc.id, tag_id=tid))
         await db.flush()
-        return {"action": "add_tags", "processed": processed}
+        return {"action": "add_tags", "processed": len(docs)}
 
     elif body.action == "remove_tags":
         if not body.tag_ids:
             raise HTTPException(status_code=400, detail="tag_ids required")
-        processed = 0
-        for doc_id_str in body.ids:
-            try:
-                doc_id = uuid.UUID(doc_id_str)
-            except ValueError:
-                continue
-            result = await db.execute(select(Document).where(Document.id == doc_id))
-            doc = result.scalar_one_or_none()
-            if doc is None:
-                continue
-            if not await _check_doc_access(doc, current_user, need_write=True, db=db):
-                continue
+        docs = await _accessible_docs()
+        doc_ids = [doc.id for doc in docs]
+        if doc_ids:
             await db.execute(
                 delete(DocumentTag).where(
-                    DocumentTag.document_id == doc_id,
+                    DocumentTag.document_id.in_(doc_ids),
                     DocumentTag.tag_id.in_(body.tag_ids),
                 )
             )
-            processed += 1
         await db.flush()
-        return {"action": "remove_tags", "processed": processed}
+        return {"action": "remove_tags", "processed": len(docs)}
 
     elif body.action == "set_tags":
         if body.tag_ids is None:
             raise HTTPException(status_code=400, detail="tag_ids required")
-        processed = 0
-        for doc_id_str in body.ids:
-            try:
-                doc_id = uuid.UUID(doc_id_str)
-            except ValueError:
-                continue
-            result = await db.execute(select(Document).where(Document.id == doc_id))
-            doc = result.scalar_one_or_none()
-            if doc is None:
-                continue
-            if not await _check_doc_access(doc, current_user, need_write=True, db=db):
-                continue
-            # Replace all tags
+        docs = await _accessible_docs()
+        doc_ids = [doc.id for doc in docs]
+        if doc_ids:
+            # Batch delete all existing tags
             await db.execute(
-                delete(DocumentTag).where(DocumentTag.document_id == doc_id)
+                delete(DocumentTag).where(DocumentTag.document_id.in_(doc_ids))
             )
-            for tid in body.tag_ids:
-                db.add(DocumentTag(document_id=doc_id, tag_id=tid))
-            processed += 1
+            # Batch insert new tags
+            for doc_id in doc_ids:
+                for tid in body.tag_ids:
+                    db.add(DocumentTag(document_id=doc_id, tag_id=tid))
         await db.flush()
-        return {"action": "set_tags", "processed": processed}
+        return {"action": "set_tags", "processed": len(docs)}
 
     elif body.action in ("set_searchable", "set_ai_knowledge"):
         field = "searchable" if body.action == "set_searchable" else "ai_knowledge"
         new_val = body.searchable if field == "searchable" else body.ai_knowledge
         if new_val is None:
             raise HTTPException(status_code=400, detail=f"{field} required")
-        processed = 0
-        for doc_id_str in body.ids:
-            try:
-                doc_id = uuid.UUID(doc_id_str)
-            except ValueError:
-                continue
-            result = await db.execute(select(Document).where(Document.id == doc_id))
-            doc = result.scalar_one_or_none()
-            if doc is None:
-                continue
-            if not await _check_doc_access(doc, current_user, need_write=True, db=db):
-                continue
+        docs = await _accessible_docs()
+        for doc in docs:
             setattr(doc, field, new_val)
-            processed += 1
         await db.flush()
-        return {"action": body.action, "processed": processed}
+        return {"action": body.action, "processed": len(docs)}
 
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {body.action}")
