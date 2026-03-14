@@ -39,7 +39,7 @@ import {
   RefreshCw,
   Search as SearchIcon,
   FileText,
-  Brain,
+  Bot,
   FolderIcon,
   FolderOpen,
   FolderPlus,
@@ -1210,7 +1210,7 @@ export function FileExplorerPage() {
                           className={`p-1 rounded transition-colors ${item.ai_knowledge ? "text-primary" : "text-muted-foreground/30 hover:text-muted-foreground"}`}
                           onClick={() => handleToggleFlag(item, "ai_knowledge")}
                         >
-                          <Brain className="h-4 w-4" />
+                          <Bot className="h-4 w-4" />
                         </button>
                       </div>
                     </TableCell>
@@ -1271,7 +1271,7 @@ export function FileExplorerPage() {
                 <SearchIcon className="h-4 w-4" />検索 {contextMenu.item.searchable ? "OFF" : "ON"}
               </button>
               <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => contextAction("toggle_ai")}>
-                <Brain className="h-4 w-4" />AI {contextMenu.item.ai_knowledge ? "OFF" : "ON"}
+                <Bot className="h-4 w-4" />AI {contextMenu.item.ai_knowledge ? "OFF" : "ON"}
               </button>
               <div className="-mx-1 my-1 h-px bg-border" />
               <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10" onClick={() => contextAction("delete")}>

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sparkles, Send, Trash2, User, Search, FileText, TextSearch, Hash, Loader2, ChevronRight } from "lucide-react";
+import { Sparkles, Send, Trash2, User, Search, FileText, TextSearch, Hash, Loader2, ChevronRight, Bot } from "lucide-react";
 import {
   streamChat,
   getChatStatus,
@@ -338,7 +338,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse }: ChatPanel
             <div key={idx} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : ""}`}>
               {msg.role === "assistant" && (
                 <div className="shrink-0 h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  <Bot className="h-3.5 w-3.5 text-primary" />
                 </div>
               )}
               <div
