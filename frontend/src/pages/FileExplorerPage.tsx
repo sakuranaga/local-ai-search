@@ -367,12 +367,25 @@ export function FileExplorerPage() {
     } catch { /* ignore */ }
   }, []);
 
+  // Generation counter to discard stale responses after filter/search changes
+  const loadGenRef = useRef(0);
+
   const load = useCallback(async (reset = false) => {
-    if (loadingRef.current) return;
+    if (reset) {
+      // Reset must always proceed — cancel any in-flight append
+      pageRef.current = 1;
+      loadGenRef.current += 1;
+      setHasMore(true);
+      setItems([]);
+      setSelected(new Set());
+    } else if (loadingRef.current) {
+      return;
+    }
+    const gen = loadGenRef.current;
     loadingRef.current = true;
     setLoading(true);
     try {
-      const currentPage = reset ? 1 : pageRef.current;
+      const currentPage = pageRef.current;
       if (isSearching) {
         const searchParams: Parameters<typeof searchDocumentsList>[0] = {
           q: urlQ,
@@ -389,7 +402,8 @@ export function FileExplorerPage() {
           searchParams.tag = activeTag;
         }
         const data = await searchDocumentsList(searchParams);
-        setItems((prev) => reset ? data.items : [...prev, ...data.items]);
+        if (gen !== loadGenRef.current) return; // stale
+        setItems((prev) => currentPage === 1 ? data.items : [...prev, ...data.items]);
         setTotal(data.total);
         setHasMore(currentPage * perPage < data.total);
         setSearchTokens(data.tokens ?? []);
@@ -410,12 +424,12 @@ export function FileExplorerPage() {
           params.tag = activeTag;
         }
         const data = await getDocuments(params);
-        setItems((prev) => reset ? data.items : [...prev, ...data.items]);
+        if (gen !== loadGenRef.current) return; // stale
+        setItems((prev) => currentPage === 1 ? data.items : [...prev, ...data.items]);
         setTotal(data.total);
         setHasMore(currentPage * perPage < data.total);
         setSearchTokens([]);
       }
-      if (reset) pageRef.current = 1;
     } catch {
       toast.error("文書一覧の取得に失敗");
     } finally {
