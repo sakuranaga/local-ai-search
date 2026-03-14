@@ -1082,6 +1082,31 @@ async def bulk_action(
         await db.flush()
         return {"action": "remove_tags", "processed": processed}
 
+    elif body.action == "set_tags":
+        if body.tag_ids is None:
+            raise HTTPException(status_code=400, detail="tag_ids required")
+        processed = 0
+        for doc_id_str in body.ids:
+            try:
+                doc_id = uuid.UUID(doc_id_str)
+            except ValueError:
+                continue
+            result = await db.execute(select(Document).where(Document.id == doc_id))
+            doc = result.scalar_one_or_none()
+            if doc is None:
+                continue
+            if not await _check_doc_access(doc, current_user, need_write=True, db=db):
+                continue
+            # Replace all tags
+            await db.execute(
+                delete(DocumentTag).where(DocumentTag.document_id == doc_id)
+            )
+            for tid in body.tag_ids:
+                db.add(DocumentTag(document_id=doc_id, tag_id=tid))
+            processed += 1
+        await db.flush()
+        return {"action": "set_tags", "processed": processed}
+
     elif body.action in ("set_searchable", "set_ai_knowledge"):
         field = "searchable" if body.action == "set_searchable" else "ai_knowledge"
         new_val = body.searchable if field == "searchable" else body.ai_knowledge

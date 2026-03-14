@@ -1271,6 +1271,7 @@ export function FileExplorerPage() {
         open={bulkActionOpen === "add_tags"}
         allTags={allTags}
         selectedIds={[...selected]}
+        items={items}
         onClose={() => setBulkActionOpen(null)}
         onDone={() => { setBulkActionOpen(null); setSelected(new Set()); load(true); loadTags(); }}
       />

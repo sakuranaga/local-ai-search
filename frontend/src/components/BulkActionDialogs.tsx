@@ -189,17 +189,41 @@ export function BulkTagDialog({
   open,
   allTags,
   selectedIds,
+  items,
   onClose,
   onDone,
 }: {
   open: boolean;
   allTags: TagInfo[];
   selectedIds: string[];
+  items: DocumentListItem[];
   onClose: () => void;
   onDone: () => void;
 }) {
   const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set());
+  const [initialTags, setInitialTags] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
+
+  // When dialog opens, compute common tags across all selected documents
+  useEffect(() => {
+    if (!open) return;
+    const selectedItems = items.filter((i) => selectedIds.includes(i.id));
+    if (selectedItems.length === 0) {
+      setSelectedTags(new Set());
+      setInitialTags(new Set());
+      return;
+    }
+    // Tags that ALL selected documents have
+    const first = new Set(selectedItems[0].tags?.map((t) => t.id) ?? []);
+    for (const item of selectedItems.slice(1)) {
+      const itemTagIds = new Set(item.tags?.map((t) => t.id) ?? []);
+      for (const id of first) {
+        if (!itemTagIds.has(id)) first.delete(id);
+      }
+    }
+    setSelectedTags(new Set(first));
+    setInitialTags(new Set(first));
+  }, [open, selectedIds]);
 
   function toggleTag(id: number) {
     setSelectedTags((prev) => {
@@ -209,15 +233,19 @@ export function BulkTagDialog({
     });
   }
 
+  const hasChanges = (() => {
+    if (selectedTags.size !== initialTags.size) return true;
+    for (const id of selectedTags) if (!initialTags.has(id)) return true;
+    return false;
+  })();
+
   async function handleSave() {
-    if (selectedTags.size === 0) return;
     setSaving(true);
     try {
-      const res = await bulkAction(selectedIds, "add_tags", { tag_ids: [...selectedTags] });
-      toast.success(`${res.processed}件にタグを追加しました`);
-      setSelectedTags(new Set());
+      const res = await bulkAction(selectedIds, "set_tags", { tag_ids: [...selectedTags] });
+      toast.success(`${res.processed}件のタグを更新しました`);
       onDone();
-    } catch { toast.error("タグ追加失敗"); }
+    } catch { toast.error("タグ更新失敗"); }
     finally { setSaving(false); }
   }
 
@@ -225,8 +253,8 @@ export function BulkTagDialog({
     <Dialog open={open} onOpenChange={() => onClose()}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>一括タグ追加</DialogTitle>
-          <DialogDescription>{selectedIds.length}件の文書にタグを追加します。</DialogDescription>
+          <DialogTitle>タグ編集</DialogTitle>
+          <DialogDescription>{selectedIds.length}件の文書のタグを設定します。</DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap gap-2">
           {allTags.map((t) => (
@@ -244,7 +272,7 @@ export function BulkTagDialog({
           {allTags.length === 0 && <p className="text-sm text-muted-foreground">タグがありません</p>}
         </div>
         <DialogFooter showCloseButton>
-          <Button onClick={handleSave} disabled={saving || selectedTags.size === 0}>追加する</Button>
+          <Button onClick={handleSave} disabled={saving || !hasChanges}>保存</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -81,7 +81,7 @@ export function DocumentContextMenu({
           <Shield className="h-4 w-4" />権限設定
         </button>
         <button className={btn} onClick={() => onAction("add_tags")}>
-          <TagIcon className="h-4 w-4" />タグ追加
+          <TagIcon className="h-4 w-4" />タグ編集
         </button>
         <button className={btn} onClick={() => onAction("reindex")}>
           <RefreshCw className="h-4 w-4" />ベクトル再構築
