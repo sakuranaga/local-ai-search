@@ -706,13 +706,19 @@ export function FileExplorerPage() {
       } else if (action === "set_ai_knowledge" && extra && "ai_knowledge" in extra) {
         const idSet = new Set(ids);
         setItems((prev) => prev.map((i) => idSet.has(i.id) ? { ...i, ai_knowledge: extra.ai_knowledge as boolean } : i));
-      } else {
-        // For destructive/structural actions: clear selection & reload
+      } else if (action === "delete") {
+        // Optimistically remove deleted items from list
         setSelected(new Set());
-        load();
+        setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
+        setTotal((prev) => Math.max(0, prev - ids.length));
+        loadFolders();
+        loadTrash();
+      } else {
+        // For structural actions: clear selection & reload
+        setSelected(new Set());
+        load(true);
         loadFolders();
         loadTags();
-        if (action === "delete") loadTrash();
       }
     } catch { toast.error("処理に失敗しました"); }
   }
@@ -751,12 +757,12 @@ export function FileExplorerPage() {
       toast.success(`${res.processed}件を移動しました`);
       setSelected(new Set());
       // Reload to get accurate data from server
-      load();
+      load(true);
       loadFolders();
     } catch {
       toast.error("移動に失敗しました");
       // Revert on error
-      load();
+      load(true);
       loadFolders();
     }
   }
@@ -774,7 +780,7 @@ export function FileExplorerPage() {
       const res = await bulkAction(docIds, "delete");
       toast.success(`${res.processed}件をゴミ箱に移動しました`);
       setSelected(new Set());
-      load();
+      load(true);
       loadFolders();
       loadTrash();
     } catch { toast.error("ゴミ箱への移動に失敗しました"); }
@@ -838,7 +844,7 @@ export function FileExplorerPage() {
       if (dupSet.has(f.name)) dups.push(f);
       else nonDups.push(f);
     }
-    const reload = () => { load(); loadFolders(); };
+    const reload = () => { load(true); loadFolders(); };
     for (const f of nonDups) {
       uploadWithProgress(f, reload, uploadFolderId);
     }
@@ -861,7 +867,7 @@ export function FileExplorerPage() {
   function handleOverwriteConfirm() {
     const file = overwriteQueue[0];
     if (file) {
-      const reload = () => { load(); loadFolders(); };
+      const reload = () => { load(true); loadFolders(); };
       uploadWithProgress(file, reload, uploadFolderId);
     }
     setOverwriteQueue((q) => q.slice(1));
@@ -919,7 +925,7 @@ export function FileExplorerPage() {
                 node={node}
                 activeFolderId={activeFolderId}
                 onSelect={(id) => selectFolder(id)}
-                onReload={() => { loadFolders(); load(); }}
+                onReload={() => { loadFolders(); load(true); }}
                 onDrop={handleDropOnFolder}
                 allFolders={folders}
               />
@@ -955,12 +961,12 @@ export function FileExplorerPage() {
                 onDeleted={() => {
                   setAllTags((prev) => prev.filter((t) => t.id !== tag.id));
                   if (activeTag === tag.name) setActiveTag(null);
-                  load();
+                  load(true);
                 }}
                 onRenamed={(updated) => {
                   setAllTags((prev) => prev.map((t) => t.id === updated.id ? updated : t));
                   if (activeTag === tag.name) setActiveTag(updated.name);
-                  load();
+                  load(true);
                 }}
               />
             ))}
@@ -1087,7 +1093,7 @@ export function FileExplorerPage() {
                       toast.success(`${res.restored}件を復元しました`);
                       setTrashSelected(new Set());
                       loadTrash();
-                      load();
+                      load(true);
                       loadFolders();
                     } catch { toast.error("復元に失敗しました"); }
                   }}>
@@ -1391,7 +1397,7 @@ export function FileExplorerPage() {
         folders={folders}
         allTags={allTags}
         onClose={() => setDetailDoc(null)}
-        onUpdated={() => { setDetailDoc(null); load(); loadFolders(); loadTags(); }}
+        onUpdated={() => { setDetailDoc(null); load(true); loadFolders(); loadTags(); }}
         onTagsChanged={loadTags}
       />
 
@@ -1424,7 +1430,7 @@ export function FileExplorerPage() {
         open={bulkActionOpen === "permissions"}
         selectedIds={[...selected]}
         onClose={() => setBulkActionOpen(null)}
-        onDone={() => { setBulkActionOpen(null); setSelected(new Set()); load(); }}
+        onDone={() => { setBulkActionOpen(null); setSelected(new Set()); load(true); }}
       />
 
       <BulkFolderDialog
@@ -1444,7 +1450,7 @@ export function FileExplorerPage() {
         allTags={allTags}
         selectedIds={[...selected]}
         onClose={() => setBulkActionOpen(null)}
-        onDone={() => { setBulkActionOpen(null); setSelected(new Set()); load(); loadTags(); }}
+        onDone={() => { setBulkActionOpen(null); setSelected(new Set()); load(true); loadTags(); }}
       />
 
       {/* Rename Dialog */}
@@ -1459,7 +1465,7 @@ export function FileExplorerPage() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && renameValue.trim() && renameTarget) {
                 updateDocument(renameTarget.id, { title: renameValue.trim() })
-                  .then(() => { setRenameTarget(null); load(); toast.success("名前を変更しました"); })
+                  .then(() => { setRenameTarget(null); setItems((prev) => prev.map((i) => i.id === renameTarget!.id ? { ...i, title: renameValue.trim() } : i)); toast.success("名前を変更しました"); })
                   .catch(() => toast.error("名前変更に失敗"));
               }
             }}
@@ -1472,7 +1478,7 @@ export function FileExplorerPage() {
               onClick={() => {
                 if (!renameTarget) return;
                 updateDocument(renameTarget.id, { title: renameValue.trim() })
-                  .then(() => { setRenameTarget(null); load(); toast.success("名前を変更しました"); })
+                  .then(() => { setRenameTarget(null); setItems((prev) => prev.map((i) => i.id === renameTarget!.id ? { ...i, title: renameValue.trim() } : i)); toast.success("名前を変更しました"); })
                   .catch(() => toast.error("名前変更に失敗"));
               }}
             >
