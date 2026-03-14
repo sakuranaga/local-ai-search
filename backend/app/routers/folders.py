@@ -46,6 +46,7 @@ class FolderResponse(BaseModel):
     name: str
     parent_id: str | None
     owner_id: str | None = None
+    owner_name: str | None = None
     group_id: str | None = None
     group_name: str | None = None
     group_read: bool = False
@@ -170,12 +171,16 @@ async def list_folders(
         .subquery()
     )
 
+    from sqlalchemy.orm import aliased
+    OwnerUser = aliased(User)
+
     stmt = (
         select(
             Folder.id,
             Folder.name,
             Folder.parent_id,
             Folder.owner_id,
+            OwnerUser.username.label("owner_name"),
             Folder.group_id,
             Folder.group_read,
             Folder.group_write,
@@ -187,6 +192,7 @@ async def list_folders(
             func.coalesce(doc_count_sq.c.doc_count, 0).label("document_count"),
         )
         .outerjoin(doc_count_sq, Folder.id == doc_count_sq.c.folder_id)
+        .outerjoin(OwnerUser, Folder.owner_id == OwnerUser.id)
         .outerjoin(Group, Folder.group_id == Group.id)
         .where(visibility_filter)
         .order_by(Folder.name)
@@ -201,6 +207,7 @@ async def list_folders(
             "name": row.name,
             "parent_id": str(row.parent_id) if row.parent_id else None,
             "owner_id": str(row.owner_id) if row.owner_id else None,
+            "owner_name": row.owner_name,
             "group_id": str(row.group_id) if row.group_id else None,
             "group_name": row.group_name,
             "group_read": row.group_read or False,
@@ -247,6 +254,7 @@ async def create_folder(
         name=folder.name,
         parent_id=str(folder.parent_id) if folder.parent_id else None,
         owner_id=str(folder.owner_id) if folder.owner_id else None,
+        owner_name=current_user.username,
         document_count=0,
         created_at=folder.created_at.isoformat(),
         updated_at=folder.updated_at.isoformat(),
@@ -264,6 +272,10 @@ async def update_folder(
     if folder is None:
         raise HTTPException(status_code=404, detail="Folder not found")
 
+    # Only owner or admin can update a folder
+    if not is_admin(current_user) and folder.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only owner or admin can modify this folder")
+
     if body.name is not None:
         folder.name = body.name
 
@@ -279,8 +291,6 @@ async def update_folder(
     # Permission fields (owner/admin only)
     perms_changed = False
     if body.owner_id is not None:
-        if not is_admin(current_user) and folder.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Only owner or admin can change permissions")
         folder.owner_id = uuid.UUID(body.owner_id) if body.owner_id else None
     if body.group_id is not None:
         folder.group_id = uuid.UUID(body.group_id) if body.group_id else None
@@ -320,11 +330,18 @@ async def update_folder(
         r = await db.execute(select(Group.name).where(Group.id == folder.group_id))
         group_name = r.scalar_one_or_none()
 
+    # Owner name
+    owner_name = None
+    if folder.owner_id:
+        r = await db.execute(select(User.username).where(User.id == folder.owner_id))
+        owner_name = r.scalar_one_or_none()
+
     return FolderResponse(
         id=str(folder.id),
         name=folder.name,
         parent_id=str(folder.parent_id) if folder.parent_id else None,
         owner_id=str(folder.owner_id) if folder.owner_id else None,
+        owner_name=owner_name,
         group_id=str(folder.group_id) if folder.group_id else None,
         group_name=group_name,
         group_read=folder.group_read,
@@ -343,12 +360,18 @@ async def delete_folder(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Delete a folder. Documents inside get folder_id = NULL. Child folders are cascade deleted."""
+    """Delete a folder. Documents inside are soft-deleted (moved to trash). Child folders are cascade deleted."""
+    from datetime import datetime, timezone
+
     folder = await db.get(Folder, folder_id)
     if folder is None:
         raise HTTPException(status_code=404, detail="Folder not found")
 
-    # Unset folder_id for documents in this folder and all descendant folders
+    # Only owner or admin can delete a folder
+    if not is_admin(current_user) and folder.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only owner or admin can delete this folder")
+
+    # Collect this folder and all descendant folder IDs
     async def _collect_ids(fid: uuid.UUID) -> list[uuid.UUID]:
         ids = [fid]
         children = await db.execute(
@@ -359,11 +382,15 @@ async def delete_folder(
         return ids
 
     all_folder_ids = await _collect_ids(folder_id)
+
+    # Soft-delete (trash) all documents in these folders
+    now = datetime.now(timezone.utc)
     for fid in all_folder_ids:
         await db.execute(
             Document.__table__.update()
             .where(Document.folder_id == fid)
-            .values(folder_id=None)
+            .where(Document.deleted_at.is_(None))
+            .values(deleted_at=now, folder_id=None)
         )
 
     await db.delete(folder)

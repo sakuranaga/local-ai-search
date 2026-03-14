@@ -5,6 +5,7 @@ import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentDetailModal } from "@/components/DocumentDetailModal";
 import { DocumentContextMenu, type ContextMenuState } from "@/components/DocumentContextMenu";
 import { BulkPermissionsDialog, BulkFolderDialog, BulkTagDialog, UploadDialog } from "@/components/BulkActionDialogs";
+import { FolderPermissionsDialog } from "@/components/FolderPermissionsDialog";
 import { SidebarTagItem, DropTarget, TrashDropTarget, FolderTreeItem } from "@/components/FolderSidebarItems";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,7 +35,9 @@ import {
   ArrowDown,
   Upload,
   Trash2,
+  Shield,
   RefreshCw,
+  Pencil,
   Search as SearchIcon,
   FileText,
   Bot,
@@ -55,6 +58,9 @@ import {
   bulkAction,
   getFolders,
   createFolder,
+  updateFolder,
+  deleteFolder,
+  getGroups,
   createTag,
   getTags,
   getTrash,
@@ -67,6 +73,7 @@ import {
   type DocumentListItem,
   type Folder,
   type TagInfo,
+  type Group,
 } from "@/lib/api";
 import {
   formatDate,
@@ -79,6 +86,8 @@ import {
   removeSearchHistory,
   TAG_COLORS,
   FILE_TYPES,
+  formatPermString,
+  type FolderNode,
   type SearchHistoryEntry,
 } from "@/lib/fileExplorerHelpers";
 
@@ -141,6 +150,12 @@ export function FileExplorerPage() {
   // Rename dialog
   const [renameTarget, setRenameTarget] = useState<DocumentListItem | null>(null);
   const [renameValue, setRenameValue] = useState("");
+
+  // Folder context menu
+  const [folderCtx, setFolderCtx] = useState<{ x: number; y: number; node: FolderNode } | null>(null);
+  const [folderRenameTarget, setFolderRenameTarget] = useState<FolderNode | null>(null);
+  const [folderRenameValue, setFolderRenameValue] = useState("");
+  const [folderPermsTarget, setFolderPermsTarget] = useState<FolderNode | null>(null);
 
   // Trash
   const [showTrash, setShowTrash] = useState(false);
@@ -602,6 +617,36 @@ export function FileExplorerPage() {
     } catch { toast.error("ゴミ箱への移動に失敗しました"); }
   }
 
+  function handleFolderContextMenu(e: React.MouseEvent, node: FolderNode) {
+    e.preventDefault();
+    setFolderCtx({ x: e.clientX, y: e.clientY, node });
+  }
+
+  async function handleFolderRename() {
+    if (!folderRenameTarget || !folderRenameValue.trim()) return;
+    try {
+      await updateFolder(folderRenameTarget.id, { name: folderRenameValue.trim() });
+      setFolderRenameTarget(null);
+      loadFolders();
+      toast.success("フォルダ名を変更しました");
+    } catch { toast.error("フォルダ名変更に失敗"); }
+  }
+
+  async function handleFolderDelete(node: FolderNode) {
+    if (!confirm(`フォルダ「${node.name}」を削除しますか？\n中のファイルはすべてゴミ箱に移動します。`)) return;
+    try {
+      await deleteFolder(node.id);
+      if (activeFolderId === node.id) selectFolder(null);
+      loadFolders();
+      load(true);
+      loadTrash();
+      toast.success("フォルダを削除しました");
+    } catch (e: any) {
+      const msg = e?.message?.includes("403") ? "権限がありません" : "フォルダ削除に失敗";
+      toast.error(msg);
+    }
+  }
+
   async function handleCreateFolder() {
     if (!newFolderName.trim()) return;
     try {
@@ -741,9 +786,8 @@ export function FileExplorerPage() {
                 node={node}
                 activeFolderId={activeFolderId}
                 onSelect={(id) => selectFolder(id)}
-                onReload={() => { loadFolders(); load(true); }}
                 onDrop={handleDropOnFolder}
-                allFolders={folders}
+                onContextMenu={handleFolderContextMenu}
               />
             ))}
           </div>
@@ -1341,6 +1385,56 @@ export function FileExplorerPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Folder context menu */}
+      {folderCtx && (
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setFolderCtx(null)} onContextMenu={(e) => { e.preventDefault(); setFolderCtx(null); }} />
+          <div
+            className="fixed z-50 min-w-[160px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 animate-in fade-in-0 zoom-in-95"
+            style={{ left: folderCtx.x, top: folderCtx.y }}
+          >
+            <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setFolderRenameTarget(folderCtx.node); setFolderRenameValue(folderCtx.node.name); setFolderCtx(null); }}>
+              <Pencil className="h-4 w-4" />名前変更
+            </button>
+            <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setFolderPermsTarget(folderCtx.node); setFolderCtx(null); }}>
+              <Shield className="h-4 w-4" />権限設定
+            </button>
+            <div className="-mx-1 my-1 h-px bg-border" />
+            <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10" onClick={() => { handleFolderDelete(folderCtx.node); setFolderCtx(null); }}>
+              <Trash2 className="h-4 w-4" />削除
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Folder rename dialog */}
+      <Dialog open={!!folderRenameTarget} onOpenChange={(open) => { if (!open) setFolderRenameTarget(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>フォルダ名変更</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={folderRenameValue}
+            onChange={(e) => setFolderRenameValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleFolderRename(); }}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFolderRenameTarget(null)}>キャンセル</Button>
+            <Button disabled={!folderRenameValue.trim()} onClick={handleFolderRename}>変更</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Folder permissions dialog */}
+      {folderPermsTarget && (
+        <FolderPermissionsDialog
+          folder={folderPermsTarget}
+          onClose={() => setFolderPermsTarget(null)}
+          onSaved={() => { setFolderPermsTarget(null); loadFolders(); load(true); }}
+        />
+      )}
 
       {/* Upload Dialog */}
       <UploadDialog

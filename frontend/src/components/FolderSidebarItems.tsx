@@ -9,8 +9,6 @@ import {
   Trash2,
 } from "lucide-react";
 import {
-  updateFolder,
-  deleteFolder,
   updateTag,
   deleteTag,
   type Folder,
@@ -192,44 +190,22 @@ export function FolderTreeItem({
   node,
   activeFolderId,
   onSelect,
-  onReload,
   onDrop,
-  allFolders,
+  onContextMenu,
   depth = 0,
 }: {
   node: FolderNode;
   activeFolderId: string | null;
   onSelect: (id: string) => void;
-  onReload: () => void;
   onDrop: (folderId: string | null, docIds: string[]) => void;
-  allFolders: Folder[];
+  onContextMenu: (e: React.MouseEvent, node: FolderNode) => void;
   depth?: number;
 }) {
   const [expanded, setExpanded] = useState(depth < 2);
-  const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState(node.name);
   const [dragOver, setDragOver] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const isActive = activeFolderId === node.id;
   const hasChildren = node.children.length > 0;
-
-  async function handleRename() {
-    if (!editName.trim() || editName === node.name) { setEditing(false); return; }
-    try {
-      await updateFolder(node.id, { name: editName.trim() });
-      onReload();
-    } catch { toast.error("リネーム失敗"); }
-    setEditing(false);
-  }
-
-  async function handleDelete() {
-    if (!confirm(`フォルダ「${node.name}」を削除しますか？中の文書は未整理に移動します。`)) return;
-    try {
-      await deleteFolder(node.id);
-      onReload();
-    } catch { toast.error("削除失敗"); }
-  }
 
   function handleDragOver(e: React.DragEvent) {
     e.preventDefault();
@@ -251,16 +227,13 @@ export function FolderTreeItem({
     } catch { /* ignore */ }
   }
 
-  useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
-
   return (
     <div>
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDropOnThis}
+        onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node); }}
         className={`group flex items-center gap-0.5 text-sm rounded py-0.5 pr-2 transition-colors ${
           dragOver ? "bg-primary/20 ring-2 ring-primary/40" : isActive ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"
         }`}
@@ -272,34 +245,13 @@ export function FolderTreeItem({
         >
           {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}
         </button>
-        {editing ? (
-          <input
-            ref={inputRef}
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            onBlur={handleRename}
-            onKeyDown={(e) => { if (e.key === "Enter") handleRename(); if (e.key === "Escape") setEditing(false); }}
-            className="flex-1 text-sm bg-background border rounded px-1 py-0"
-          />
-        ) : (
-          <>
-            <button onClick={() => onSelect(node.id)} className="flex items-center gap-1 flex-1 truncate text-left">
-              {isActive || dragOver ? <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" /> : <FolderIcon className="h-3.5 w-3.5 flex-shrink-0" />}
-              <span className="truncate">{node.name}</span>
-              {node.document_count > 0 && (
-                <span className="text-xs text-muted-foreground ml-auto">{node.document_count}</span>
-              )}
-            </button>
-            <div className="hidden group-hover:flex items-center gap-0.5 ml-auto">
-              <button onClick={() => { setEditName(node.name); setEditing(true); }} className="p-0.5 hover:bg-muted rounded" title="リネーム">
-                <Pencil className="h-3 w-3 text-muted-foreground" />
-              </button>
-              <button onClick={handleDelete} className="p-0.5 hover:bg-muted rounded" title="削除">
-                <Trash2 className="h-3 w-3 text-destructive" />
-              </button>
-            </div>
-          </>
-        )}
+        <button onClick={() => onSelect(node.id)} className="flex items-center gap-1 flex-1 truncate text-left">
+          {isActive || dragOver ? <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" /> : <FolderIcon className="h-3.5 w-3.5 flex-shrink-0" />}
+          <span className="truncate">{node.name}</span>
+          {node.document_count > 0 && (
+            <span className="text-xs text-muted-foreground ml-auto">{node.document_count}</span>
+          )}
+        </button>
       </div>
       {expanded && node.children.map((child) => (
         <FolderTreeItem
@@ -307,9 +259,8 @@ export function FolderTreeItem({
           node={child}
           activeFolderId={activeFolderId}
           onSelect={onSelect}
-          onReload={onReload}
           onDrop={onDrop}
-          allFolders={allFolders}
+          onContextMenu={onContextMenu}
           depth={depth + 1}
         />
       ))}
