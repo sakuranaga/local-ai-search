@@ -230,26 +230,370 @@ Tier 2, 3 のファイル詳細モーダルで:
 
 ## 実装順序
 
-### Phase 1: 汎用アップロード（小〜中規模）
-1. `_get_file_type()` の拡張 — 未知の拡張子をそのまま保存
-2. `process_document_background` — 未対応ファイルのスキップ
-3. フロントエンドのアップロード制限撤廃
-4. プレビュー不可表示
+### Phase 1: tus アップロード基盤 + 汎用ファイル対応
+1. tusd Docker コンテナ追加 + nginx プロキシ設定
+2. tus-hook エンドポイント実装（pre-create 認証 + post-finish 処理）
+3. tus-js-client 導入、`uploadWithProgress` を tus ベースに置き換え
+4. 進捗率トースト表示
+5. `_get_file_type()` の拡張 — 未知の拡張子をそのまま保存
+6. `process_document_background` — 未対応ファイルのスキップ
+7. フロントエンドのアップロード制限撤廃（accept 属性削除）
+8. ファイルサイズ制限の SystemSetting 追加
+9. プレビュー不可ファイルの表示対応
 
 ### Phase 2: プレビュー拡張（小規模）
-1. オーディオ/ビデオプレビュー
-2. ファイルアイコンの拡張
+1. オーディオ/ビデオプレビュー (`<audio>`, `<video>` タグ)
+2. ファイルタイプ別アイコンの拡張
 
-### Phase 3: ウイルススキャン（大規模）
+### Phase 3: ウイルススキャン（中規模）
 1. ClamAV Docker コンテナ追加
 2. `antivirus.py` サービス実装
-3. アップロードフローにスキャン統合
+3. tusd pre-finish hook でスキャン統合
 4. DB マイグレーション（scan_status, scan_result）
 5. 管理画面にスキャン状態表示
 
+## tus レジューマブルアップロード
+
+### 概要
+
+現行の `fetch` ベースのアップロードをtusプロトコルに置き換える。
+tusはHTTPベースのレジューマブルアップロードプロトコルで、中断しても途中から再開可能。
+ブラウザを閉じて再度開いても、未完了のアップロードを自動再開できる。
+
+### アーキテクチャ
+
+```
+ブラウザ (tus-js-client)
+  ↓ tus プロトコル (チャンク転送、レジューム可能)
+nginx (/tusd/ → tusd:8080)
+  ↓ プロキシ
+tusd コンテナ (Go製公式サーバー)
+  ↓ 完了時 HTTP hook
+FastAPI backend (/api/ingest/tus-hook)
+  ↓ DB登録 + バックグラウンド処理開始
+```
+
+### tusd Docker コンテナ
+
+**docker-compose.yml に追加:**
+
+```yaml
+tusd:
+  image: tusproject/tusd:latest
+  restart: unless-stopped
+  command:
+    - -hooks-http=http://backend:8000/api/ingest/tus-hook
+    - -hooks-enabled-events=post-finish
+    - -upload-dir=/data/uploads/tus
+    - -behind-proxy
+    - -base-path=/tusd/
+  volumes:
+    - ./data/uploads/tus:/data/uploads/tus
+  depends_on:
+    - backend
+```
+
+**nginx.conf に追加:**
+
+```nginx
+# tus アップロードプロキシ
+location /tusd/ {
+    proxy_pass http://tusd:8080;
+
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $host;
+
+    # tus に必要なヘッダーを通す
+    proxy_set_header Upload-Length     $http_upload_length;
+    proxy_set_header Upload-Offset    $http_upload_offset;
+    proxy_set_header Tus-Resumable    $http_tus_resumable;
+    proxy_set_header Upload-Metadata  $http_upload_metadata;
+
+    # 大きなファイル対応
+    client_max_body_size 0;
+    proxy_request_buffering off;
+    proxy_buffering off;
+}
+```
+
+### バックエンド: tus-hook 受け口
+
+**ファイル**: `backend/app/routers/ingest.py` に追加
+
+tusd がアップロード完了時に POST する webhook。ファイル情報を受け取り、
+Document レコードを作成してバックグラウンド処理を開始する。
+
+```python
+@router.post("/tus-hook")
+async def tus_hook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """tusd post-finish hook: ファイルアップロード完了時に呼ばれる."""
+    body = await request.json()
+    event_type = body.get("Type", "")
+
+    if event_type != "post-finish":
+        return {"ok": True}
+
+    upload = body.get("Event", {}).get("Upload", {})
+    file_path = upload.get("Storage", {}).get("Path", "")
+    metadata = upload.get("MetaData", {})
+
+    # metadata から情報を取得 (tus-js-client の metadata で送る)
+    filename = base64_decode(metadata.get("filename", ""))
+    filetype = base64_decode(metadata.get("filetype", ""))
+    folder_id = base64_decode(metadata.get("folder_id", ""))
+    user_id = base64_decode(metadata.get("user_id", ""))
+
+    # Document レコード作成
+    file_type = get_file_type(filename)
+    doc = Document(
+        title=filename,
+        source_path=file_path,
+        file_type=file_type,
+        content="",
+        owner_id=uuid.UUID(user_id),
+        created_by_id=uuid.UUID(user_id),
+        updated_by_id=uuid.UUID(user_id),
+        processing_status="pending",
+        folder_id=uuid.UUID(folder_id) if folder_id else None,
+    )
+    db.add(doc)
+    await db.flush()
+
+    # File レコード
+    file_record = File(
+        document_id=doc.id,
+        filename=filename,
+        storage_path=file_path,
+        file_size=upload.get("Size", 0),
+        mime_type=filetype,
+    )
+    db.add(file_record)
+    await db.commit()
+
+    # バックグラウンド処理開始
+    background_tasks.add_task(
+        process_document_background, doc.id, file_path, file_type, filename
+    )
+
+    return {"ok": True, "document_id": str(doc.id)}
+```
+
+### フロントエンド: tus-js-client
+
+**インストール**: `npm install tus-js-client`
+
+**ファイル**: `frontend/src/lib/fileExplorerHelpers.ts` (uploadWithProgress を置き換え)
+
+```typescript
+import * as tus from "tus-js-client";
+
+export function uploadWithProgress(
+  file: File,
+  onUploaded: () => void,
+  folderId?: string | null,
+  userId?: string,
+): void {
+  const toastId = toast.loading(`${file.name}: アップロード準備中...`);
+
+  const upload = new tus.Upload(file, {
+    endpoint: "/tusd/",
+    retryDelays: [0, 1000, 3000, 5000],
+    chunkSize: 5 * 1024 * 1024, // 5MB チャンク
+    metadata: {
+      filename: file.name,
+      filetype: file.type,
+      folder_id: folderId || "",
+      user_id: userId || "",
+    },
+    onProgress: (loaded, total) => {
+      const pct = Math.round((loaded / total) * 100);
+      toast.loading(`${file.name}: アップロード中... ${pct}%`, { id: toastId });
+    },
+    onSuccess: () => {
+      toast.loading(`${file.name}: 処理中...`, { id: toastId });
+      onUploaded();
+      // バックグラウンド処理のポーリングは tus-hook で Document 作成後に開始
+      // Document ID は tus-hook のレスポンスから取得できないため、
+      // タイトルで検索してポーリングする or SSE で通知する
+      pollProcessingByTitle(file.name, toastId, onUploaded);
+    },
+    onError: (error) => {
+      toast.error(`${file.name}: アップロード失敗 - ${error.message}`, { id: toastId });
+    },
+  });
+
+  // 中断したアップロードがあれば再開を試みる
+  upload.findPreviousUploads().then((previousUploads) => {
+    if (previousUploads.length > 0) {
+      upload.resumeFromPreviousUpload(previousUploads[0]);
+    }
+    upload.start();
+  });
+}
+```
+
+### アップロードフロー
+
+```
+1. ユーザーがファイルを選択/ドロップ
+2. tus-js-client がチャンクに分割して tusd にアップロード開始
+3. トーストに進捗率表示: "ファイル名: アップロード中... 45%"
+4. ブラウザを閉じても tusd 側にチャンクが残る
+5. 再度開くと tus-js-client が自動的に未完了アップロードを検出・再開
+6. 転送完了 → tusd が post-finish hook で FastAPI に通知
+7. FastAPI が Document 作成 + バックグラウンド処理開始
+8. トーストが処理ステータスに切り替わり:
+   "ファイル名: テキスト抽出中..."
+   "ファイル名: ベクトル化中..."
+   "ファイル名: 処理完了 ✓"
+```
+
+### 認証の考慮
+
+tusd はデフォルトで認証なし。対策:
+
+1. **nginx で認証ヘッダーを検証**: tusd への proxy で Authorization ヘッダーをチェック
+2. **tusd の pre-create hook**: アップロード開始前に FastAPI で認証チェック
+3. **metadata に user_id を含める**: post-finish hook で user_id を使ってドキュメントの所有者を設定
+
+推奨: pre-create hook で JWT トークンまたは API キーを検証。
+全アップロード（ブラウザUI + API外部連携）を tus 経由に統一する。
+
+```yaml
+# tusd コマンドに追加
+command:
+  - -hooks-http=http://backend:8000/api/ingest/tus-hook
+  - -hooks-enabled-events=pre-create,post-finish
+```
+
+```python
+# pre-create hook で認証チェック（JWT or APIキー）
+if event_type == "pre-create":
+    token = metadata.get("token", "")
+    api_key = metadata.get("api_key", "")
+
+    if token:
+        user = verify_jwt(base64_decode(token))
+        if not user:
+            return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+    elif api_key:
+        user, key_obj = await verify_api_key(base64_decode(api_key), db)
+        if not user:
+            return JSONResponse(status_code=401, content={"error": "Invalid API key"})
+        # APIキーのfolder_id制限チェック
+        requested_folder = metadata.get("folder_id", "")
+        if key_obj.folder_id and requested_folder != str(key_obj.folder_id):
+            return JSONResponse(status_code=403, content={"error": "API key restricted to specific folder"})
+        # APIキーの権限チェック（upload権限が必要）
+        if "upload" not in key_obj.permissions:
+            return JSONResponse(status_code=403, content={"error": "API key lacks upload permission"})
+    else:
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    return {"ok": True}
+```
+
+### APIキー外部連携での利用
+
+tus プロトコルは HTTP ベースのため、curl や各言語のtusクライアントライブラリから利用可能。
+既存の `/api/ingest/upload`（APIキー用）も tus に統合し、全アップロードを1つの経路に統一する。
+
+```bash
+# 例: curl でAPIキーを使ったtusアップロード
+# 1. アップロード開始
+curl -X POST https://example.com/tusd/ \
+  -H "Tus-Resumable: 1.0.0" \
+  -H "Upload-Length: 12345" \
+  -H "Upload-Metadata: filename $(echo -n 'report.pdf' | base64),api_key $(echo -n 'las_xxxx' | base64),folder_id $(echo -n 'uuid-here' | base64)"
+
+# 2. チャンク送信（レスポンスのLocationヘッダーのURLに対して）
+curl -X PATCH https://example.com/tusd/<upload-id> \
+  -H "Tus-Resumable: 1.0.0" \
+  -H "Upload-Offset: 0" \
+  -H "Content-Type: application/offset+octet-stream" \
+  --data-binary @report.pdf
+```
+
+Python (tuspy) での例:
+
+```python
+from tusclient import client
+
+tus = client.TusClient("https://example.com/tusd/")
+uploader = tus.uploader(
+    "report.pdf",
+    metadata={"filename": "report.pdf", "api_key": "las_xxxx", "folder_id": "uuid-here"},
+    chunk_size=5*1024*1024,
+)
+uploader.upload()
+```
+
+## ファイルサイズ制限
+
+### 設計
+
+管理画面の SystemSetting でファイルサイズ上限を設定可能にする。
+
+| 設定キー | デフォルト値 | 説明 |
+|---------|------------|------|
+| `upload_max_size_mb` | 500 | 1ファイルあたりの最大サイズ (MB) |
+
+### バックエンド実装
+
+tusd の pre-create hook でサイズチェック:
+
+```python
+if event_type == "pre-create":
+    upload_length = upload.get("Size", 0)
+    max_size = int(await get_setting(db, "upload_max_size_mb") or "500") * 1024 * 1024
+    if upload_length > max_size:
+        return JSONResponse(
+            status_code=413,
+            content={"error": f"ファイルサイズが上限を超えています"}
+        )
+```
+
+### フロントエンド
+
+- アップロードダイアログにサイズ上限を表示
+- tus-js-client の `onBeforeRequest` でクライアント側事前チェック
+- ドラッグ&ドロップ時にもサイズ確認
+
+### nginx
+
+tusプロキシに `client_max_body_size 0` を設定（チャンク転送のため無制限）。
+従来の `/api/` エンドポイントの制限は現行の `50m` を維持。
+
+## アップロード進捗表示
+
+### トースト表示フロー
+
+```
+ファイル名: アップロード中... 45%     ← tus 転送段階（進捗率）
+ファイル名: テキスト抽出中...         ← バックグラウンド処理段階（ステータス）
+ファイル名: ベクトル化中...
+ファイル名: 処理完了 ✓
+```
+
+大きなファイル（ビデオ等）では転送段階の進捗率が特に重要。
+tus-js-client の `onProgress` コールバックでリアルタイムに更新。
+
+### 中断・再開時の表示
+
+```
+ファイル名: アップロード中断（再開可能）   ← ブラウザ閉じた/ネットワーク切断
+ファイル名: アップロード再開中... 67%      ← 再度開いた時に自動再開
+```
+
 ## セキュリティ考慮事項
 
-- **ファイルサイズ制限**: 現行の制限を維持（設定で変更可能に）
+- **ファイルサイズ制限**: SystemSetting で設定可能（デフォルト 100MB）
 - **ストレージ管理**: 大きなファイル（ビデオ等）のディスク使用量に注意
 - **実行ファイルの取り扱い**: アップロード可能だがサーバー上で実行されることはない（静的ファイルとして保存のみ）
 - **ウイルススキャン**: ClamAV が利用不可の場合はスキップ（ログ警告）
