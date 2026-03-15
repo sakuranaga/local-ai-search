@@ -67,6 +67,16 @@ DEFAULTS = {
         "description": "AI自律検索の最大ラウンド数",
         "placeholder": "3",
     },
+    "share_base_url": {
+        "value": "",
+        "description": "共有リンクのベースURL（空欄の場合は現在のドメインを使用）",
+        "placeholder": "https://las-share.example.com/s",
+    },
+    "share_enabled": {
+        "value": "true",
+        "description": "共有リンク機能の有効/無効 (true/false)",
+        "placeholder": "true",
+    },
 }
 
 
