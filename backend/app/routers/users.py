@@ -29,6 +29,8 @@ class UserUpdate(BaseModel):
     avatar_url: str | None = None
     password: str | None = None
     is_active: bool | None = None
+    can_share: bool | None = None
+    can_download: bool | None = None
     role: str | None = None  # convenience: reassign role by name
 
 
@@ -39,6 +41,8 @@ class UserResponse(BaseModel):
     display_name: str
     avatar_url: str | None
     is_active: bool
+    can_share: bool
+    can_download: bool
     roles: list[str]
     created_at: datetime
 
@@ -57,6 +61,8 @@ def _user_response(u: User) -> UserResponse:
         display_name=u.display_name or "",
         avatar_url=u.avatar_url,
         is_active=u.is_active,
+        can_share=u.can_share,
+        can_download=u.can_download,
         roles=[ur.role.name for ur in u.roles],
         created_at=u.created_at,
     )
@@ -148,6 +154,10 @@ async def update_user(
         user.hashed_password = hash_password(body.password)
     if body.is_active is not None:
         user.is_active = body.is_active
+    if body.can_share is not None:
+        user.can_share = body.can_share
+    if body.can_download is not None:
+        user.can_download = body.can_download
 
     # Reassign role by name
     if body.role is not None:

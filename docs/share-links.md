@@ -366,6 +366,37 @@ CREATE TABLE share_links (
 3. 共有リンク作成ダイアログ修正（回数制限・権限削除済み）
 4. 共有リンク削除時の Share Server 連携
 
+## アクセス制御フラグ
+
+共有・ダウンロード機能による情報漏洩リスクを制御するためのフラグ。
+
+### ユーザー単位
+
+| フラグ | デフォルト | 説明 |
+|--------|----------|------|
+| `can_share` | `true` | `false` の場合、共有リンクを作成できない |
+| `can_download` | `true` | `false` の場合、ファイルをダウンロードできない（閲覧のみ） |
+
+- admin は常に全操作可能（フラグ無視）
+- 管理画面のユーザー管理で設定
+
+### ドキュメント単位
+
+| フラグ | デフォルト | 説明 |
+|--------|----------|------|
+| `share_prohibited` | `false` | `true` の場合、誰も共有リンクを作成できない |
+| `download_prohibited` | `false` | `true` の場合、誰もダウンロードできない（閲覧のみ） |
+
+- admin でも制限される（機密ファイル保護のため）
+- 右クリックメニューで設定、またはドキュメント編集画面で設定
+
+### チェック箇所
+
+- `POST /api/share` — `can_share` + `share_prohibited` チェック
+- `GET /api/documents/{id}/download` — `can_download` + `download_prohibited` チェック
+- `POST /api/documents/download-zip` — 同上
+- フロントエンド — フラグに応じてメニュー項目を非表示 / disabled
+
 ## TODO
 
 ### バックグラウンド転送

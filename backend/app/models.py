@@ -44,6 +44,8 @@ class User(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    can_share: Mapped[bool] = mapped_column(Boolean, default=True)
+    can_download: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -234,6 +236,8 @@ class Document(Base):
     others_write: Mapped[bool] = mapped_column(Boolean, default=False)
     searchable: Mapped[bool] = mapped_column(Boolean, default=True)
     ai_knowledge: Mapped[bool] = mapped_column(Boolean, default=True)
+    share_prohibited: Mapped[bool] = mapped_column(Boolean, default=False)
+    download_prohibited: Mapped[bool] = mapped_column(Boolean, default=False)
     summary: Mapped[str] = mapped_column(Text, nullable=True, default="")
     memo: Mapped[str] = mapped_column(Text, nullable=True, default="")
     processing_status: Mapped[str] = mapped_column(

@@ -55,6 +55,10 @@ async def init_db():
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS processing_status VARCHAR(30) DEFAULT 'done' NOT NULL"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS scan_status VARCHAR(20) DEFAULT 'pending' NOT NULL"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS scan_result TEXT"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS share_prohibited BOOLEAN DEFAULT FALSE"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS download_prohibited BOOLEAN DEFAULT FALSE"))
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS can_share BOOLEAN DEFAULT TRUE"))
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS can_download BOOLEAN DEFAULT TRUE"))
         logger.info("Document table migration columns verified")
 
     # Phase 0: Role simplification (Admin/User)

@@ -66,6 +66,8 @@ class DocumentUpdateRequest(BaseModel):
     others_write: bool | None = None
     searchable: bool | None = None
     ai_knowledge: bool | None = None
+    share_prohibited: bool | None = None
+    download_prohibited: bool | None = None
     folder_id: str | None = None  # UUID string or "" to unset
     tag_ids: list[int] | None = None  # replace all tags
 

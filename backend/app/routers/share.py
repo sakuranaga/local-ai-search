@@ -194,6 +194,12 @@ async def create_share_link(
     if not await can_access_document(doc, current_user, need_write=True, db=db):
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # Check share restrictions
+    if doc.share_prohibited:
+        raise HTTPException(status_code=403, detail="このファイルは共有が禁止されています")
+    if not _is_admin(current_user) and not current_user.can_share:
+        raise HTTPException(status_code=403, detail="共有権限がありません")
+
     # Get file record
     file_result = await db.execute(select(File).where(File.document_id == doc.id))
     file_record = file_result.scalars().first()
