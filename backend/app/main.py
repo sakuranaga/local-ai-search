@@ -53,6 +53,8 @@ async def init_db():
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary TEXT DEFAULT ''"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS processing_status VARCHAR(30) DEFAULT 'done' NOT NULL"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS scan_status VARCHAR(20) DEFAULT 'pending' NOT NULL"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS scan_result TEXT"))
         logger.info("Document table migration columns verified")
 
     # Phase 0: Role simplification (Admin/User)

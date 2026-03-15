@@ -33,6 +33,7 @@ class DocumentListItem(BaseModel):
     tags: list[TagInfo] = []
     created_by_name: str | None
     updated_by_name: str | None
+    scan_status: str = "pending"
     created_at: datetime
     updated_at: datetime
 

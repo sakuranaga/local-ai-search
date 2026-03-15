@@ -586,6 +586,29 @@ async def tus_hook(
             await db.commit()
             logger.info("tus upload complete: %s (%s), doc_id=%s", filename, file_type, doc.id)
 
+            # Virus scan
+            from app.services.antivirus import scan_file
+            doc.processing_status = "scanning"
+            await db.commit()
+            scan_status, scan_message = await scan_file(file_path)
+            logger.info("Virus scan result for %s: %s (%s)", filename, scan_status, scan_message)
+            doc.scan_status = scan_status
+            doc.scan_result = scan_message
+
+            if scan_status == "infected":
+                logger.warning("Virus detected in %s: %s — deleting file", filename, scan_message)
+                doc.processing_status = "error"
+                doc.content = f"ウイルスが検出されました: {scan_message}"
+                # Delete the infected file from disk
+                try:
+                    Path(file_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+                await db.commit()
+                return JSONResponse(content={"ok": False, "error": f"Virus detected: {scan_message}"})
+
+            await db.commit()
+
             # Start background processing
             background_tasks.add_task(
                 process_document_background, doc.id, file_path, file_type, filename
