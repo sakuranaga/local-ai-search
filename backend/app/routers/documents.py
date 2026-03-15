@@ -582,7 +582,13 @@ async def download_document_file(
 ):
     """Download the original uploaded file. Supports ?token= and ?inline=true."""
     current_user = await _resolve_token_user(request, token, db)
-    _, file_record = await _get_doc_file(document_id, current_user, db)
+    doc, file_record = await _get_doc_file(document_id, current_user, db)
+
+    # Check download restrictions
+    if doc.download_prohibited:
+        raise HTTPException(status_code=403, detail="このファイルはダウンロードが禁止されています")
+    if not _is_admin(current_user) and not current_user.can_download:
+        raise HTTPException(status_code=403, detail="ダウンロード権限がありません")
 
     resp = FileResponse(
         path=file_record.storage_path,
@@ -605,6 +611,10 @@ async def download_zip(
     import zipfile
     from fastapi.responses import StreamingResponse as ZipStreamingResponse
 
+    # Check user download permission
+    if not _is_admin(current_user) and not current_user.can_download:
+        raise HTTPException(status_code=403, detail="ダウンロード権限がありません")
+
     doc_ids = body.get("ids", [])
     if not doc_ids:
         raise HTTPException(status_code=400, detail="No document IDs provided")
@@ -623,6 +633,8 @@ async def download_zip(
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for doc, file_record in rows:
             if not await _check_doc_access(doc, current_user, need_write=False, db=db):
+                continue
+            if doc.download_prohibited:
                 continue
             fpath = Path(file_record.storage_path)
             if not fpath.exists():
@@ -834,6 +846,10 @@ async def update_document(
         doc.searchable = body.searchable
     if body.ai_knowledge is not None:
         doc.ai_knowledge = body.ai_knowledge
+    if body.share_prohibited is not None:
+        doc.share_prohibited = body.share_prohibited
+    if body.download_prohibited is not None:
+        doc.download_prohibited = body.download_prohibited
     if body.folder_id is not None:
         doc.folder_id = uuid.UUID(body.folder_id) if body.folder_id else None
     if body.tag_ids is not None:
