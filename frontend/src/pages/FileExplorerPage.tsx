@@ -6,6 +6,7 @@ import { DocumentDetailModal } from "@/components/DocumentDetailModal";
 import { DocumentContextMenu, type ContextMenuState } from "@/components/DocumentContextMenu";
 import { BulkPermissionsDialog, BulkFolderDialog, BulkTagDialog, UploadDialog } from "@/components/BulkActionDialogs";
 import { FolderPermissionsDialog } from "@/components/FolderPermissionsDialog";
+import { ShareLinkDialog } from "@/components/ShareLinkDialog";
 import { SidebarTagItem, DropTarget, TrashDropTarget, FolderTreeItem } from "@/components/FolderSidebarItems";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ import {
   Shield,
   RefreshCw,
   Pencil,
+  Link,
   Search as SearchIcon,
   FileText,
   Bot,
@@ -152,6 +154,7 @@ export function FileExplorerPage() {
   const [detailDoc, setDetailDoc] = useState<DocumentListItem | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [bulkActionOpen, setBulkActionOpen] = useState<string | null>(null);
+  const [shareTarget, setShareTarget] = useState<DocumentListItem | null>(null);
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -453,6 +456,9 @@ export function FileExplorerPage() {
       case "rename":
         setRenameTarget(item);
         setRenameValue(item.title);
+        break;
+      case "share":
+        setShareTarget(item);
         break;
       case "download":
         {
@@ -1144,8 +1150,11 @@ export function FileExplorerPage() {
                     onContextMenu={(e) => handleContextMenu(e, item)}
                   >
                     <TableCell className="pl-4">
-                      <span className="font-medium text-sm max-w-[400px] truncate block">
+                      <span className="font-medium text-sm max-w-[400px] truncate flex items-center gap-1">
                         {item.title}
+                        {(item as any).share_count > 0 && (
+                          <Link className="h-3 w-3 text-primary flex-shrink-0" title={`共有中（${(item as any).share_count}件）`} />
+                        )}
                       </span>
                       <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                         {item.folder_name && (
@@ -1544,6 +1553,16 @@ export function FileExplorerPage() {
           folder={folderPermsTarget}
           onClose={() => setFolderPermsTarget(null)}
           onSaved={() => { setFolderPermsTarget(null); loadFolders(); load(true); }}
+        />
+      )}
+
+      {/* Share Link Dialog */}
+      {shareTarget && (
+        <ShareLinkDialog
+          open={!!shareTarget}
+          documentId={shareTarget.id}
+          documentTitle={shareTarget.title}
+          onClose={() => setShareTarget(null)}
         />
       )}
 

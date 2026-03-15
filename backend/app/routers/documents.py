@@ -85,6 +85,18 @@ async def list_documents(
         .subquery()
     )
 
+    # Subquery for active share link count
+    from app.models import ShareLink
+    share_count_sq = (
+        select(
+            ShareLink.document_id,
+            func.count(ShareLink.id).label("share_count"),
+        )
+        .where(ShareLink.is_active.is_(True))
+        .group_by(ShareLink.document_id)
+        .subquery()
+    )
+
     # Unix visibility filter
     user_group_ids = await get_user_group_ids(db, current_user.id)
     visibility_filter = build_visibility_filter(current_user, user_group_ids)
@@ -114,10 +126,12 @@ async def list_documents(
             Document.created_at,
             Document.updated_at,
             func.coalesce(chunk_count_sq.c.chunk_count, 0).label("chunk_count"),
+            func.coalesce(share_count_sq.c.share_count, 0).label("share_count"),
             CreatedByUser.username.label("created_by_name"),
             UpdatedByUser.username.label("updated_by_name"),
         )
         .outerjoin(chunk_count_sq, Document.id == chunk_count_sq.c.document_id)
+        .outerjoin(share_count_sq, Document.id == share_count_sq.c.document_id)
         .outerjoin(CreatedByUser, Document.created_by_id == CreatedByUser.id)
         .outerjoin(UpdatedByUser, Document.updated_by_id == UpdatedByUser.id)
         .outerjoin(OwnerUser, Document.owner_id == OwnerUser.id)

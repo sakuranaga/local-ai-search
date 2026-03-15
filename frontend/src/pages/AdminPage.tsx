@@ -451,6 +451,10 @@ const SETTING_GROUPS: Record<string, { label: string; keys: string[] }> = {
     label: "取り込み設定",
     keys: ["chunk_size", "chunk_overlap"],
   },
+  share: {
+    label: "共有リンク",
+    keys: ["share_base_url", "share_enabled"],
+  },
 };
 
 function SettingsTab() {
@@ -1012,9 +1016,9 @@ function ApiKeysTab() {
 
 export function AdminPage() {
   return (
-    <div className="max-w-4xl mx-auto p-4">
-      <h1 className="text-xl font-bold mb-4">管理</h1>
-      <Tabs defaultValue="users">
+    <div className="max-w-4xl mx-auto p-4 h-full flex flex-col overflow-hidden">
+      <h1 className="text-xl font-bold mb-4 shrink-0">管理</h1>
+      <Tabs defaultValue="settings" className="flex-1 min-h-0 flex flex-col">
         <TabsList>
           <TabsTrigger value="settings">設定</TabsTrigger>
           <TabsTrigger value="users">ユーザー管理</TabsTrigger>
@@ -1022,19 +1026,19 @@ export function AdminPage() {
           <TabsTrigger value="roles">ロール管理</TabsTrigger>
           <TabsTrigger value="apikeys">APIキー</TabsTrigger>
         </TabsList>
-        <TabsContent value="settings" className="mt-4">
+        <TabsContent value="settings" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <SettingsTab />
         </TabsContent>
-        <TabsContent value="users" className="mt-4">
+        <TabsContent value="users" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <UsersTab />
         </TabsContent>
-        <TabsContent value="groups" className="mt-4">
+        <TabsContent value="groups" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <GroupsTab />
         </TabsContent>
-        <TabsContent value="roles" className="mt-4">
+        <TabsContent value="roles" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <RolesTab />
         </TabsContent>
-        <TabsContent value="apikeys" className="mt-4">
+        <TabsContent value="apikeys" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <ApiKeysTab />
         </TabsContent>
       </Tabs>

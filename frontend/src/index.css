@@ -140,4 +140,17 @@
   html {
     @apply font-sans;
     }
+  input::placeholder,
+  textarea::placeholder,
+  select::placeholder,
+  [contenteditable]::placeholder {
+    color: oklch(0.7 0 0 / 30%) !important;
+    opacity: 1 !important;
+  }
+  .dark input::placeholder,
+  .dark textarea::placeholder,
+  .dark select::placeholder {
+    color: oklch(0.5 0 0 / 30%) !important;
+    opacity: 1 !important;
+  }
 }

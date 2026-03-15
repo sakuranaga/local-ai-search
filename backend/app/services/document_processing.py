@@ -82,6 +82,7 @@ def make_doc_list_item(
         ai_knowledge=getattr(row, "ai_knowledge", True),
         chunk_count=getattr(row, "chunk_count", 0),
         scan_status=getattr(row, "scan_status", "pending"),
+        share_count=getattr(row, "share_count", 0),
         memo=getattr(row, "memo", None),
         folder_id=str(row.folder_id) if getattr(row, "folder_id", None) else None,
         folder_name=getattr(row, "folder_name", None),
