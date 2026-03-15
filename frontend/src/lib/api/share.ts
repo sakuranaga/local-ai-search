@@ -6,7 +6,7 @@ export interface ShareLinkInfo {
   document_title: string;
   token: string;
   url: string;
-  permission: string;
+
   has_password: boolean;
   max_downloads: number | null;
   download_count: number;
@@ -20,7 +20,7 @@ export interface ShareLinkInfo {
 export interface SharePublicInfo {
   document_title: string;
   file_type: string;
-  permission: string;
+
   requires_password: boolean;
   created_by_name: string;
   expires_at: string | null;
@@ -30,7 +30,6 @@ export interface SharePublicInfo {
 
 export async function createShareLink(data: {
   document_id: string;
-  permission?: string;
   password?: string | null;
   max_downloads?: number | null;
   expires_in?: string | null;
@@ -50,7 +49,6 @@ export async function deleteShareLink(id: string): Promise<void> {
 }
 
 export async function updateShareLink(id: string, data: {
-  permission?: string;
   password?: string | null;
   max_downloads?: number | null;
   expires_in?: string | null;

@@ -2,264 +2,307 @@
 
 ## 概要
 
-外部ユーザー（アカウントなし）にファイルを一時的に共有できるURL機能。
-現在 Cloudflare Tunnel (cloudflared) で認証しているため、共有リンクは**別ドメイン**で認証なしアクセスできる必要がある。
+LAS 本体は LAN 内のクローズド環境で動作する。外部ユーザーへのファイル共有は、
+インターネット上の独立した **LAS Share Server** を経由して行う。
 
-## ドメイン構成
-
-```
-las.ddr8.com           ← メインアプリ（cloudflared 認証あり）
-las-share.ddr8.com     ← 共有リンク専用（認証なし、公開）
-```
-
-共有リンクのベースURLは管理画面の SystemSetting で設定可能にする。
-
-| 設定キー | デフォルト値 | 説明 |
-|---------|------------|------|
-| `share_base_url` | `http://localhost:3002/s` | 共有リンクのベースURL |
-
-例: `share_base_url = https://las-share.ddr8.com/s`
-生成されるURL: `https://las-share.ddr8.com/s/{token}`
+共有リンク作成時に LAS 本体からファイルとメタデータを Share Server に転送し、
+外部ユーザーは Share Server からダウンロードする。LAS 本体を外部公開する必要はない。
 
 ## アーキテクチャ
 
 ```
-外部ユーザー (認証なし)
-  ↓ https://las-share.ddr8.com/s/{token}
-cloudflared (認証バイパス: las-share.ddr8.com は認証なし設定)
-  ↓
-nginx
-  ↓ /s/{token} → React SPA (SharePage)
-  ↓ /api/share/{token} → FastAPI backend (認証不要エンドポイント)
-backend
-  ↓ トークン検証 → ファイル配信
+LAN 内（クローズド）                     インターネット（公開）
+┌─────────────────┐   HTTP POST      ┌──────────────────────┐
+│   LAS 本体      │ ──────────────→ │  LAS Share Server     │
+│  (ファイル管理)  │   ファイル+       │  Go + SQLite (WAL)    │
+│  クローズド環境  │   メタデータ転送  │  Docker               │
+└─────────────────┘                  │  https://share.example│
+                                     └──────────┬───────────┘
+                                                ↑
+                                          外部ユーザー
+                                          トークンでアクセス
+                                          認証不要
 ```
 
-### cloudflared の設定
+## LAS Share Server
 
-`las-share.ddr8.com` は Cloudflare Access のバイパス設定にするか、
-別のトンネル設定で認証なしにする。
+### 技術スタック
 
-```yaml
-# cloudflared config
-ingress:
-  - hostname: las.ddr8.com
-    service: http://nginx:80
-    # Cloudflare Access で認証あり
+| 項目 | 技術 |
+|------|------|
+| 言語 | Go |
+| DB | SQLite + WAL モード |
+| HTTP | net/http + chi router |
+| Docker | alpine ベース（イメージ ~15MB） |
+| TLS | リバースプロキシ（Caddy / nginx）に委任 |
 
-  - hostname: las-share.ddr8.com
-    service: http://nginx:80
-    # 認証なし（Access ポリシーでバイパス）
+### プロジェクト構造
+
+```
+las-share-server/
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example
+├── go.mod
+├── go.sum
+├── main.go              # エントリポイント + HTTP サーバー
+├── handler.go           # リクエストハンドラー
+├── store.go             # SQLite データアクセス
+├── auth.go              # パスワード検証 + 一時トークン
+├── cleanup.go           # 期限切れファイル自動削除
+├── cli.go               # CLI コマンド（APIキー管理等）
+├── templates/
+│   ├── download.html    # ダウンロードページ
+│   ├── password.html    # パスワード入力ページ
+│   └── error.html       # エラーページ
+└── data/
+    ├── share.db          # SQLite データベース
+    └── files/            # 共有ファイル保存先
 ```
 
-### nginx の設定
+### データモデル (SQLite)
 
-共有リンク専用の location を追加。`/s/` パスと `/api/share/` パスを処理。
+```sql
+CREATE TABLE api_keys (
+    id TEXT PRIMARY KEY,
+    key_hash TEXT UNIQUE NOT NULL,      -- SHA-256 ハッシュ
+    name TEXT NOT NULL,                 -- "本社LAS" 等の識別名
+    note TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT 1
+);
 
-```nginx
-# 共有リンクページ (React SPA)
-location /s/ {
-    try_files $uri /index.html;
+CREATE TABLE share_links (
+    id TEXT PRIMARY KEY,
+    token TEXT UNIQUE NOT NULL,
+    filename TEXT NOT NULL,
+    file_type TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    file_path TEXT NOT NULL,
+    password_hash TEXT,                 -- SHA-256 + salt（NULL = パスワードなし）
+    expires_at DATETIME NOT NULL,       -- 必須（最大30日）
+    created_by TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT 1,
+    api_key_id TEXT REFERENCES api_keys(id)
+);
+
+CREATE TABLE access_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    share_link_id TEXT NOT NULL REFERENCES share_links(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,               -- 'download' | 'password_fail'
+    ip_address TEXT,
+    user_agent TEXT,
+    accessed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### CLI コマンド
+
+```bash
+# APIキー管理
+share-server key create --name "本社LAS"
+# => Created API key: sk_xxxxxxxxxxxxxxxx
+# => (この値をLAS本体の管理画面に設定)
+
+share-server key list
+# ID          Name       Created     Active
+# abc123..    本社LAS    2026-03-15  ✓
+
+share-server key revoke <id>
+
+# リンク管理
+share-server links
+# Token        Filename       Expires      Downloads
+# aB3xK...    設計書.pdf     2026-03-22   5
+
+share-server links delete <token>
+
+# ステータス
+share-server status
+# Links:    42 active, 8 expired
+# Storage:  2.3 GB used
+# API Keys: 2 active
+```
+
+### API エンドポイント
+
+#### 内部 API（LAS 本体 → Share Server、APIキー認証）
+
+##### `POST /api/internal/upload`
+
+```
+Headers:
+  X-Api-Key: sk_xxxxxxxxxxxxxxxx
+
+Body (multipart/form-data):
+  file: <binary>
+  token: "random-token"
+  filename: "設計書.pdf"
+  file_type: "pdf"
+  password_hash: "salt$hash"          (空文字 = パスワードなし)
+  expires_at: "2026-03-22T00:00:00Z"
+  created_by: "shuzan"
+
+Response: 201
+  {
+    "url": "https://share.example/s/random-token"
+  }
+```
+
+##### `DELETE /api/internal/{token}`
+
+```
+Headers:
+  X-Api-Key: sk_xxxxxxxxxxxxxxxx
+
+Response: 204
+```
+
+##### `GET /api/internal/status`
+
+```
+Headers:
+  X-Api-Key: sk_xxxxxxxxxxxxxxxx
+
+Response: 200
+  {
+    "active_links": 42,
+    "storage_used_bytes": 2400000000,
+    "ok": true
+  }
+```
+
+#### 公開エンドポイント（外部ユーザー、認証不要）
+
+##### `GET /s/{token}`
+
+HTML ページを返す。Go テンプレートで生成。
+- パスワードなし → ダウンロードページ
+- パスワードあり → パスワード入力ページ
+- 期限切れ / 無効 → エラーページ
+
+##### `POST /s/{token}/verify`
+
+```
+Form data: password=xxx
+
+Success: Set-Cookie で一時トークン設定 + ダウンロードページにリダイレクト
+Failure: パスワード入力ページに戻る（エラーメッセージ付き）
+```
+
+Cookie ベースの認証（ブラウザのフォーム送信で完結、JavaScript 不要）。
+
+##### `GET /s/{token}/download`
+
+```
+パスワード保護の場合: Cookie の一時トークンを検証
+
+Response: 200
+  Content-Disposition: attachment; filename="設計書.pdf"
+  <binary>
+
+Errors:
+  404: 共有リンクが見つかりません
+  410: 有効期限切れ
+  401: パスワード認証が必要です
+```
+
+### 共有ページ（HTML テンプレート）
+
+JavaScript 不要。Go のテンプレートで直接 HTML を生成。
+
+#### ダウンロードページ
+
+```html
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>{{.Filename}} - LAS Share</title></head>
+<body style="display:flex;justify-content:center;align-items:center;min-height:100vh;font-family:sans-serif">
+  <div style="text-align:center;max-width:400px">
+    <h2>📄 {{.Filename}}</h2>
+    <p>共有者: {{.CreatedBy}}</p>
+    <p>有効期限: {{.ExpiresAt}}</p>
+    <p>サイズ: {{.FileSize}}</p>
+    <a href="/s/{{.Token}}/download" style="display:inline-block;padding:12px 24px;background:#333;color:#fff;border-radius:6px;text-decoration:none">
+      ダウンロード
+    </a>
+    <p style="margin-top:48px;color:#888;font-size:12px">Powered by LAS</p>
+  </div>
+</body>
+</html>
+```
+
+#### パスワード入力ページ
+
+```html
+<form method="POST" action="/s/{{.Token}}/verify">
+  <h2>🔒 パスワードで保護されています</h2>
+  {{if .Error}}<p style="color:red">{{.Error}}</p>{{end}}
+  <input type="password" name="password" placeholder="パスワード" required>
+  <button type="submit">開く</button>
+</form>
+```
+
+### 設定（環境変数）
+
+```env
+SHARE_PORT=8080
+SHARE_DATA_DIR=/data
+SHARE_BASE_URL=https://share.example
+SHARE_JWT_SECRET=changeme
+SHARE_MAX_FILE_SIZE_MB=500
+SHARE_CLEANUP_INTERVAL_HOURS=1
+```
+
+### 期限切れファイル自動削除
+
+goroutine が定期的に実行（デフォルト1時間ごと）：
+
+```go
+func cleanupLoop(db *sql.DB, dataDir string, interval time.Duration) {
+    for {
+        time.Sleep(interval)
+        rows, _ := db.Query(`
+            SELECT id, file_path FROM share_links
+            WHERE expires_at < datetime('now') OR is_active = 0
+        `)
+        for rows.Next() {
+            var id, path string
+            rows.Scan(&id, &path)
+            os.Remove(filepath.Join(dataDir, "files", path))
+            db.Exec("DELETE FROM access_log WHERE share_link_id = ?", id)
+            db.Exec("DELETE FROM share_links WHERE id = ?", id)
+        }
+        rows.Close()
+    }
 }
 ```
 
-API 側の `/api/share/` は既存の `/api/` location でカバーされるため追加不要。
+## LAS 本体側の変更
 
-## 要件
+### 管理画面設定
 
-- ドキュメント単位で共有リンク生成（フォルダ共有は将来対応）
-- 有効期限設定（1時間 / 1日 / 7日 / 30日 / 無期限）
-- パスワード保護（オプション）
-- ダウンロード回数制限（オプション）
-- 権限レベル（閲覧のみ / ダウンロード可）
-- 共有リンク一覧管理（作成者が自分のリンクを管理、管理者は全て管理）
-- アクセスログ記録
-- 共有中のファイルがファイル一覧で視覚的にわかる
+| 設定キー | デフォルト | 説明 |
+|---------|----------|------|
+| `share_server_url` | (空) | Share Server の内部 API URL |
+| `share_server_api_key` | (空) | Share Server の API キー |
+| `share_enabled` | `false` | 共有機能の有効/無効 |
 
-## データモデル
+`share_base_url` は不要（Share Server が URL を返す）。
 
-### share_links テーブル
+### 共有リンク作成フロー
 
-```sql
-CREATE TABLE share_links (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    token VARCHAR(64) UNIQUE NOT NULL,
-    password_hash VARCHAR(255),
-    permission VARCHAR(20) DEFAULT 'view' NOT NULL,  -- 'view' | 'download'
-    max_downloads INTEGER,                           -- NULL = 無制限
-    download_count INTEGER DEFAULT 0,
-    expires_at TIMESTAMPTZ,                          -- NULL = 無期限
-    created_by_id UUID NOT NULL REFERENCES users(id),
-    created_at TIMESTAMPTZ DEFAULT now(),
-    is_active BOOLEAN DEFAULT TRUE
-);
-
-CREATE INDEX ix_share_links_token ON share_links (token);
-CREATE INDEX ix_share_links_document_id ON share_links (document_id);
+```
+1. ユーザーが右クリック → 共有リンク作成
+2. ダイアログ表示（期限、パスワード設定）
+3. LAS 本体が share_links テーブルにレコード作成
+4. LAS 本体がファイル + メタデータを Share Server に HTTP POST
+5. Share Server がファイル保存 + URL を返す
+6. LAS 本体がユーザーに URL を表示
 ```
 
-### share_link_access_log テーブル
-
-```sql
-CREATE TABLE share_link_access_log (
-    id BIGSERIAL PRIMARY KEY,
-    share_link_id UUID NOT NULL REFERENCES share_links(id) ON DELETE CASCADE,
-    action VARCHAR(20) NOT NULL,  -- 'view' | 'download' | 'password_fail'
-    ip_address VARCHAR(45),
-    user_agent TEXT,
-    accessed_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX ix_share_access_log_link_id ON share_link_access_log (share_link_id);
-```
-
-### SQLAlchemy モデル
-
-```python
-class ShareLink(Base):
-    __tablename__ = "share_links"
-
-    id = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    document_id = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
-    token = mapped_column(String(64), unique=True, nullable=False)
-    password_hash = mapped_column(String(255), nullable=True)
-    permission = mapped_column(String(20), nullable=False, default="view")
-    max_downloads = mapped_column(Integer, nullable=True)
-    download_count = mapped_column(Integer, default=0)
-    expires_at = mapped_column(DateTime(timezone=True), nullable=True)
-    created_by_id = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    created_at = mapped_column(DateTime(timezone=True), server_default=func.now())
-    is_active = mapped_column(Boolean, default=True)
-
-    document = relationship("Document")
-    created_by = relationship("User")
-
-
-class ShareLinkAccessLog(Base):
-    __tablename__ = "share_link_access_log"
-
-    id = mapped_column(Integer, primary_key=True, autoincrement=True)
-    share_link_id = mapped_column(UUID(as_uuid=True), ForeignKey("share_links.id", ondelete="CASCADE"), nullable=False)
-    action = mapped_column(String(20), nullable=False)
-    ip_address = mapped_column(String(45), nullable=True)
-    user_agent = mapped_column(Text, nullable=True)
-    accessed_at = mapped_column(DateTime(timezone=True), server_default=func.now())
-```
-
-## バックエンド API
-
-### 認証が必要なエンドポイント（メインアプリ用）
-
-#### `POST /api/share` — 共有リンク作成
-
-```python
-class ShareLinkCreate(BaseModel):
-    document_id: str
-    permission: str = "view"           # "view" | "download"
-    password: str | None = None        # 設定するとハッシュ化して保存
-    max_downloads: int | None = None   # NULL = 無制限
-    expires_in: str | None = None      # "1h" | "1d" | "7d" | "30d" | None(無期限)
-
-class ShareLinkResponse(BaseModel):
-    id: str
-    document_id: str
-    document_title: str
-    token: str
-    url: str                           # share_base_url + /s/ + token
-    permission: str
-    has_password: bool
-    max_downloads: int | None
-    download_count: int
-    expires_at: datetime | None
-    created_by_name: str
-    created_at: datetime
-    is_active: bool
-```
-
-処理:
-1. ドキュメントの所有権・書き込み権限チェック
-2. トークン生成（`secrets.token_urlsafe(32)`）
-3. パスワードがあれば bcrypt ハッシュ化
-4. `expires_in` → `expires_at` 変換
-5. `share_base_url` 設定を読んで完全URLを返す
-
-#### `GET /api/share/list` — 共有リンク一覧
-
-- 一般ユーザー: 自分が作成したリンクのみ
-- 管理者: 全リンク
-- レスポンスにアクセス数（access_log の COUNT）を含む
-
-#### `DELETE /api/share/{id}` — 共有リンク無効化
-
-- 作成者 or 管理者のみ
-- `is_active = False` に設定（論理削除）
-
-#### `PATCH /api/share/{id}` — 共有リンク更新
-
-- 期限延長、パスワード変更、権限変更、ダウンロード上限変更
-
-### 認証不要エンドポイント（共有ページ用）
-
-#### `GET /api/share/{token}` — 共有コンテンツ情報取得
-
-```python
-class SharePublicResponse(BaseModel):
-    document_title: str
-    file_type: str
-    file_size: int | None
-    permission: str           # "view" | "download"
-    requires_password: bool
-    has_preview: bool         # プレビュー可能か
-    created_by_name: str
-    expires_at: datetime | None
-```
-
-処理:
-1. トークンで ShareLink を検索
-2. `is_active` チェック
-3. 有効期限チェック
-4. ダウンロード回数チェック
-5. パスワード保護の場合: `requires_password: true` を返す（内容は未表示）
-6. アクセスログ記録
-
-#### `POST /api/share/{token}/verify` — パスワード認証
-
-```python
-class SharePasswordVerify(BaseModel):
-    password: str
-
-# 成功時: 一時トークン（JWT, 30分有効）を返す
-# 失敗時: 401
-```
-
-パスワード認証成功後、一時トークンをクエリパラメータまたはヘッダーで後続リクエストに付与。
-
-#### `GET /api/share/{token}/preview` — ファイルプレビュー
-
-- パスワード保護の場合、一時トークン必須
-- テキスト: content を返す
-- PDF: inline 配信
-- 画像: inline 配信
-- その他: プレビュー不可
-
-#### `GET /api/share/{token}/download` — ファイルダウンロード
-
-- `permission == "download"` のチェック
-- パスワード保護の場合、一時トークン必須
-- `download_count` をインクリメント
-- `max_downloads` 超過チェック
-- アクセスログ記録（action: "download"）
-
-## フロントエンド
-
-### メインアプリ側
-
-#### コンテキストメニュー追加
-
-ドキュメント右クリックメニューに「共有リンク作成」を追加。
-
-#### 共有リンク作成ダイアログ
+### 共有リンク作成ダイアログ
 
 ```
 ┌─────────────────────────────────────────┐
@@ -267,200 +310,58 @@ class SharePasswordVerify(BaseModel):
 ├─────────────────────────────────────────┤
 │ ファイル: 設計書.pdf                      │
 │                                         │
-│ 権限:  ○ 閲覧のみ  ● ダウンロード可      │
-│                                         │
 │ 有効期限:  [7日間 ▼]                     │
+│   (1時間 / 1日 / 7日 / 30日)             │
 │                                         │
 │ □ パスワード保護                          │
 │   パスワード: [________]                  │
-│                                         │
-│ □ ダウンロード回数制限                    │
-│   最大回数:   [10]                        │
 │                                         │
 ├─────────────────────────────────────────┤
 │ [キャンセル]              [リンクを作成]  │
 └─────────────────────────────────────────┘
 ```
 
-作成後:
+### LAS 本体の share_links テーブル
 
+Share Server に転送した記録を保持（一覧表示・無効化用）。
+
+```sql
+-- LAS 本体のDBに保持
+CREATE TABLE share_links (
+    id UUID PRIMARY KEY,
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    token VARCHAR(64) NOT NULL,
+    has_password BOOLEAN DEFAULT FALSE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    share_url TEXT NOT NULL,            -- Share Server から返された URL
+    created_by_id UUID NOT NULL REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    is_active BOOLEAN DEFAULT TRUE
+);
 ```
-┌─────────────────────────────────────────┐
-│ 共有リンクを作成しました                  │
-├─────────────────────────────────────────┤
-│                                         │
-│ https://las-share.ddr8.com/s/aB3x...    │
-│                                [コピー]  │
-│                                         │
-│ 有効期限: 2026-03-22 14:00              │
-│ 権限: ダウンロード可                     │
-│ パスワード: あり                          │
-│                                         │
-├─────────────────────────────────────────┤
-│                              [閉じる]    │
-└─────────────────────────────────────────┘
-```
-
-#### 共有中ファイルの視覚的表示
-
-ファイル一覧のテーブルで、アクティブな共有リンクがあるドキュメントを視覚的に区別:
-
-- ファイル名の横に共有アイコン（🔗 / LinkIcon）を表示
-- アイコンをホバーすると「共有中（N件のリンク）」のツールチップ
-
-実装:
-- `DocumentListItem` に `share_count: int` フィールドを追加
-- list_documents クエリで share_links テーブルを LEFT JOIN + COUNT
-
-```python
-# list_documents クエリに追加
-share_count_sq = (
-    select(
-        ShareLink.document_id,
-        func.count(ShareLink.id).label("share_count"),
-    )
-    .where(ShareLink.is_active.is_(True))
-    .group_by(ShareLink.document_id)
-    .subquery()
-)
-# base query に outerjoin
-.outerjoin(share_count_sq, Document.id == share_count_sq.c.document_id)
-# select に追加
-func.coalesce(share_count_sq.c.share_count, 0).label("share_count"),
-```
-
-#### 共有リンク管理ダイアログ
-
-ドキュメント詳細モーダルに「共有」タブを追加。
-そのドキュメントの共有リンク一覧を表示:
-
-```
-┌──────────────────────────────────────────────┐
-│ 共有リンク                                    │
-├──────────────────────────────────────────────┤
-│ 🔗 aB3xK...  ダウンロード可  期限: 3/22      │
-│   アクセス: 5回  DL: 2/10     [コピー] [削除] │
-│                                              │
-│ 🔗 Ym8pQ...  閲覧のみ       期限: なし        │
-│   アクセス: 12回  🔒パスワード [コピー] [削除] │
-│                                              │
-│                          [＋ 新しいリンク]     │
-└──────────────────────────────────────────────┘
-```
-
-### 共有ページ（別ドメイン / 認証不要）
-
-`/s/{token}` にアクセスした時の専用ページ。
-メインアプリとは別のシンプルなレイアウト。
-
-#### パスワードなしの場合
-
-```
-┌──────────────────────────────────────────┐
-│                                          │
-│  📄 設計書.pdf                            │
-│  共有者: shuzan                          │
-│  有効期限: 2026-03-22                    │
-│                                          │
-│  ┌──────────────────────────────────┐    │
-│  │                                  │    │
-│  │      (ファイルプレビュー)          │    │
-│  │                                  │    │
-│  └──────────────────────────────────┘    │
-│                                          │
-│           [ダウンロード]                  │
-│                                          │
-│  Powered by LAS                          │
-└──────────────────────────────────────────┘
-```
-
-#### パスワードありの場合（認証前）
-
-```
-┌──────────────────────────────────────────┐
-│                                          │
-│  🔒 この共有リンクはパスワードで          │
-│     保護されています                      │
-│                                          │
-│  パスワード: [____________]  [開く]       │
-│                                          │
-│  Powered by LAS                          │
-└──────────────────────────────────────────┘
-```
-
-#### エラー表示
-
-```
-リンクの有効期限が切れています
-リンクが無効です
-ダウンロード回数の上限に達しました
-```
-
-### React ルーティング
-
-```typescript
-// App.tsx
-<Routes>
-  {/* メインアプリ */}
-  <Route path="/login" element={<LoginPage />} />
-  <Route path="/admin" element={<AdminPage />} />
-  <Route path="/" element={<FileExplorerPage />} />
-
-  {/* 共有ページ（認証不要） */}
-  <Route path="/s/:token" element={<SharePage />} />
-</Routes>
-```
-
-`SharePage` は `LoginPage` のように認証チェックをスキップ。
-
-## 管理画面
-
-### SystemSetting 追加
-
-| 設定キー | デフォルト値 | 説明 |
-|---------|------------|------|
-| `share_base_url` | (空) | 共有リンクのベースURL。空の場合は現在のドメインを使用 |
-| `share_enabled` | `true` | 共有機能の有効/無効 |
-| `share_max_expiry_days` | `90` | 有効期限の最大日数（0 = 無期限許可） |
-
-### 管理画面に共有リンク管理タブ追加
-
-全ユーザーの共有リンク一覧を管理者が閲覧・無効化可能。
-
-## 実装手順
-
-### Phase 1: バックエンド基盤
-1. ShareLink, ShareLinkAccessLog モデル追加
-2. DB マイグレーション（main.py に ALTER TABLE 追加）
-3. `share_base_url`, `share_enabled` を SystemSetting に追加
-4. `/api/share` ルーター実装（CRUD + 公開エンドポイント）
-5. パスワード認証用の一時トークン発行ロジック
-
-### Phase 2: フロントエンド（メインアプリ）
-1. 共有リンク作成ダイアログ
-2. コンテキストメニューに「共有リンク作成」追加
-3. ドキュメント詳細モーダルに「共有」タブ追加
-4. ファイル一覧の共有アイコン表示（share_count）
-5. 共有リンク管理（管理画面タブ）
-
-### Phase 3: 共有ページ
-1. `SharePage` コンポーネント作成
-2. パスワード認証フロー
-3. ファイルプレビュー表示
-4. ダウンロード機能
-5. エラー表示（期限切れ、無効、回数超過）
-
-### Phase 4: インフラ
-1. nginx に `/s/` location 追加
-2. cloudflared の設定変更（las-share.ddr8.com を認証バイパス）
-3. 管理画面で `share_base_url` を設定
 
 ## セキュリティ考慮事項
 
-- **トークンの強度**: `secrets.token_urlsafe(32)` で 256bit のランダムトークン
-- **レートリミット**: パスワード認証は 5回/分 のレートリミット（ブルートフォース防止）
-- **アクセスログ**: 全アクセスを記録、不審なアクセスパターンの検出に使用
-- **共有リンクの無効化**: 元のドキュメントが削除されたら CASCADE で自動削除
-- **パスワード**: bcrypt でハッシュ化、平文は保存しない
-- **一時トークン**: パスワード認証後の JWT は 30分有効、リプレイ攻撃防止
-- **ドメイン分離**: メインアプリと共有ページを別ドメインにすることで、共有ページから認証情報にアクセスされるリスクを排除
+- **LAS 本体は外部公開しない** — ファイル転送は LAS → Share Server の一方向のみ
+- **APIキー認証** — Share Server の内部 API は APIキーで保護
+- **パスワード** — SHA-256 + salt でハッシュ化。LAS 本体でハッシュ化してから転送（平文は Share Server にも渡さない）
+- **有効期限必須** — 最大30日。期限切れファイルは自動削除
+- **Cookie ベース認証** — パスワード認証後の一時トークンは HttpOnly Cookie（XSS 対策）
+- **レートリミット** — パスワード認証は IP 単位で制限
+- **ファイル削除の確実性** — goroutine による定期削除 + CLI での手動削除
+
+## 実装手順
+
+### Phase 1: Share Server（Go）— 独立リポジトリ
+1. プロジェクト初期化（go mod, Dockerfile, docker-compose）
+2. SQLite + WAL セットアップ
+3. CLI（APIキー管理、リンク一覧、ステータス）
+4. 内部 API（upload, delete, status）
+5. 公開ページ（HTML テンプレート、パスワード認証、ダウンロード）
+6. 期限切れファイル自動削除 goroutine
+
+### Phase 2: LAS 本体修正
+1. 管理画面設定追加（share_server_url, share_server_api_key）
+2. share ルーター修正（ファイル転送ロジック）
+3. 共有リンク作成ダイアログ修正（回数制限・権限削除済み）
+4. 共有リンク削除時の Share Server 連携

@@ -205,6 +205,7 @@ export default function App() {
           }
         />
         <Route path="/s/:token" element={<SharePage />} />
+        <Route path="/s" element={<SharePage />} />
         <Route path="/files" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

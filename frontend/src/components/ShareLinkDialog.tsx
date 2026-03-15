@@ -23,7 +23,7 @@ export function ShareLinkDialog({
   documentTitle: string;
   onClose: () => void;
 }) {
-  const [permission, setPermission] = useState<"view" | "download">("download");
+
   const [expiresIn, setExpiresIn] = useState<string>("7d");
   const [usePassword, setUsePassword] = useState(false);
   const [password, setPassword] = useState("");
@@ -49,7 +49,6 @@ export function ShareLinkDialog({
     try {
       const link = await createShareLink({
         document_id: documentId,
-        permission,
         password: usePassword && password ? password : null,
         max_downloads: useMaxDownloads ? maxDownloads : null,
         expires_in: expiresIn || null,
@@ -91,7 +90,6 @@ export function ShareLinkDialog({
               </Button>
             </div>
             <div className="text-xs text-muted-foreground space-y-1">
-              <p>権限: {created.permission === "download" ? "ダウンロード可" : "閲覧のみ"}</p>
               <p>有効期限: {created.expires_at ? new Date(created.expires_at).toLocaleDateString("ja-JP") : "無期限"}</p>
               {created.has_password && <p>パスワード: あり</p>}
               {created.max_downloads && <p>ダウンロード上限: {created.max_downloads}回</p>}
@@ -103,20 +101,6 @@ export function ShareLinkDialog({
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">{documentTitle}</p>
-
-            <div>
-              <label className="text-sm font-medium">権限</label>
-              <div className="flex gap-4 mt-1">
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="radio" checked={permission === "view"} onChange={() => setPermission("view")} />
-                  閲覧のみ
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="radio" checked={permission === "download"} onChange={() => setPermission("download")} />
-                  ダウンロード可
-                </label>
-              </div>
-            </div>
 
             <div>
               <label className="text-sm font-medium">有効期限</label>

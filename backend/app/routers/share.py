@@ -12,8 +12,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
+import hashlib
+
 from jose import jwt
-from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +28,18 @@ from app.services.settings import get_setting
 
 router = APIRouter(prefix="/share", tags=["share"])
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def _hash_password(password: str) -> str:
+    """Hash a share link password with SHA-256 + salt."""
+    salt = secrets.token_hex(16)
+    h = hashlib.sha256((salt + password).encode()).hexdigest()
+    return f"{salt}${h}"
+
+
+def _verify_password(password: str, hashed: str) -> bool:
+    """Verify a share link password."""
+    salt, h = hashed.split("$", 1)
+    return hashlib.sha256((salt + password).encode()).hexdigest() == h
+
 
 SHARE_TOKEN_SECRET = settings.JWT_SECRET
 SHARE_TOKEN_ALGO = "HS256"
@@ -41,14 +53,12 @@ SHARE_TOKEN_EXPIRE_MINUTES = 30
 
 class ShareLinkCreate(BaseModel):
     document_id: str
-    permission: str = "view"
     password: str | None = None
     max_downloads: int | None = None
     expires_in: str | None = None  # "1h" | "1d" | "7d" | "30d" | None
 
 
 class ShareLinkUpdate(BaseModel):
-    permission: str | None = None
     password: str | None = None  # "" to remove password
     max_downloads: int | None = None
     expires_in: str | None = None
@@ -61,7 +71,6 @@ class ShareLinkResponse(BaseModel):
     document_title: str
     token: str
     url: str
-    permission: str
     has_password: bool
     max_downloads: int | None
     download_count: int
@@ -75,7 +84,6 @@ class ShareLinkResponse(BaseModel):
 class SharePublicResponse(BaseModel):
     document_title: str
     file_type: str
-    permission: str
     requires_password: bool
     created_by_name: str
     expires_at: datetime | None
@@ -104,7 +112,11 @@ def _parse_expires_in(expires_in: str | None) -> datetime | None:
 async def _get_share_url(db: AsyncSession, token: str) -> str:
     base = await get_setting(db, "share_base_url")
     if base:
-        return f"{base.rstrip('/')}/{token}"
+        base = base.rstrip("/")
+        # Ensure /s/ path is included
+        if not base.endswith("/s"):
+            base += "/s"
+        return f"{base}/{token}"
     return f"/s/{token}"
 
 
@@ -181,14 +193,13 @@ async def create_share_link(
         raise HTTPException(status_code=403, detail="Sharing is disabled")
 
     token = secrets.token_urlsafe(32)
-    password_hash = pwd_context.hash(body.password) if body.password else None
+    password_hash = _hash_password(body.password) if body.password else None
     expires_at = _parse_expires_in(body.expires_in)
 
     link = ShareLink(
         document_id=doc_id,
         token=token,
         password_hash=password_hash,
-        permission=body.permission,
         max_downloads=body.max_downloads,
         expires_at=expires_at,
         created_by_id=current_user.id,
@@ -205,7 +216,7 @@ async def create_share_link(
         document_title=doc.title,
         token=token,
         url=url,
-        permission=link.permission,
+
         has_password=link.password_hash is not None,
         max_downloads=link.max_downloads,
         download_count=0,
@@ -243,7 +254,7 @@ async def list_share_links(
             document_title=doc_title,
             token=link.token,
             url=url,
-            permission=link.permission,
+    
             has_password=link.password_hash is not None,
             max_downloads=link.max_downloads,
             download_count=link.download_count,
@@ -283,10 +294,8 @@ async def update_share_link(
     if link.created_by_id != current_user.id and not _is_admin(current_user):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    if body.permission is not None:
-        link.permission = body.permission
     if body.password is not None:
-        link.password_hash = pwd_context.hash(body.password) if body.password else None
+        link.password_hash = _hash_password(body.password) if body.password else None
     if body.max_downloads is not None:
         link.max_downloads = body.max_downloads if body.max_downloads > 0 else None
     if body.expires_in is not None:
@@ -312,7 +321,7 @@ async def update_share_link(
         document_title=doc.title if doc else "",
         token=link.token,
         url=url,
-        permission=link.permission,
+
         has_password=link.password_hash is not None,
         max_downloads=link.max_downloads,
         download_count=link.download_count,
@@ -356,7 +365,7 @@ async def get_share_public(
     return SharePublicResponse(
         document_title=doc.title,
         file_type=doc.file_type,
-        permission=link.permission,
+
         requires_password=link.password_hash is not None,
         created_by_name=username,
         expires_at=link.expires_at,
@@ -382,7 +391,7 @@ async def verify_share_password(
     if not link.password_hash:
         return {"share_token": _create_share_token(str(link.id))}
 
-    if not pwd_context.verify(body.password, link.password_hash):
+    if not _verify_password(body.password, link.password_hash):
         _log_access(db, link.id, "password_fail", request)
         raise HTTPException(status_code=401, detail="パスワードが正しくありません")
 
@@ -428,9 +437,6 @@ async def download_share(
     error = await _validate_share_link(link)
     if error:
         raise HTTPException(status_code=410, detail=error)
-
-    if link.permission != "download":
-        raise HTTPException(status_code=403, detail="このリンクではダウンロードできません")
 
     if not await _check_password_access(link, request):
         raise HTTPException(status_code=401, detail="パスワード認証が必要です")

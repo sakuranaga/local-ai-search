@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DocumentPreview } from "@/components/DocumentPreview";
 import { OverTypeEditor } from "@/components/OverTypeEditor";
@@ -21,6 +21,10 @@ import {
   RefreshCw,
   Trash2,
   X,
+  Copy,
+  Check,
+  Link,
+  Plus,
 } from "lucide-react";
 import {
   getDocument,
@@ -35,6 +39,10 @@ import {
   type Folder,
   type TagInfo,
   type Group,
+  createShareLink,
+  getShareLinks,
+  deleteShareLink,
+  type ShareLinkInfo,
 } from "@/lib/api";
 import { formatDate, formatPermString } from "@/lib/fileExplorerHelpers";
 
@@ -58,7 +66,7 @@ export function DocumentDetailModal({
   onTagsChanged: () => void;
 }) {
   const [doc, setDoc] = useState<Document | null>(null);
-  const [tab, setTab] = useState<"view" | "edit" | "permissions" | "raw">("view");
+  const [tab, setTab] = useState<"view" | "edit" | "permissions" | "raw" | "share">("view");
   const [loading, setLoading] = useState(false);
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [savingContent, setSavingContent] = useState(false);
@@ -119,7 +127,7 @@ export function DocumentDetailModal({
 
         {/* Tabs */}
         <div className="flex gap-1 border-b">
-          {(["view", "edit", "permissions", "raw"] as const).map((t) => (
+          {(["view", "edit", "permissions", "raw", "share"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -127,7 +135,7 @@ export function DocumentDetailModal({
                 tab === t ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              {{ view: "表示", edit: "編集", permissions: "権限", raw: "テキスト編集" }[t]}
+              {{ view: "表示", edit: "編集", permissions: "権限", raw: "テキスト編集", share: "共有" }[t]}
             </button>
           ))}
           <div className="ml-auto flex items-center gap-1 pb-1">
@@ -231,6 +239,10 @@ export function DocumentDetailModal({
 
           {tab === "permissions" && doc && (
             <PermissionsTab docId={item.id} doc={doc} />
+          )}
+
+          {tab === "share" && (
+            <ShareTab documentId={item.id} documentTitle={item.title} />
           )}
         </div>
       </DialogContent>
@@ -492,6 +504,136 @@ function PermissionsTab({ docId, doc }: { docId: string; doc: Document }) {
       </p>
 
       <Button onClick={handleSave} disabled={saving || !canEdit}>権限を保存</Button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Share Tab
+// ---------------------------------------------------------------------------
+
+function ShareTab({ documentId, documentTitle }: { documentId: string; documentTitle: string }) {
+  const [links, setLinks] = useState<ShareLinkInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Create form
+  const [showCreate, setShowCreate] = useState(false);
+
+  const [expiresIn, setExpiresIn] = useState("7d");
+  const [usePassword, setUsePassword] = useState(false);
+  const [password, setPassword] = useState("");
+  const [useMaxDl, setUseMaxDl] = useState(false);
+  const [maxDl, setMaxDl] = useState(10);
+  const [creating, setCreating] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    getShareLinks()
+      .then((all) => setLinks(all.filter((l) => l.document_id === documentId)))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [documentId]);
+
+  useEffect(load, [load]);
+
+  async function handleCreate() {
+    setCreating(true);
+    try {
+      await createShareLink({
+        document_id: documentId,
+        password: usePassword && password ? password : null,
+        max_downloads: useMaxDl ? maxDl : null,
+        expires_in: expiresIn || null,
+      });
+      setShowCreate(false);
+      setPassword("");
+      load();
+      toast.success("共有リンクを作成しました");
+    } catch (e: any) {
+      toast.error(e.message || "作成に失敗しました");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("この共有リンクを無効化しますか？")) return;
+    try {
+      await deleteShareLink(id);
+      load();
+      toast.success("共有リンクを無効化しました");
+    } catch { toast.error("失敗しました"); }
+  }
+
+  function handleCopy(url: string, id: string) {
+    navigator.clipboard.writeText(url);
+    setCopiedId(id);
+    toast.success("URLをコピーしました");
+    setTimeout(() => setCopiedId(null), 2000);
+  }
+
+  if (loading) return <p className="text-sm text-muted-foreground p-4">読み込み中...</p>;
+
+  return (
+    <div className="space-y-4 p-1">
+      {links.length === 0 && !showCreate && (
+        <p className="text-sm text-muted-foreground py-4 text-center">共有リンクはありません</p>
+      )}
+
+      {links.map((link) => (
+        <div key={link.id} className="border rounded-lg p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <Link className="h-4 w-4 text-primary shrink-0" />
+            <span className="text-sm font-mono truncate flex-1">{link.url}</span>
+            <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => handleCopy(link.url, link.id)}>
+              {copiedId === link.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            </Button>
+            {link.is_active && (
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => handleDelete(link.id)}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            {link.has_password && <span>🔒 パスワード</span>}
+            <span>アクセス: {link.access_count}回</span>
+            {link.max_downloads && <span>DL: {link.download_count}/{link.max_downloads}</span>}
+            <span>期限: {link.expires_at ? formatDate(link.expires_at) : "無期限"}</span>
+            {!link.is_active && <span className="text-destructive font-medium">無効</span>}
+          </div>
+        </div>
+      ))}
+
+      {showCreate ? (
+        <div className="border rounded-lg p-3 space-y-3">
+          <h4 className="text-sm font-medium">新しい共有リンク</h4>
+          <select value={expiresIn} onChange={(e) => setExpiresIn(e.target.value)} className="h-8 rounded-md border bg-background px-2 text-sm w-full">
+            <option value="1h">1時間</option>
+            <option value="1d">1日</option>
+            <option value="7d">7日間</option>
+            <option value="30d">30日間</option>
+            <option value="90d">90日間</option>
+            <option value="">無期限</option>
+          </select>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={usePassword} onChange={(e) => setUsePassword(e.target.checked)} />パスワード保護
+          </label>
+          {usePassword && <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="パスワード" />}
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={useMaxDl} onChange={(e) => setUseMaxDl(e.target.checked)} />DL回数制限
+          </label>
+          {useMaxDl && <Input type="number" value={maxDl} onChange={(e) => setMaxDl(Number(e.target.value))} min={1} className="w-24" />}
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>キャンセル</Button>
+            <Button size="sm" onClick={handleCreate} disabled={creating}>{creating ? "作成中..." : "作成"}</Button>
+          </div>
+        </div>
+      ) : (
+        <Button variant="outline" size="sm" onClick={() => setShowCreate(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1" />新しい共有リンク
+        </Button>
+      )}
     </div>
   );
 }
