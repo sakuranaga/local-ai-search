@@ -53,11 +53,26 @@ services:
       --timeout 300
       --graceful-timeout 30
 
+  tusd:
+    image: tusproject/tusd:latest
+    restart: unless-stopped
+    command:
+      - -hooks-http=http://backend:8000/api/ingest/tus-hook
+      - -hooks-enabled-events=pre-create,post-finish
+      - -upload-dir=/data/uploads/tus
+      - -behind-proxy
+      - -base-path=/tusd/
+    volumes:
+      - ./data/uploads/tus:/data/uploads/tus
+    depends_on:
+      - backend
+
   nginx:
     image: nginx:alpine
     restart: unless-stopped
     depends_on:
       - backend
+      - tusd
     ports:
       - "3002:80"
     volumes:
