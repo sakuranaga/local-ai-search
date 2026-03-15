@@ -63,6 +63,7 @@ import {
   deleteFolder,
   getGroups,
   createTag,
+  updateTag,
   getTags,
   getTrash,
   restoreFromTrash,
@@ -143,6 +144,9 @@ export function FileExplorerPage() {
   const [newTagOpen, setNewTagOpen] = useState(false);
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState(TAG_COLORS[0]);
+  const [editingTag, setEditingTag] = useState<TagInfo | null>(null);
+  const [editTagName, setEditTagName] = useState("");
+  const [editTagColor, setEditTagColor] = useState("");
 
   // Dialogs
   const [detailDoc, setDetailDoc] = useState<DocumentListItem | null>(null);
@@ -812,14 +816,6 @@ export function FileExplorerPage() {
             </button>
           </div>
           <div className="space-y-0.5">
-            {activeTag && (
-              <button
-                onClick={() => { setActiveTag(null); if (isSearching) navigate("/", { replace: true }); }}
-                className="w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 hover:bg-muted text-muted-foreground"
-              >
-                <X className="h-3 w-3" />フィルタ解除
-              </button>
-            )}
             {allTags.map((tag) => (
               <SidebarTagItem
                 key={tag.id}
@@ -831,11 +827,7 @@ export function FileExplorerPage() {
                   if (activeTag === tag.name) setActiveTag(null);
                   load(true);
                 }}
-                onRenamed={(updated) => {
-                  setAllTags((prev) => prev.map((t) => t.id === updated.id ? updated : t));
-                  if (activeTag === tag.name) setActiveTag(updated.name);
-                  load(true);
-                }}
+                onEdit={(t) => { setEditingTag(t); setEditTagName(t.name); setEditTagColor(t.color || "#6b7280"); }}
               />
             ))}
           </div>
@@ -1387,7 +1379,7 @@ export function FileExplorerPage() {
           </DialogHeader>
           <div className="space-y-3">
             <Input placeholder="タグ名" value={newTagName} onChange={(e) => setNewTagName(e.target.value)} autoFocus />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm text-muted-foreground">色:</span>
               {TAG_COLORS.map((c) => (
                 <button
@@ -1397,10 +1389,85 @@ export function FileExplorerPage() {
                   style={{ backgroundColor: c }}
                 />
               ))}
+              <input
+                type="color"
+                value={newTagColor}
+                onChange={(e) => setNewTagColor(e.target.value)}
+                className="w-6 h-6 rounded-full border-0 p-0 cursor-pointer"
+                title="カスタム色"
+              />
             </div>
           </div>
           <DialogFooter showCloseButton>
             <Button onClick={handleCreateTag} disabled={!newTagName.trim()}>作成</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Tag Edit Dialog */}
+      <Dialog open={!!editingTag} onOpenChange={(open) => { if (!open) setEditingTag(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>タグ編集</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="タグ名"
+              value={editTagName}
+              onChange={(e) => setEditTagName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && editTagName.trim() && editingTag) {
+                  updateTag(editingTag.id, { name: editTagName.trim(), color: editTagColor })
+                    .then((updated) => {
+                      setAllTags((prev) => prev.map((t) => t.id === updated.id ? { ...t, ...updated } : t));
+                      if (activeTag === editingTag!.name) setActiveTag(updated.name);
+                      setEditingTag(null);
+                      load(true);
+                      toast.success("タグを更新しました");
+                    })
+                    .catch(() => toast.error("タグ更新失敗"));
+                }
+              }}
+              autoFocus
+            />
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm text-muted-foreground">色:</span>
+              {TAG_COLORS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setEditTagColor(c)}
+                  className={`w-6 h-6 rounded-full border-2 transition-colors ${editTagColor === c ? "border-foreground" : "border-transparent"}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+              <input
+                type="color"
+                value={editTagColor}
+                onChange={(e) => setEditTagColor(e.target.value)}
+                className="w-6 h-6 rounded-full border-0 p-0 cursor-pointer"
+                title="カスタム色"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingTag(null)}>キャンセル</Button>
+            <Button
+              disabled={!editTagName.trim()}
+              onClick={() => {
+                if (!editingTag) return;
+                updateTag(editingTag.id, { name: editTagName.trim(), color: editTagColor })
+                  .then((updated) => {
+                    setAllTags((prev) => prev.map((t) => t.id === updated.id ? { ...t, ...updated } : t));
+                    if (activeTag === editingTag!.name) setActiveTag(updated.name);
+                    setEditingTag(null);
+                    load(true);
+                    toast.success("タグを更新しました");
+                  })
+                  .catch(() => toast.error("タグ更新失敗"));
+              }}
+            >
+              保存
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

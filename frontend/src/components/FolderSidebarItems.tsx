@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   ChevronDown,
@@ -25,68 +25,51 @@ export function SidebarTagItem({
   isActive,
   onSelect,
   onDeleted,
-  onRenamed,
+  onEdit,
 }: {
   tag: TagInfo & { document_count?: number };
   isActive: boolean;
   onSelect: () => void;
   onDeleted: () => void;
-  onRenamed: (updated: TagInfo) => void;
+  onEdit: (tag: TagInfo) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState(tag.name);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
-
-  async function handleRename() {
-    if (!editName.trim() || editName === tag.name) { setEditing(false); return; }
-    try {
-      const updated = await updateTag(tag.id, { name: editName.trim() });
-      onRenamed(updated);
-    } catch { toast.error("リネーム失敗"); }
-    setEditing(false);
-  }
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   return (
     <div className={`group flex items-center text-sm rounded ${isActive ? "bg-primary/10 font-medium" : "hover:bg-muted"}`}>
-      {editing ? (
-        <input
-          ref={inputRef}
-          value={editName}
-          onChange={(e) => setEditName(e.target.value)}
-          onBlur={handleRename}
-          onKeyDown={(e) => { if (e.key === "Enter") handleRename(); if (e.key === "Escape") setEditing(false); }}
-          className="flex-1 text-sm bg-background border rounded px-2 py-0.5 mx-1"
-        />
-      ) : (
+      <button
+        onClick={onSelect}
+        onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
+        className="flex items-center gap-1 flex-1 min-w-0 px-2 py-1"
+      >
+        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color || "#6b7280" }} />
+        <span className="truncate">{tag.name}</span>
+        <span className="text-xs text-muted-foreground ml-auto">{tag.document_count ?? ""}</span>
+      </button>
+
+      {ctxMenu && (
         <>
-          <button onClick={onSelect} className="flex items-center gap-1 flex-1 min-w-0 px-2 py-1">
-            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color || "#6b7280" }} />
-            <span className="truncate">{tag.name}</span>
-            <span className="text-xs text-muted-foreground ml-auto">{tag.document_count ?? ""}</span>
-          </button>
-          <div className="hidden group-hover:flex items-center gap-0.5 mr-0.5">
-            <button
-              onClick={(e) => { e.stopPropagation(); setEditName(tag.name); setEditing(true); }}
-              className="p-0.5 hover:bg-muted rounded" title="リネーム"
-            >
-              <Pencil className="h-3 w-3 text-muted-foreground" />
+          <div className="fixed inset-0 z-50" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
+          <div
+            className="fixed z-50 min-w-[140px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 animate-in fade-in-0 zoom-in-95"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          >
+            <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setCtxMenu(null); onEdit(tag); }}>
+              <Pencil className="h-4 w-4" />編集
             </button>
+            <div className="-mx-1 my-1 h-px bg-border" />
             <button
-              onClick={async (e) => {
-                e.stopPropagation();
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+              onClick={async () => {
+                setCtxMenu(null);
                 if (!confirm(`タグ「${tag.name}」を削除しますか？`)) return;
                 try {
                   await deleteTag(tag.id);
                   onDeleted();
                 } catch { toast.error("タグ削除失敗"); }
               }}
-              className="p-0.5 hover:bg-muted rounded" title="削除"
             >
-              <Trash2 className="h-3 w-3 text-destructive" />
+              <Trash2 className="h-4 w-4" />削除
             </button>
           </div>
         </>
