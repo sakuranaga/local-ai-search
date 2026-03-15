@@ -98,6 +98,7 @@
 | Upload | tusd (tus プロトコル — レジューマブルアップロード) |
 | Antivirus | ClamAV (360万+シグネチャ、自動定義更新) |
 | Share Server | Go + SQLite (WAL) — 外部共有専用、独立デプロイ |
+| OCR | Surya OCR — GPU対応（ROCm/CUDA）、画像・スキャンPDFのテキスト抽出 |
 | Text Editor | OverType (91KB、依存ゼロの WYSIWYG マークダウンエディタ) |
 | LLM | llama.cpp (OpenAI 互換 API) |
 | Embedding | llama.cpp (OpenAI 互換 API) |
@@ -111,6 +112,7 @@
 - Docker + Docker Compose
 - llama.cpp サーバー 2台（LLM用 / Embedding用）
 - Node.js 20+ (フロントエンドビルド用)
+- OCR サーバー（オプション、画像・スキャンPDF対応時に必要）
 
 ### llama.cpp サーバーの起動
 
@@ -131,6 +133,27 @@ llama-server \
   --host 0.0.0.0 --port 8082 \
   --embedding -ngl 99 -c 32768 --parallel 4
 ```
+
+### OCR サーバーの起動（オプション）
+
+Surya OCR を使った画像・スキャンPDFのテキスト抽出サーバー。GPU（ROCm/CUDA）推奨。
+
+```bash
+cd ocr-server
+
+# Python venv 作成 + 依存インストール
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 起動（デフォルト: ポート 8090、GPU使用）
+./start.sh
+
+# CPU モードで起動する場合
+TORCH_DEVICE=cpu ./start.sh
+```
+
+OCR サーバーが起動していない場合、画像ファイルのテキスト抽出とスキャンPDFの OCR はスキップされます（テキスト埋め込みPDFは OCR なしで処理可能）。
 
 ### 起動手順
 
@@ -159,6 +182,7 @@ docker compose up -d
 | tusd | tus アップロードサーバー | 内部 8080 |
 | clamav | ClamAV ウイルススキャン | 内部 3310 |
 | nginx | リバースプロキシ + SPA 配信 | **3002** |
+| ocr-server | Surya OCR（ホスト直接起動） | 8090 |
 
 ### 初回ログイン
 
