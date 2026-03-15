@@ -53,6 +53,19 @@ services:
       --timeout 300
       --graceful-timeout 30
 
+  clamav:
+    image: clamav/clamav:latest
+    restart: unless-stopped
+    volumes:
+      - clamav_data:/var/lib/clamav
+      - ./data:/data/storage:ro
+    healthcheck:
+      test: ["CMD", "clamdcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
   tusd:
     image: tusproject/tusd:latest
     restart: unless-stopped
@@ -82,3 +95,4 @@ services:
 volumes:
   las_db:
   las_redis:
+  clamav_data:

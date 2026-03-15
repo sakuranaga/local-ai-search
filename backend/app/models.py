@@ -239,6 +239,10 @@ class Document(Base):
     processing_status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="done"
     )  # pending, parsing, chunking, embedding, summarizing, done, error
+    scan_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )  # pending, clean, infected, skipped, error
+    scan_result: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

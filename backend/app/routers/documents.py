@@ -105,6 +105,7 @@ async def list_documents(
             Document.others_write,
             Document.searchable,
             Document.ai_knowledge,
+            Document.scan_status,
             Document.summary,
             Document.memo,
             Document.folder_id,
