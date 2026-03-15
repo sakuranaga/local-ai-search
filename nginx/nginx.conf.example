@@ -1,0 +1,130 @@
+# =============================================================================
+# LAS — Nginx Configuration
+# =============================================================================
+#
+# このファイルは nginx/nginx.conf のサンプルです。
+# 環境に合わせてコピー・編集して使用してください。
+#
+#   cp nginx/nginx.conf.example nginx/nginx.conf
+#
+# 対応する構成:
+#   - Docker Compose 内の nginx コンテナ（ポート 3002）
+#   - FastAPI バックエンド（内部ポート 8000）
+#   - tusd アップロードサーバー（内部ポート 8080）
+#   - SPA (React) の静的ファイル配信
+#   - SSE (Server-Sent Events) ストリーミング対応
+#   - tus レジューマブルアップロード対応
+#
+# TLS / HTTPS について:
+#   この nginx 自体は HTTP (80) でリッスンします。
+#   HTTPS は上流のリバースプロキシで終端してください:
+#     - Cloudflare Tunnel (cloudflared)
+#     - Caddy
+#     - 別の nginx (certbot / Let's Encrypt)
+#     - AWS ALB / GCP Load Balancer
+#   上流プロキシが X-Forwarded-Proto ヘッダーを付与すれば、
+#   tusd の Location ヘッダーが自動的に https:// に変換されます。
+#
+# =============================================================================
+
+worker_processes auto;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    sendfile    on;
+    tcp_nopush  on;
+
+    keepalive_timeout 65;
+
+    # API エンドポイント向けのデフォルトボディサイズ制限
+    # (tus アップロードは location 単位で無制限に設定)
+    client_max_body_size 50m;
+
+    # Gzip 圧縮
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml;
+    gzip_min_length 256;
+
+    # WebSocket アップグレード用マッピング
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        ''      close;
+    }
+
+    # 上流プロキシ (cloudflared, Caddy 等) からのプロトコル検出
+    # X-Forwarded-Proto が設定されていなければ $scheme にフォールバック
+    map $http_x_forwarded_proto $real_scheme {
+        default $scheme;
+        https   https;
+        http    http;
+    }
+
+    server {
+        listen 80;
+        server_name _;
+
+        # --- フロントエンド (React SPA) ---
+        root /usr/share/nginx/html;
+        index index.html;
+
+        location / {
+            try_files $uri $uri.html $uri/ /index.html;
+        }
+
+        # --- tus アップロードプロキシ ---
+        # レジューマブルアップロード (tus プロトコル)
+        # クライアント: tus-js-client, curl, tuspy 等
+        location /tusd/ {
+            proxy_pass http://tusd:8080;
+
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $real_scheme;
+            proxy_set_header X-Forwarded-Host  $host;
+
+            # tus 固有ヘッダーの転送
+            proxy_set_header Upload-Length     $http_upload_length;
+            proxy_set_header Upload-Offset    $http_upload_offset;
+            proxy_set_header Tus-Resumable    $http_tus_resumable;
+            proxy_set_header Upload-Metadata  $http_upload_metadata;
+
+            # HTTPS プロキシ配下での Location ヘッダー書き換え
+            proxy_redirect ~^http://(.+)$ $real_scheme://$1;
+
+            # 大容量ファイル対応 (チャンク転送のため無制限)
+            client_max_body_size 0;
+            proxy_request_buffering off;
+            proxy_buffering off;
+            proxy_read_timeout 600s;
+        }
+
+        # --- API プロキシ ---
+        # FastAPI バックエンド (認証, 検索, 文書管理, AI チャット等)
+        location /api/ {
+            proxy_pass http://backend:8000;
+
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $real_scheme;
+
+            # SSE (Server-Sent Events) ストリーミング対応
+            # AI チャット回答のリアルタイムストリーミングに必要
+            proxy_buffering off;
+            proxy_cache     off;
+            proxy_read_timeout 300s;
+
+            # WebSocket 対応 (将来の拡張用)
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade    $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+        }
+    }
+}
