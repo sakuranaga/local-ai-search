@@ -16,6 +16,7 @@
 | tus レジューマブルアップロード | ✗ | ✓ 中断しても途中から再開 |
 | ClamAV ウイルススキャン | △ | ✓ アップロード時に自動スキャン |
 | WYSIWYG テキスト編集 | ✗ | ✓ OverType エディタ（検索用テキスト修正） |
+| 外部共有リンク（Share Server） | ✗ | ✓ LAN内から外部にファイル共有、パスワード保護対応 |
 | API キーによる外部連携 | △ | ✓ フォルダスコープ付き |
 | 完全ローカル（データ外部送信ゼロ） | ✓ | ✓ |
 
@@ -37,6 +38,7 @@
 - **マルチフォーマット対応** — Markdown / PDF / DOCX / XLSX / CSV / HTML / PPTX / 画像(OCR)
 - **テキスト編集** — OverType エディタでOCR誤認識の修正等（再チャンク・再ベクトル化を自動実行）
 - **AI 要約** — 文書登録時に LLM で要約を自動生成
+- **外部共有リンク** — LAN内のファイルを外部の Share Server 経由で共有。パスワード保護、有効期限（最大30日）、期限切れ自動削除対応
 - **一括操作** — 複数選択でタグ編集、フォルダ移動、権限変更、削除、Zip ダウンロード
 - **ゴミ箱** — ソフトデリート + 復元 + 完全削除
 - **キーボードショートカット** — Ctrl+A 全選択、Escape 解除、Delete ゴミ箱移動
@@ -57,6 +59,7 @@
 ## アーキテクチャ
 
 ```
+ LAN 内（クローズド）                        インターネット（公開）
 ┌──────────────┐     ┌─────────┐     ┌──────────────────────┐
 │   Browser    │────▶│  Nginx  │────▶│  FastAPI Backend      │
 │  (React SPA) │◀────│  :3002  │◀────│  (Gunicorn + Uvicorn) │
@@ -70,9 +73,19 @@
                      ┌─────────┐  │ pgvector │ │       │ │ LLM + Embedding  │
                      │ ClamAV  │  │ pg_bigm  │ │       │ │                  │
                      └─────────┘  └──────────┘ └───────┘ └──────────────────┘
+                                        │
+                                        │ ファイル転送 (共有時)
+                                        ▼
+                              ┌──────────────────┐
+                              │  Share Server     │  ← 外部公開サーバー
+                              │  Go + SQLite      │
+                              │  (独立デプロイ)    │
+                              └──────────────────┘
+                                        ↑
+                                  外部ユーザー
 ```
 
-**全てローカルで完結。クラウドへのデータ送信ゼロ。**
+**LAS 本体はローカルで完結。共有時のみ外部 Share Server にファイル転送。**
 
 ## Tech Stack
 
@@ -84,6 +97,7 @@
 | Cache | Redis 7 |
 | Upload | tusd (tus プロトコル — レジューマブルアップロード) |
 | Antivirus | ClamAV (360万+シグネチャ、自動定義更新) |
+| Share Server | Go + SQLite (WAL) — 外部共有専用、独立デプロイ |
 | Text Editor | OverType (91KB、依存ゼロの WYSIWYG マークダウンエディタ) |
 | LLM | llama.cpp (OpenAI 互換 API) |
 | Embedding | llama.cpp (OpenAI 互換 API) |
@@ -262,9 +276,74 @@ curl -X PATCH https://your-server/tusd/<upload-id> \
 
 ## 設計書
 
+- [共有リンク設計](docs/share-links.md) — Share Server アーキテクチャ, API 仕様
 - [汎用ファイルアップロード設計](docs/universal-file-upload.md) — tus, ClamAV, 全ファイルタイプ対応
-- [将来機能ロードマップ](docs/future-features.md) — バージョン管理, 共有リンク, AI自動整理, 監査ログ, S3連携
+- [将来機能ロードマップ](docs/future-features.md) — バージョン管理, AI自動整理, 監査ログ, S3連携
 - [リファクタリング](REFACTOR.md) — 権限モデル調査結果, 残タスク
+
+## Share Server
+
+LAN 内のファイルを外部ユーザーに共有するための独立サーバー。
+Go + SQLite で動作し、LAS 本体とは別にデプロイする。
+
+### セットアップ
+
+```bash
+cd share-server
+
+# 環境変数設定
+cp .env.example .env
+# .env を編集: SHARE_BASE_URL, SHARE_JWT_SECRET を設定
+
+# 起動
+docker compose up -d
+```
+
+### API キーの作成
+
+LAS 本体との通信に必要な API キーを作成:
+
+```bash
+# Docker 内で CLI 実行
+docker compose exec share share-server key create --name "本社LAS"
+# => Key: sk_xxxxx (この値を LAS 管理画面の share_server_api_key に設定)
+```
+
+### CLI コマンド一覧
+
+```bash
+# API キー管理
+docker compose exec share share-server key create --name "名前"
+docker compose exec share share-server key list
+docker compose exec share share-server key revoke <id>
+
+# 共有リンク管理
+docker compose exec share share-server links
+docker compose exec share share-server links delete <token>
+
+# ステータス確認
+docker compose exec share share-server status
+
+# 期限切れファイルの手動クリーンアップ
+docker compose exec share share-server cleanup
+```
+
+### LAS 本体との接続
+
+1. Share Server で API キーを作成
+2. LAS 管理画面で以下を設定:
+   - `share_server_url`: Share Server の URL（例: `https://share.example.com`）
+   - `share_server_api_key`: 作成した API キー
+3. 「接続テスト」ボタンで確認 → 成功すると共有機能が自動的に有効化
+
+### 共有の流れ
+
+1. LAS でドキュメントを右クリック → 「共有リンク作成」
+2. 有効期限（1時間〜30日）とパスワード（オプション）を設定
+3. LAS が Share Server にファイルを転送、共有 URL を取得
+4. URL を外部ユーザーに送る
+5. 外部ユーザーが URL にアクセス → ダウンロード
+6. 期限切れのファイルは Share Server が自動削除
 
 ## ライセンス
 

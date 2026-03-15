@@ -1,4 +1,4 @@
-import { apiFetch, API_BASE } from "./client";
+import { apiFetch, API_BASE, getToken } from "./client";
 
 export interface ShareLinkInfo {
   id: string;
@@ -6,33 +6,17 @@ export interface ShareLinkInfo {
   document_title: string;
   token: string;
   url: string;
-
   has_password: boolean;
-  max_downloads: number | null;
-  download_count: number;
-  expires_at: string | null;
+  expires_at: string;
   created_by_name: string;
   created_at: string;
   is_active: boolean;
-  access_count: number;
 }
-
-export interface SharePublicInfo {
-  document_title: string;
-  file_type: string;
-
-  requires_password: boolean;
-  created_by_name: string;
-  expires_at: string | null;
-}
-
-// Authenticated endpoints
 
 export async function createShareLink(data: {
   document_id: string;
   password?: string | null;
-  max_downloads?: number | null;
-  expires_in?: string | null;
+  expires_in?: string;
 }): Promise<ShareLinkInfo> {
   return apiFetch("/share", {
     method: "POST",
@@ -48,54 +32,15 @@ export async function deleteShareLink(id: string): Promise<void> {
   return apiFetch(`/share/${id}`, { method: "DELETE" });
 }
 
-export async function updateShareLink(id: string, data: {
-  password?: string | null;
-  max_downloads?: number | null;
-  expires_in?: string | null;
-  is_active?: boolean;
-}): Promise<ShareLinkInfo> {
-  return apiFetch(`/share/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
-  });
+export async function testShareConnection(): Promise<{ ok: boolean; error?: string; active_links?: number }> {
+  return apiFetch("/share/test-connection", { method: "POST" });
 }
 
-// Public endpoints (no auth required)
-
-export async function getSharePublic(token: string): Promise<SharePublicInfo> {
-  const res = await fetch(`${API_BASE}/share/public/${token}`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: "Error" }));
-    throw new Error(body.detail || `Error ${res.status}`);
+export async function getShareEnabled(): Promise<boolean> {
+  try {
+    const data = await apiFetch<{ key: string; value: string }>("/settings/public/share_enabled");
+    return data.value === "true";
+  } catch {
+    return false;
   }
-  return res.json();
-}
-
-export async function verifySharePassword(token: string, password: string): Promise<{ share_token: string }> {
-  const res = await fetch(`${API_BASE}/share/public/${token}/verify`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: "Error" }));
-    throw new Error(body.detail || `Error ${res.status}`);
-  }
-  return res.json();
-}
-
-export async function getSharePreview(token: string, shareToken?: string): Promise<{ title: string; file_type: string; content: string }> {
-  const headers: Record<string, string> = {};
-  if (shareToken) headers["x-share-token"] = shareToken;
-  const res = await fetch(`${API_BASE}/share/public/${token}/preview`, { headers });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: "Error" }));
-    throw new Error(body.detail || `Error ${res.status}`);
-  }
-  return res.json();
-}
-
-export function getShareDownloadUrl(token: string, shareToken?: string): string {
-  const base = `${API_BASE}/share/public/${token}/download`;
-  return shareToken ? `${base}?share_token=${shareToken}` : base;
 }

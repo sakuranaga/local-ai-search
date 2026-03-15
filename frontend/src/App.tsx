@@ -3,7 +3,6 @@ import { getToken, getMe, logout, type User } from "@/lib/api";
 import { LoginPage } from "@/pages/LoginPage";
 import { AdminPage } from "@/pages/AdminPage";
 import { FileExplorerPage } from "@/pages/FileExplorerPage";
-import { SharePage } from "@/pages/SharePage";
 import { Toaster } from "@/components/ui/sonner";
 import {
   DropdownMenu,
@@ -204,8 +203,6 @@ export default function App() {
             </AuthGuard>
           }
         />
-        <Route path="/s/:token" element={<SharePage />} />
-        <Route path="/s" element={<SharePage />} />
         <Route path="/files" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
