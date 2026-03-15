@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DocumentPreview } from "@/components/DocumentPreview";
+import { OverTypeEditor } from "@/components/OverTypeEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -59,17 +60,41 @@ export function DocumentDetailModal({
   const [doc, setDoc] = useState<Document | null>(null);
   const [tab, setTab] = useState<"view" | "edit" | "permissions" | "raw">("view");
   const [loading, setLoading] = useState(false);
+  const [editedContent, setEditedContent] = useState<string | null>(null);
+  const [savingContent, setSavingContent] = useState(false);
+  const contentDirty = editedContent !== null && editedContent !== doc?.content;
 
   useEffect(() => {
-    if (!item) { setDoc(null); setTab("view"); return; }
+    if (!item) { setDoc(null); setTab("view"); setEditedContent(null); return; }
     setLoading(true);
+    setEditedContent(null);
     getDocument(item.id).then(setDoc).catch(() => toast.error("文書取得失敗")).finally(() => setLoading(false));
   }, [item?.id]);
+
+  function handleClose() {
+    if (contentDirty) {
+      if (!confirm("編集内容が保存されていません。閉じますか？")) return;
+    }
+    setEditedContent(null);
+    onClose();
+  }
+
+  async function handleSaveContent() {
+    if (!doc || editedContent === null) return;
+    setSavingContent(true);
+    try {
+      await updateDocument(doc.id, { content: editedContent });
+      setDoc({ ...doc, content: editedContent });
+      setEditedContent(null);
+      toast.success("テキストを保存しました（再チャンク・再ベクトル化完了）");
+    } catch { toast.error("保存に失敗しました"); }
+    finally { setSavingContent(false); }
+  }
 
   if (!item) return null;
 
   return (
-    <Dialog open={!!item} onOpenChange={() => onClose()}>
+    <Dialog open={!!item} onOpenChange={() => handleClose()}>
       <DialogContent className="sm:max-w-5xl w-[95vw] h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -102,7 +127,7 @@ export function DocumentDetailModal({
                 tab === t ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              {{ view: "表示", edit: "編集", permissions: "権限", raw: "Raw テキスト" }[t]}
+              {{ view: "表示", edit: "編集", permissions: "権限", raw: "テキスト編集" }[t]}
             </button>
           ))}
           <div className="ml-auto flex items-center gap-1 pb-1">
@@ -175,7 +200,29 @@ export function DocumentDetailModal({
           )}
 
           {tab === "raw" && doc && (
-            <DocumentPreview docId={doc.id} fileType={doc.file_type} content={doc.content} mode="raw" />
+            <div className="h-full flex flex-col">
+              <div className="flex items-center gap-2 px-1 py-1.5">
+                <span className="text-xs text-muted-foreground">
+                  {contentDirty ? "変更あり（未保存）" : "テキストを編集できます — テキストは検索・AI専用で元ファイルは変更されません"}
+                </span>
+                <div className="ml-auto flex items-center gap-2">
+                  {contentDirty && (
+                    <Button variant="ghost" size="sm" onClick={() => setEditedContent(null)}>
+                      元に戻す
+                    </Button>
+                  )}
+                  <Button size="sm" disabled={!contentDirty || savingContent} onClick={handleSaveContent}>
+                    {savingContent ? "保存中..." : "保存"}
+                  </Button>
+                </div>
+              </div>
+              <div className="flex-1 min-h-0">
+                <OverTypeEditor
+                  value={doc.content}
+                  onChange={(v) => setEditedContent(v)}
+                />
+              </div>
+            </div>
           )}
 
           {tab === "edit" && doc && (

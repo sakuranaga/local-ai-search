@@ -56,6 +56,7 @@ class DocumentUpdateRequest(BaseModel):
     title: str | None = None
     summary: str | None = None
     memo: str | None = None
+    content: str | None = None  # Raw text content (triggers re-chunking)
     group_id: str | None = None  # UUID string or "" to unset
     group_read: bool | None = None
     group_write: bool | None = None
