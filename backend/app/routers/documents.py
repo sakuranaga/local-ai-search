@@ -788,6 +788,23 @@ async def update_document(
     if body.memo is not None:
         doc.memo = body.memo
         is_content_change = True
+    if body.content is not None:
+        doc.content = body.content
+        is_content_change = True
+        # Re-chunk and re-embed
+        await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
+        chunks_text = chunk_text(body.content)
+        try:
+            embeddings = await get_embeddings(chunks_text)
+        except Exception:
+            embeddings = [None] * len(chunks_text)
+        for i, (chunk_content, embedding) in enumerate(zip(chunks_text, embeddings)):
+            db.add(Chunk(
+                document_id=doc.id,
+                chunk_index=i,
+                content=chunk_content,
+                embedding=embedding,
+            ))
     if body.group_id is not None:
         doc.group_id = uuid.UUID(body.group_id) if body.group_id else None
     if body.group_read is not None:

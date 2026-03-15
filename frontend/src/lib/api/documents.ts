@@ -59,7 +59,7 @@ export async function checkDuplicates(titles: string[]): Promise<string[]> {
 
 export async function updateDocument(
   id: string,
-  data: { title?: string; summary?: string; memo?: string; searchable?: boolean; ai_knowledge?: boolean; folder_id?: string | null; tag_ids?: number[]; group_id?: string | null; group_read?: boolean; group_write?: boolean; others_read?: boolean; others_write?: boolean },
+  data: { title?: string; summary?: string; memo?: string; content?: string; searchable?: boolean; ai_knowledge?: boolean; folder_id?: string | null; tag_ids?: number[]; group_id?: string | null; group_read?: boolean; group_write?: boolean; others_read?: boolean; others_write?: boolean },
 ): Promise<Document> {
   return apiFetch(`/documents/${id}`, {
     method: "PATCH",
