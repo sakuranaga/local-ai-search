@@ -5,12 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { FileText, Download, Lock, AlertCircle, Sparkles } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   getSharePublic,
   verifySharePassword,
-  getSharePreview,
   getShareDownloadUrl,
   type SharePublicInfo,
 } from "@/lib/api";
@@ -26,10 +23,6 @@ export function SharePage() {
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState("");
 
-  // Preview
-  const [preview, setPreview] = useState<{ title: string; content: string; file_type: string } | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-
   useEffect(() => {
     if (!token) return;
     setLoading(true);
@@ -38,16 +31,6 @@ export function SharePage() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [token]);
-
-  useEffect(() => {
-    if (!token || !info) return;
-    if (info.requires_password && !shareToken) return;
-    setPreviewLoading(true);
-    getSharePreview(token, shareToken || undefined)
-      .then(setPreview)
-      .catch(() => {})
-      .finally(() => setPreviewLoading(false));
-  }, [token, info, shareToken]);
 
   async function handlePasswordSubmit() {
     if (!token) return;
@@ -70,7 +53,7 @@ export function SharePage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background">
         <Card className="max-w-md w-full mx-4">
           <CardContent className="flex flex-col items-center gap-3 py-12">
             <AlertCircle className="h-12 w-12 text-destructive" />
@@ -82,12 +65,26 @@ export function SharePage() {
     );
   }
 
-  if (!info || !token) return null;
+  if (!token) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background">
+        <Card className="max-w-md w-full mx-4">
+          <CardContent className="flex flex-col items-center gap-3 py-12">
+            <AlertCircle className="h-12 w-12 text-muted-foreground" />
+            <p className="text-lg font-medium">共有リンクが無効です</p>
+          </CardContent>
+        </Card>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (!info) return null;
 
   // Password required but not yet verified
   if (info.requires_password && !shareToken) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background">
         <Card className="max-w-sm w-full mx-4">
           <CardContent className="flex flex-col items-center gap-4 py-12">
             <Lock className="h-12 w-12 text-muted-foreground" />
@@ -112,64 +109,33 @@ export function SharePage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-6">
-          <FileText className="h-8 w-8 text-primary" />
-          <div>
-            <h1 className="text-xl font-bold">{info.document_title}</h1>
-            <p className="text-sm text-muted-foreground">
-              共有者: {info.created_by_name}
-              {info.expires_at && (
-                <span className="ml-2">
-                  有効期限: {new Date(info.expires_at).toLocaleDateString("ja-JP")}
-                </span>
-              )}
-            </p>
-          </div>
-          <Badge variant="outline" className="ml-auto">{info.file_type.toUpperCase()}</Badge>
-        </div>
-
-        {/* Preview */}
-        <Card className="mb-6">
-          <CardContent className="py-6">
-            {previewLoading ? (
-              <p className="text-sm text-muted-foreground text-center py-8">読み込み中...</p>
-            ) : preview ? (
-              <div className="prose prose-sm dark:prose-invert max-w-none max-h-[60vh] overflow-y-auto">
-                {preview.file_type === "md" ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.content}</ReactMarkdown>
-                ) : (
-                  <pre className="whitespace-pre-wrap text-sm">{preview.content}</pre>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">プレビューは利用できません</p>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background">
+      <Card className="max-w-md w-full mx-4">
+        <CardContent className="flex flex-col items-center gap-4 py-12">
+          <FileText className="h-12 w-12 text-primary" />
+          <h1 className="text-lg font-bold text-center">{info.document_title}</h1>
+          <div className="text-sm text-muted-foreground text-center">
+            <p>共有者: {info.created_by_name}</p>
+            {info.expires_at && (
+              <p>有効期限: {new Date(info.expires_at).toLocaleDateString("ja-JP")}</p>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Download button */}
-        {info.permission === "download" && (
-          <div className="flex justify-center">
-            <Button
-              size="lg"
-              onClick={() => {
-                const url = getShareDownloadUrl(token, shareToken || undefined);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = info.document_title;
-                a.click();
-              }}
-            >
-              <Download className="h-5 w-5 mr-2" />ダウンロード
-            </Button>
           </div>
-        )}
-
-        <Footer />
-      </div>
+          <Badge variant="outline">{info.file_type.toUpperCase()}</Badge>
+          <Button
+            size="lg"
+            onClick={() => {
+              const url = getShareDownloadUrl(token, shareToken || undefined);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = info.document_title;
+              a.click();
+            }}
+          >
+            <Download className="h-5 w-5 mr-2" />ダウンロード
+          </Button>
+        </CardContent>
+      </Card>
+      <Footer />
     </div>
   );
 }
