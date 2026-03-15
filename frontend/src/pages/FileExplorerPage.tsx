@@ -57,6 +57,7 @@ import {
 import {
   getDocuments,
   getFilterOptions,
+  getShareEnabled,
   updateDocument,
   bulkAction,
   getFolders,
@@ -155,6 +156,7 @@ export function FileExplorerPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [bulkActionOpen, setBulkActionOpen] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<DocumentListItem | null>(null);
+  const [shareEnabled, setShareEnabled] = useState(false);
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -291,7 +293,7 @@ export function FileExplorerPage() {
   useEffect(() => { load(true); }, [load]);
   // Re-trigger search when URL timestamp changes (re-search same query)
   useEffect(() => { if (urlT) load(true); }, [urlT]);
-  useEffect(() => { loadFolders(); loadTags(); loadTrash(); getFilterOptions().then(setFilterOptions).catch(() => {}); }, []);
+  useEffect(() => { loadFolders(); loadTags(); loadTrash(); getFilterOptions().then(setFilterOptions).catch(() => {}); getShareEnabled().then(setShareEnabled).catch(() => {}); }, []);
   // Reset when search query changes & record search history
   useEffect(() => {
     if (urlQ) setSearchHistory(addSearchHistory(urlQ));
@@ -458,7 +460,7 @@ export function FileExplorerPage() {
         setRenameValue(item.title);
         break;
       case "share":
-        setShareTarget(item);
+        if (shareEnabled) setShareTarget(item);
         break;
       case "download":
         {
@@ -1230,6 +1232,7 @@ export function FileExplorerPage() {
           <DocumentContextMenu
             menu={contextMenu}
             selectedCount={selected.size}
+            shareEnabled={shareEnabled}
             onClose={() => setContextMenu(null)}
             onAction={contextAction}
           />
@@ -1262,6 +1265,7 @@ export function FileExplorerPage() {
         item={detailDoc}
         folders={folders}
         allTags={allTags}
+        shareEnabled={shareEnabled}
         onClose={() => setDetailDoc(null)}
         onUpdated={() => { setDetailDoc(null); load(true); loadFolders(); loadTags(); }}
         onTagsChanged={loadTags}

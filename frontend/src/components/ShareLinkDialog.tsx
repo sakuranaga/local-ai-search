@@ -23,23 +23,17 @@ export function ShareLinkDialog({
   documentTitle: string;
   onClose: () => void;
 }) {
-
-  const [expiresIn, setExpiresIn] = useState<string>("7d");
+  const [expiresIn, setExpiresIn] = useState("7d");
   const [usePassword, setUsePassword] = useState(false);
   const [password, setPassword] = useState("");
-  const [useMaxDownloads, setUseMaxDownloads] = useState(false);
-  const [maxDownloads, setMaxDownloads] = useState(10);
   const [saving, setSaving] = useState(false);
   const [created, setCreated] = useState<ShareLinkInfo | null>(null);
   const [copied, setCopied] = useState(false);
 
   function reset() {
-    setPermission("download");
     setExpiresIn("7d");
     setUsePassword(false);
     setPassword("");
-    setUseMaxDownloads(false);
-    setMaxDownloads(10);
     setCreated(null);
     setCopied(false);
   }
@@ -50,8 +44,7 @@ export function ShareLinkDialog({
       const link = await createShareLink({
         document_id: documentId,
         password: usePassword && password ? password : null,
-        max_downloads: useMaxDownloads ? maxDownloads : null,
-        expires_in: expiresIn || null,
+        expires_in: expiresIn,
       });
       setCreated(link);
     } catch (e: any) {
@@ -90,9 +83,8 @@ export function ShareLinkDialog({
               </Button>
             </div>
             <div className="text-xs text-muted-foreground space-y-1">
-              <p>有効期限: {created.expires_at ? new Date(created.expires_at).toLocaleDateString("ja-JP") : "無期限"}</p>
+              <p>有効期限: {new Date(created.expires_at).toLocaleDateString("ja-JP")}</p>
               {created.has_password && <p>パスワード: あり</p>}
-              {created.max_downloads && <p>ダウンロード上限: {created.max_downloads}回</p>}
             </div>
             <DialogFooter>
               <Button onClick={() => { reset(); onClose(); }}>閉じる</Button>
@@ -113,8 +105,6 @@ export function ShareLinkDialog({
                 <option value="1d">1日</option>
                 <option value="7d">7日間</option>
                 <option value="30d">30日間</option>
-                <option value="90d">90日間</option>
-                <option value="">無期限</option>
               </select>
             </div>
 
@@ -130,22 +120,6 @@ export function ShareLinkDialog({
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="パスワードを入力"
                   className="mt-2"
-                />
-              )}
-            </div>
-
-            <div>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={useMaxDownloads} onChange={(e) => setUseMaxDownloads(e.target.checked)} />
-                ダウンロード回数制限
-              </label>
-              {useMaxDownloads && (
-                <Input
-                  type="number"
-                  value={maxDownloads}
-                  onChange={(e) => setMaxDownloads(Number(e.target.value))}
-                  min={1}
-                  className="mt-2 w-24"
                 />
               )}
             </div>

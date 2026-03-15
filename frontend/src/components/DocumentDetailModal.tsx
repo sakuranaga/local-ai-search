@@ -54,6 +54,7 @@ export function DocumentDetailModal({
   item,
   folders,
   allTags,
+  shareEnabled = false,
   onClose,
   onUpdated,
   onTagsChanged,
@@ -61,6 +62,7 @@ export function DocumentDetailModal({
   item: DocumentListItem | null;
   folders: Folder[];
   allTags: TagInfo[];
+  shareEnabled?: boolean;
   onClose: () => void;
   onUpdated: () => void;
   onTagsChanged: () => void;
@@ -127,7 +129,7 @@ export function DocumentDetailModal({
 
         {/* Tabs */}
         <div className="flex gap-1 border-b">
-          {(["view", "edit", "permissions", "raw", "share"] as const).map((t) => (
+          {(["view", "edit", "permissions", "raw", ...(shareEnabled ? ["share" as const] : [])] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -523,8 +525,6 @@ function ShareTab({ documentId, documentTitle }: { documentId: string; documentT
   const [expiresIn, setExpiresIn] = useState("7d");
   const [usePassword, setUsePassword] = useState(false);
   const [password, setPassword] = useState("");
-  const [useMaxDl, setUseMaxDl] = useState(false);
-  const [maxDl, setMaxDl] = useState(10);
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(() => {
@@ -543,8 +543,7 @@ function ShareTab({ documentId, documentTitle }: { documentId: string; documentT
       await createShareLink({
         document_id: documentId,
         password: usePassword && password ? password : null,
-        max_downloads: useMaxDl ? maxDl : null,
-        expires_in: expiresIn || null,
+        expires_in: expiresIn,
       });
       setShowCreate(false);
       setPassword("");
@@ -597,8 +596,6 @@ function ShareTab({ documentId, documentTitle }: { documentId: string; documentT
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {link.has_password && <span>🔒 パスワード</span>}
-            <span>アクセス: {link.access_count}回</span>
-            {link.max_downloads && <span>DL: {link.download_count}/{link.max_downloads}</span>}
             <span>期限: {link.expires_at ? formatDate(link.expires_at) : "無期限"}</span>
             {!link.is_active && <span className="text-destructive font-medium">無効</span>}
           </div>
@@ -613,17 +610,11 @@ function ShareTab({ documentId, documentTitle }: { documentId: string; documentT
             <option value="1d">1日</option>
             <option value="7d">7日間</option>
             <option value="30d">30日間</option>
-            <option value="90d">90日間</option>
-            <option value="">無期限</option>
           </select>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={usePassword} onChange={(e) => setUsePassword(e.target.checked)} />パスワード保護
           </label>
           {usePassword && <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="パスワード" />}
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={useMaxDl} onChange={(e) => setUseMaxDl(e.target.checked)} />DL回数制限
-          </label>
-          {useMaxDl && <Input type="number" value={maxDl} onChange={(e) => setMaxDl(Number(e.target.value))} min={1} className="w-24" />}
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>キャンセル</Button>
             <Button size="sm" onClick={handleCreate} disabled={creating}>{creating ? "作成中..." : "作成"}</Button>

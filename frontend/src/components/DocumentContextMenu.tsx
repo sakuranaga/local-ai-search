@@ -23,6 +23,7 @@ export interface ContextMenuState {
 export interface DocumentContextMenuProps {
   menu: ContextMenuState;
   selectedCount: number;
+  shareEnabled?: boolean;
   onClose: () => void;
   onAction: (action: string) => void;
 }
@@ -30,6 +31,7 @@ export interface DocumentContextMenuProps {
 export function DocumentContextMenu({
   menu,
   selectedCount,
+  shareEnabled,
   onClose,
   onAction,
 }: DocumentContextMenuProps) {
@@ -74,11 +76,13 @@ export function DocumentContextMenu({
         <button className={btn} onClick={() => onAction("download")}>
           <Download className="h-4 w-4" />ダウンロード{isMulti ? ` (${count}件)` : ""}
         </button>
-        <div className={sep} />
-        {!isMulti && (
-          <button className={btn} onClick={() => onAction("share")}>
-            <Link className="h-4 w-4" />共有リンク作成
-          </button>
+        {!isMulti && shareEnabled && (
+          <>
+            <div className={sep} />
+            <button className={btn} onClick={() => onAction("share")}>
+              <Link className="h-4 w-4" />共有リンク作成
+            </button>
+          </>
         )}
         <div className={sep} />
         <button className={btn} onClick={() => onAction("move_folder")}>

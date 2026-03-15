@@ -452,8 +452,8 @@ const SETTING_GROUPS: Record<string, { label: string; keys: string[] }> = {
     keys: ["chunk_size", "chunk_overlap"],
   },
   share: {
-    label: "共有リンク",
-    keys: ["share_base_url", "share_enabled"],
+    label: "共有リンク (Share Server)",
+    keys: ["share_server_url", "share_server_api_key", "share_enabled"],
   },
 };
 
@@ -481,6 +481,27 @@ function SettingsTab() {
 
   function handleChange(key: string, value: string) {
     setEdited((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function checkShareConnection(): Promise<boolean> {
+    try {
+      const { testShareConnection } = await import("@/lib/api");
+      const result = await testShareConnection();
+      if (result.ok) {
+        await updateSetting("share_enabled", "true");
+        toast.success("Share Server 接続OK — 共有機能を有効にしました");
+        load();
+        return true;
+      } else {
+        await updateSetting("share_enabled", "false");
+        toast.error(`Share Server 接続失敗: ${result.error}`);
+        load();
+        return false;
+      }
+    } catch {
+      toast.error("Share Server 接続テストに失敗しました");
+      return false;
+    }
   }
 
   async function handleSave(key: string) {
@@ -533,6 +554,44 @@ function SettingsTab() {
             {group.keys.map((key) => {
               const setting = settings.find((s) => s.key === key);
               const isEdited = key in edited;
+
+              // share_enabled はトグルスイッチ + 接続テスト連動
+              if (key === "share_enabled") {
+                const isOn = getValue(key) === "true";
+                return (
+                  <div key={key} className="flex items-center gap-3 pt-2 border-t">
+                    <div className="min-w-[180px]">
+                      <label className="text-sm font-medium">共有機能</label>
+                      <p className="text-xs text-muted-foreground">接続テスト成功で有効化</p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!isOn) {
+                          // ON にする → 接続テスト必須
+                          const ok = await checkShareConnection();
+                          if (!ok) return;
+                          await updateSetting("share_enabled", "true");
+                          toast.success("共有機能を有効にしました");
+                        } else {
+                          await updateSetting("share_enabled", "false");
+                          toast.success("共有機能を無効にしました");
+                        }
+                        load();
+                      }}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isOn ? "bg-primary" : "bg-muted"}`}
+                    >
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${isOn ? "translate-x-6" : "translate-x-1"}`} />
+                    </button>
+                    <span className={`text-sm ${isOn ? "text-primary font-medium" : "text-muted-foreground"}`}>
+                      {isOn ? "有効" : "無効"}
+                    </span>
+                    <Button variant="outline" size="sm" onClick={checkShareConnection} className="ml-auto">
+                      接続テスト
+                    </Button>
+                  </div>
+                );
+              }
+
               return (
                 <div key={key} className="flex items-center gap-2">
                   <div className="min-w-[180px]">
