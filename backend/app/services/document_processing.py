@@ -81,6 +81,8 @@ def make_doc_list_item(
         searchable=getattr(row, "searchable", True),
         ai_knowledge=getattr(row, "ai_knowledge", True),
         chunk_count=getattr(row, "chunk_count", 0),
+        share_prohibited=getattr(row, "share_prohibited", False),
+        download_prohibited=getattr(row, "download_prohibited", False),
         scan_status=getattr(row, "scan_status", "pending"),
         share_count=getattr(row, "share_count", 0),
         memo=getattr(row, "memo", None),

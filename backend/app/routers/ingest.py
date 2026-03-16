@@ -198,6 +198,11 @@ async def _ingest_single_file(
                 doc_others_read = folder_obj.others_read
                 doc_others_write = folder_obj.others_write
 
+        # Get default security flags
+        from app.services.settings import get_setting
+        default_share_prohibited = (await get_setting(db, "default_share_prohibited")).lower() == "true"
+        default_download_prohibited = (await get_setting(db, "default_download_prohibited")).lower() == "true"
+
         doc = Document(
             title=file.filename,
             source_path=str(storage_path),
@@ -213,6 +218,8 @@ async def _ingest_single_file(
             updated_by_id=user.id,
             processing_status="pending",
             folder_id=folder_id,
+            share_prohibited=default_share_prohibited,
+            download_prohibited=default_download_prohibited,
         )
         db.add(doc)
 
@@ -526,6 +533,11 @@ async def tus_hook(
                     doc_others_read = folder_obj.others_read
                     doc_others_write = folder_obj.others_write
 
+            # Get default security flags
+            from app.services.settings import get_setting
+            default_share_prohibited = (await get_setting(db, "default_share_prohibited")).lower() == "true"
+            default_download_prohibited = (await get_setting(db, "default_download_prohibited")).lower() == "true"
+
             # Check for existing document with same title (duplicate handling)
             existing_result = await db.execute(
                 select(Document).where(
@@ -569,6 +581,8 @@ async def tus_hook(
                     updated_by_id=user.id,
                     processing_status="pending",
                     folder_id=folder_uuid,
+                    share_prohibited=default_share_prohibited,
+                    download_prohibited=default_download_prohibited,
                 )
                 db.add(doc)
 
