@@ -284,6 +284,7 @@ export function FileExplorerPage() {
       }
     } catch {
       toast.error("文書一覧の取得に失敗");
+      setHasMore(false);
     } finally {
       setLoading(false);
       loadingRef.current = false;
