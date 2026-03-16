@@ -71,7 +71,8 @@ async def _parse_pdf(path: str) -> str:
     stripped = text.strip()
     if len(stripped) < 50:
         logger.info("PDF has little text (%d chars), attempting OCR: %s", len(stripped), path)
-        ocr_text = await _call_ocr_server(path)
+        # Pass a .pdf filename so OCR server correctly identifies the file type
+        ocr_text = await _call_ocr_server(path, original_filename=Path(path).stem + ".pdf")
         if ocr_text:
             return ocr_text
 
@@ -202,17 +203,23 @@ async def _parse_image_ocr(path: str) -> str:
     return text
 
 
-async def _call_ocr_server(path: str) -> str:
+async def _call_ocr_server(path: str, original_filename: str | None = None) -> str:
     """Send a file to the OCR server and return extracted text."""
     import httpx
 
     url = f"{_OCR_SERVER_URL}/ocr"
-    filename = Path(path).name
+    # Use original filename if available (tus uploads have hash names without extension)
+    filename = original_filename or Path(path).name
 
     try:
+        # Detect content type from filename
+        content_type = "application/octet-stream"
+        if filename.lower().endswith(".pdf"):
+            content_type = "application/pdf"
+
         async with httpx.AsyncClient(timeout=600.0) as client:
             with open(path, "rb") as f:
-                resp = await client.post(url, files={"file": (filename, f)})
+                resp = await client.post(url, files={"file": (filename, f, content_type)})
             resp.raise_for_status()
             return resp.json().get("text", "")
     except httpx.ConnectError:
