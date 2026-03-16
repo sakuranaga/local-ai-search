@@ -142,7 +142,7 @@ Body (multipart/form-data):
   file_type: "pdf"
   password_hash: "salt$hash"          (空文字 = パスワードなし)
   expires_at: "2026-03-22T00:00:00Z"
-  created_by: "shuzan"
+  created_by: "username"
 
 Response: 201
   {
