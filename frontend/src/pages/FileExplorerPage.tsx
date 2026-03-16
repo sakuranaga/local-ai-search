@@ -346,14 +346,15 @@ export function FileExplorerPage() {
       if ((e.key === "Delete" || e.key === "Backspace") && selected.size > 0) {
         e.preventDefault();
         const ids = [...selected];
+        const tid = toast.loading(`${ids.length}件をゴミ箱に移動中...`);
         bulkAction(ids, "delete").then((res) => {
-          toast.success(`${res.processed}件をゴミ箱に移動しました`);
+          toast.success(`${res.processed}件をゴミ箱に移動しました`, { id: tid });
           setSelected(new Set());
           setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
           setTotal((prev) => Math.max(0, prev - ids.length));
           loadFolders();
           loadTrash();
-        }).catch(() => toast.error("削除に失敗しました"));
+        }).catch(() => toast.error("削除に失敗しました", { id: tid }));
         return;
       }
     }
@@ -546,9 +547,12 @@ export function FileExplorerPage() {
 
   async function handleBulkAction(action: string, extra?: Record<string, unknown>) {
     const ids = [...selected];
+    const label = action === "delete" ? "ゴミ箱に移動" : "処理";
+    const tid = ids.length >= 10 ? toast.loading(`${ids.length}件を${label}中...`) : undefined;
     try {
       const res = await bulkAction(ids, action, extra);
-      toast.success(`${res.processed}件${action === "delete" ? "ゴミ箱に移動しました" : "処理しました"}`);
+      const msg = `${res.processed}件${action === "delete" ? "ゴミ箱に移動しました" : "処理しました"}`;
+      tid ? toast.success(msg, { id: tid }) : toast.success(msg);
       setBulkActionOpen(null);
 
       // For toggle-style actions: optimistically update items & keep selection
@@ -628,14 +632,18 @@ export function FileExplorerPage() {
 
   async function handleDropOnTrash(docIds: string[]) {
     if (docIds.length === 0) return;
+    const tid = docIds.length >= 10 ? toast.loading(`${docIds.length}件をゴミ箱に移動中...`) : undefined;
     try {
       const res = await bulkAction(docIds, "delete");
-      toast.success(`${res.processed}件をゴミ箱に移動しました`);
+      const msg = `${res.processed}件をゴミ箱に移動しました`;
+      tid ? toast.success(msg, { id: tid }) : toast.success(msg);
       setSelected(new Set());
       load(true);
       loadFolders();
       loadTrash();
-    } catch { toast.error("ゴミ箱への移動に失敗しました"); }
+    } catch {
+      tid ? toast.error("ゴミ箱への移動に失敗しました", { id: tid }) : toast.error("ゴミ箱への移動に失敗しました");
+    }
   }
 
   function handleFolderContextMenu(e: React.MouseEvent, node: FolderNode) {
@@ -930,11 +938,12 @@ export function FileExplorerPage() {
               {trashItems.length > 0 && (
                 <Button variant="destructive" size="sm" onClick={async () => {
                   if (!confirm("ゴミ箱を空にしますか？この操作は取り消せません。")) return;
+                  const tid = toast.loading(`${trashItems.length}件を削除中...`);
                   try {
                     const res = await emptyTrash();
-                    toast.success(`${res.purged}件を完全に削除しました`);
+                    toast.success(`${res.purged}件を完全に削除しました`, { id: tid });
                     loadTrash();
-                  } catch { toast.error("削除に失敗しました"); }
+                  } catch { toast.error("削除に失敗しました", { id: tid }); }
                 }}>
                   <Trash2 className="h-4 w-4 mr-1" />ゴミ箱を空にする
                 </Button>
@@ -970,12 +979,13 @@ export function FileExplorerPage() {
                   </Button>
                   <Button variant="destructive" size="sm" disabled={trashSelected.size === 0} onClick={async () => {
                     if (!confirm("選択した文書を完全に削除しますか？この操作は取り消せません。")) return;
+                    const tid = toast.loading(`${trashSelected.size}件を削除中...`);
                     try {
                       const res = await purgeFromTrash([...trashSelected]);
-                      toast.success(`${res.purged}件を完全に削除しました`);
+                      toast.success(`${res.purged}件を完全に削除しました`, { id: tid });
                       setTrashSelected(new Set());
                       loadTrash();
-                    } catch { toast.error("削除に失敗しました"); }
+                    } catch { toast.error("削除に失敗しました", { id: tid }); }
                   }}>
                     <Trash2 className="h-3.5 w-3.5 mr-1" />完全に削除
                   </Button>
