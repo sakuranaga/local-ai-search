@@ -9,9 +9,7 @@ import {
   Trash2,
 } from "lucide-react";
 import {
-  updateTag,
   deleteTag,
-  type Folder,
   type TagInfo,
 } from "@/lib/api";
 import type { FolderNode } from "@/lib/fileExplorerHelpers";

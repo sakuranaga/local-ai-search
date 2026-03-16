@@ -24,13 +24,13 @@ export function OverTypeEditor({
       toolbar: !readOnly,
       statsBar: false,
       placeholder: readOnly ? "" : "テキストを編集...",
-    });
+    } as any);
 
-    // OverType constructor returns an array of instances
+    // OverType constructor may return a single instance or array
     const editor = Array.isArray(instances) ? instances[0] : instances;
     if (!editor) return;
 
-    editorRef.current = editor;
+    editorRef.current = editor as any;
 
     if (!readOnly && onChange) {
       const textarea = editor.textarea;
