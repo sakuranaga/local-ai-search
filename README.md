@@ -410,4 +410,9 @@ docker compose exec share share-server cleanup
 
 ## ライセンス
 
-MIT
+AGPL-3.0
+
+このソフトウェアは GNU Affero General Public License v3.0 の下で提供されます。
+ネットワーク経由でサービスとして提供する場合も、ソースコードの公開が必要です。
+
+企業向けの商用ライセンス（サポート・SLA・カスタマイズ含む）については別途お問い合わせください。
