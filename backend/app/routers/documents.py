@@ -117,6 +117,8 @@ async def list_documents(
             Document.others_write,
             Document.searchable,
             Document.ai_knowledge,
+            Document.share_prohibited,
+            Document.download_prohibited,
             Document.scan_status,
             Document.summary,
             Document.memo,
@@ -270,6 +272,11 @@ async def upload_document(
         if folder_id is not None:
             doc.folder_id = folder_id
     else:
+        # Get default security flags
+        from app.services.settings import get_setting
+        default_share_prohibited = (await get_setting(db, "default_share_prohibited")).lower() == "true"
+        default_download_prohibited = (await get_setting(db, "default_download_prohibited")).lower() == "true"
+
         # Copy permissions from folder if uploading into one
         doc_group_id = None
         doc_group_read = False
@@ -300,6 +307,8 @@ async def upload_document(
             updated_by_id=current_user.id,
             processing_status="pending",
             folder_id=folder_id,
+            share_prohibited=default_share_prohibited,
+            download_prohibited=default_download_prohibited,
         )
         db.add(doc)
     await db.flush()
@@ -584,11 +593,12 @@ async def download_document_file(
     current_user = await _resolve_token_user(request, token, db)
     doc, file_record = await _get_doc_file(document_id, current_user, db)
 
-    # Check download restrictions
-    if doc.download_prohibited:
-        raise HTTPException(status_code=403, detail="このファイルはダウンロードが禁止されています")
-    if not _is_admin(current_user) and not current_user.can_download:
-        raise HTTPException(status_code=403, detail="ダウンロード権限がありません")
+    # Check download restrictions (inline preview is always allowed)
+    if not inline:
+        if doc.download_prohibited:
+            raise HTTPException(status_code=403, detail="このファイルはダウンロードが禁止されています")
+        if not _is_admin(current_user) and not current_user.can_download:
+            raise HTTPException(status_code=403, detail="ダウンロード権限がありません")
 
     resp = FileResponse(
         path=file_record.storage_path,

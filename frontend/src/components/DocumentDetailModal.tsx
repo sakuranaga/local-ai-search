@@ -129,7 +129,7 @@ export function DocumentDetailModal({
 
         {/* Tabs */}
         <div className="flex gap-1 border-b">
-          {(["view", "edit", "permissions", "raw", ...(shareEnabled ? ["share" as const] : [])] as const).map((t) => (
+          {(["view", "edit", "permissions", "raw", ...(shareEnabled && !item.share_prohibited ? ["share" as const] : [])] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -141,7 +141,7 @@ export function DocumentDetailModal({
             </button>
           ))}
           <div className="ml-auto flex items-center gap-1 pb-1">
-            {item.source_path && (
+            {item.source_path && !item.download_prohibited && (
               <Button
                 variant="outline" size="sm"
                 onClick={async () => {

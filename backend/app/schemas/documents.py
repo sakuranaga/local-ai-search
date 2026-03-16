@@ -26,6 +26,8 @@ class DocumentListItem(BaseModel):
     permissions: str = "rw--r-"  # Unix-style string
     searchable: bool
     ai_knowledge: bool
+    share_prohibited: bool = False
+    download_prohibited: bool = False
     chunk_count: int
     memo: str | None
     folder_id: str | None = None

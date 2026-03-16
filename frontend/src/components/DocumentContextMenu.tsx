@@ -73,10 +73,12 @@ export function DocumentContextMenu({
             <Pencil className="h-4 w-4" />名前変更
           </button>
         )}
-        <button className={btn} onClick={() => onAction("download")}>
-          <Download className="h-4 w-4" />ダウンロード{isMulti ? ` (${count}件)` : ""}
-        </button>
-        {!isMulti && shareEnabled && (
+        {!(menu.item.download_prohibited) && (
+          <button className={btn} onClick={() => onAction("download")}>
+            <Download className="h-4 w-4" />ダウンロード{isMulti ? ` (${count}件)` : ""}
+          </button>
+        )}
+        {!isMulti && shareEnabled && !menu.item.share_prohibited && (
           <>
             <div className={sep} />
             <button className={btn} onClick={() => onAction("share")}>

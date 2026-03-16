@@ -83,6 +83,16 @@ DEFAULTS = {
         "description": "共有リンク機能の有効/無効 (true/false)",
         "placeholder": "true",
     },
+    "default_share_prohibited": {
+        "value": "false",
+        "description": "新規アップロード時のデフォルト共有禁止 (true/false)",
+        "placeholder": "false",
+    },
+    "default_download_prohibited": {
+        "value": "false",
+        "description": "新規アップロード時のデフォルトダウンロード禁止 (true/false)",
+        "placeholder": "false",
+    },
 }
 
 

@@ -72,7 +72,7 @@ function UsersTab() {
   const [editUser, setEditUser] = useState<User | null>(null);
   const [createForm, setCreateForm] = useState({ username: "", password: "", email: "", display_name: "", role: "user" });
   const [editForm, setEditForm] = useState({
-    username: "", email: "", display_name: "", avatar_url: "", role: "", password: "", is_active: true,
+    username: "", email: "", display_name: "", avatar_url: "", role: "", password: "", is_active: true, can_share: true, can_download: true,
   });
 
   const load = useCallback(() => {
@@ -92,6 +92,8 @@ function UsersTab() {
       role: u.roles[0] ?? "",
       password: "",
       is_active: u.is_active,
+      can_share: u.can_share,
+      can_download: u.can_download,
     });
     setEditOpen(true);
   }
@@ -126,6 +128,8 @@ function UsersTab() {
       const currentRole = editUser.roles[0] ?? "";
       if (editForm.role !== currentRole) data.role = editForm.role;
       if (editForm.is_active !== editUser.is_active) data.is_active = editForm.is_active;
+      if (editForm.can_share !== editUser.can_share) data.can_share = editForm.can_share;
+      if (editForm.can_download !== editUser.can_download) data.can_download = editForm.can_download;
       if (editForm.password) data.password = editForm.password;
 
       if (Object.keys(data).length === 0) {
@@ -308,6 +312,14 @@ function UsersTab() {
               <Label className="text-sm">アカウント有効</Label>
               <Switch checked={editForm.is_active} onCheckedChange={(v) => setEditForm({ ...editForm, is_active: v })} />
             </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-sm">共有許可</Label>
+              <Switch checked={editForm.can_share} onCheckedChange={(v) => setEditForm({ ...editForm, can_share: v })} />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-sm">ダウンロード許可</Label>
+              <Switch checked={editForm.can_download} onCheckedChange={(v) => setEditForm({ ...editForm, can_download: v })} />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>キャンセル</Button>
@@ -454,6 +466,10 @@ const SETTING_GROUPS: Record<string, { label: string; keys: string[] }> = {
   share: {
     label: "共有リンク (Share Server)",
     keys: ["share_server_url", "share_server_api_key", "share_enabled"],
+  },
+  security: {
+    label: "セキュリティ（アップロードデフォルト）",
+    keys: ["default_share_prohibited", "default_download_prohibited"],
   },
 };
 

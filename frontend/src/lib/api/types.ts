@@ -11,6 +11,8 @@ export interface User {
   display_name: string;
   avatar_url: string | null;
   is_active: boolean;
+  can_share: boolean;
+  can_download: boolean;
   roles: string[];
   created_at: string;
 }
@@ -53,6 +55,8 @@ export interface Document {
   source_path: string | null;
   searchable: boolean;
   ai_knowledge: boolean;
+  share_prohibited: boolean;
+  download_prohibited: boolean;
   chunk_count: number;
   memo: string | null;
   folder_id: string | null;
@@ -91,6 +95,8 @@ export interface DocumentListItem {
   source_path: string | null;
   searchable: boolean;
   ai_knowledge: boolean;
+  share_prohibited: boolean;
+  download_prohibited: boolean;
   chunk_count: number;
   memo: string | null;
   folder_id: string | null;
