@@ -1,6 +1,7 @@
 """Document processing helpers: file type detection, list item building,
 tag loading, and background processing pipeline."""
 
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -122,74 +123,88 @@ async def load_tags_for_docs(db: AsyncSession, doc_ids: list[uuid.UUID]) -> dict
 # Background processing pipeline
 # ---------------------------------------------------------------------------
 
-async def process_document_background(doc_id: uuid.UUID, storage_path: str, file_type: str, filename: str):
-    """Background task: parse → chunk → embed → summarize."""
+# Limit concurrent GPU-heavy tasks (embedding + summarization)
+_gpu_semaphore = asyncio.Semaphore(2)
+
+
+async def _set_status(doc_id: uuid.UUID, status: str):
+    """Quick DB session just to update processing_status."""
     async with async_session() as db:
+        result = await db.execute(select(Document).where(Document.id == doc_id))
+        doc = result.scalar_one_or_none()
+        if doc:
+            doc.processing_status = status
+            await db.commit()
+
+
+async def process_document_background(doc_id: uuid.UUID, storage_path: str, file_type: str, filename: str):
+    """Background task: parse → chunk → embed → summarize.
+
+    Each phase opens/closes its own DB session so connections are not held
+    during long-running GPU operations (embedding, summarization).
+    """
+    try:
+        # Phase 1: Parse / OCR (no DB session held during I/O)
+        await _set_status(doc_id, "parsing")
         try:
-            result = await db.execute(select(Document).where(Document.id == doc_id))
-            doc = result.scalar_one_or_none()
-            if not doc:
-                logger.warning(f"Background task: document not found {doc_id}")
-                return
+            text_content = await parse_file(storage_path, file_type)
+        except Exception as e:
+            logger.error(f"Parse failed for {filename}: {e}")
+            await _set_status(doc_id, "error")
+            return
 
-            # Phase 1: Parse / OCR
-            doc.processing_status = "parsing"
-            await db.commit()
+        # Save parsed content + chunking
+        await _set_status(doc_id, "chunking")
+        chunks_text = chunk_text(text_content)
 
-            try:
-                text_content = await parse_file(storage_path, file_type)
-            except Exception as e:
-                logger.error(f"Parse failed for {filename}: {e}")
-                doc.processing_status = "error"
-                await db.commit()
-                return
-
-            doc.content = text_content
-
-            # Phase 2: Chunking
-            doc.processing_status = "chunking"
-            await db.commit()
-
-            chunks_text = chunk_text(text_content)
-
-            # Phase 3: Embedding
-            doc.processing_status = "embedding"
-            await db.commit()
-
+        # Phase 2: Embedding (GPU - done outside DB session)
+        await _set_status(doc_id, "embedding")
+        async with _gpu_semaphore:
             try:
                 embeddings = await get_embeddings(chunks_text)
             except Exception:
                 embeddings = [None] * len(chunks_text)
 
-            # Remove old chunks and create new ones
-            await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
+        # Phase 3: Save content + chunks to DB (short session)
+        async with async_session() as db:
+            result = await db.execute(select(Document).where(Document.id == doc_id))
+            doc = result.scalar_one_or_none()
+            if not doc:
+                return
+            doc.content = text_content
+            doc.processing_status = "summarizing"
+            await db.execute(delete(Chunk).where(Chunk.document_id == doc_id))
             for i, (chunk_content, embedding) in enumerate(zip(chunks_text, embeddings)):
                 db.add(Chunk(
-                    document_id=doc.id,
+                    document_id=doc_id,
                     chunk_index=i,
                     content=chunk_content,
                     embedding=embedding,
                 ))
-
-            # Phase 4: Summary
-            doc.processing_status = "summarizing"
             await db.commit()
 
+        # Phase 4: Summary (GPU - done outside DB session)
+        async with _gpu_semaphore:
             try:
                 summary = await generate_summary(text_content, filename)
+            except Exception:
+                summary = None
+
+        # Save summary (short session)
+        async with async_session() as db:
+            result = await db.execute(select(Document).where(Document.id == doc_id))
+            doc = result.scalar_one_or_none()
+            if doc:
                 if summary:
                     doc.summary = summary
-            except Exception:
-                pass
-
-            doc.processing_status = "done"
-            await db.commit()
-            logger.info(f"Background processing complete: {filename} ({doc_id})")
-
-        except Exception as e:
-            logger.error(f"Background processing error for {doc_id}: {e}")
-            try:
-                doc.processing_status = "error"
+                doc.processing_status = "done"
                 await db.commit()
-            except Exception:
-                pass
+
+        logger.info(f"Background processing complete: {filename} ({doc_id})")
+
+    except Exception as e:
+        logger.error(f"Background processing error for {doc_id}: {e}")
+        try:
+            await _set_status(doc_id, "error")
+        except Exception:
+            pass

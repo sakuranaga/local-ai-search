@@ -8,6 +8,8 @@ services:
       POSTGRES_USER: las
     volumes:
       - las_db:/var/lib/postgresql
+      - ./db/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U las -d las"]
       interval: 5s

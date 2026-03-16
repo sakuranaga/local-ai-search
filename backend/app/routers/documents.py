@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -327,9 +328,9 @@ async def upload_document(
     await db.commit()
     await db.refresh(doc)
 
-    # Launch background processing (runs after response is sent)
-    background_tasks.add_task(
-        process_document_background, doc.id, str(storage_path), file_type, file.filename
+    # Launch background processing (detached from request lifecycle)
+    asyncio.create_task(
+        process_document_background(doc.id, str(storage_path), file_type, file.filename)
     )
 
     return DocumentListItem(

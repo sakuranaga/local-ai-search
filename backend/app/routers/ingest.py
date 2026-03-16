@@ -8,6 +8,7 @@ Endpoints:
   GET    /api/ingest/list        List documents accessible by this API key
 """
 
+import asyncio
 import base64
 import hashlib
 import logging
@@ -237,9 +238,9 @@ async def _ingest_single_file(
     await db.commit()
     await db.refresh(doc)
 
-    # Background processing
-    background_tasks.add_task(
-        process_document_background, doc.id, str(storage_path), file_type, file.filename
+    # Background processing (detached from request lifecycle to free DB session)
+    asyncio.create_task(
+        process_document_background(doc.id, str(storage_path), file_type, file.filename)
     )
 
     return IngestResponse(
@@ -623,9 +624,9 @@ async def tus_hook(
 
             await db.commit()
 
-            # Start background processing
-            background_tasks.add_task(
-                process_document_background, doc.id, file_path, file_type, filename
+            # Start background processing (detached from request lifecycle)
+            asyncio.create_task(
+                process_document_background(doc.id, file_path, file_type, filename)
             )
 
             return JSONResponse(content={"ok": True, "document_id": str(doc.id)})
