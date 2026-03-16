@@ -37,7 +37,6 @@ import {
   Upload,
   Trash2,
   Shield,
-  RefreshCw,
   Pencil,
   Link,
   Search as SearchIcon,
@@ -47,7 +46,6 @@ import {
   FolderPlus,
   Plus,
   X,
-  Tag as TagIcon,
   Undo2,
   Sparkles,
   History,
@@ -64,7 +62,6 @@ import {
   createFolder,
   updateFolder,
   deleteFolder,
-  getGroups,
   createTag,
   updateTag,
   getTags,
@@ -78,7 +75,6 @@ import {
   type DocumentListItem,
   type Folder,
   type TagInfo,
-  type Group,
   type FilterOptions,
 } from "@/lib/api";
 import {
@@ -91,7 +87,6 @@ import {
   togglePinSearchHistory,
   removeSearchHistory,
   TAG_COLORS,
-  formatPermString,
   type FolderNode,
   type SearchHistoryEntry,
 } from "@/lib/fileExplorerHelpers";
@@ -1166,7 +1161,7 @@ export function FileExplorerPage() {
                       <span className="font-medium text-sm max-w-[400px] truncate flex items-center gap-1">
                         {item.title}
                         {(item as any).share_count > 0 && (
-                          <Link className="h-3 w-3 text-primary flex-shrink-0" title={`共有中（${(item as any).share_count}件）`} />
+                          <span title={`共有中（${(item as any).share_count}件）`}><Link className="h-3 w-3 text-primary flex-shrink-0" /></span>
                         )}
                       </span>
                       <div className="flex items-center gap-1 mt-0.5 flex-wrap">
@@ -1534,6 +1529,9 @@ export function FileExplorerPage() {
             </button>
             <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setFolderPermsTarget(folderCtx.node); setFolderCtx(null); }}>
               <Shield className="h-4 w-4" />権限設定
+            </button>
+            <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setNewFolderParent(folderCtx.node.id); setNewFolderOpen(true); setFolderCtx(null); }}>
+              <FolderPlus className="h-4 w-4" />サブフォルダ作成
             </button>
             <div className="-mx-1 my-1 h-px bg-border" />
             <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10" onClick={() => { handleFolderDelete(folderCtx.node); setFolderCtx(null); }}>

@@ -1,4 +1,4 @@
-import { apiFetch, API_BASE, getToken } from "./client";
+import { apiFetch } from "./client";
 
 export interface ShareLinkInfo {
   id: string;

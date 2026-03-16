@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { DocumentPreview } from "@/components/DocumentPreview";
 import { OverTypeEditor } from "@/components/OverTypeEditor";
@@ -514,7 +514,7 @@ function PermissionsTab({ docId, doc }: { docId: string; doc: Document }) {
 // Share Tab
 // ---------------------------------------------------------------------------
 
-function ShareTab({ documentId, documentTitle }: { documentId: string; documentTitle: string }) {
+function ShareTab({ documentId }: { documentId: string; documentTitle: string }) {
   const [links, setLinks] = useState<ShareLinkInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
