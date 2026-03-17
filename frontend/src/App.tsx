@@ -42,6 +42,7 @@ function NavBar() {
 
   function handleSearch(e: FormEvent) {
     e.preventDefault();
+    (document.activeElement as HTMLElement)?.blur();
     const q = searchValue.trim();
     if (q) {
       navigate(`/?q=${encodeURIComponent(q)}&_t=${Date.now()}`);
