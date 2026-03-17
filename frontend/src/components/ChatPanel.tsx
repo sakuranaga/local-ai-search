@@ -292,7 +292,6 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
         <CardContent className="flex flex-col items-center justify-center flex-1 min-h-48 text-muted-foreground gap-2">
           <Sparkles className="h-8 w-8" />
           <p className="text-sm">検索するとAIが回答を生成します</p>
-          <p className="text-xs">下のフォームから直接質問もできます</p>
           {chatStatus && (
             chatStatus.available ? (
               <p className="text-xs">({chatStatus.model})</p>
@@ -301,27 +300,6 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
             )
           )}
         </CardContent>
-        <div className="p-3 border-t shrink-0">
-          <div className="flex gap-2">
-            <Textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="質問を入力... (Enter で送信)"
-              className="min-h-[40px] max-h-[120px] resize-none text-sm"
-              rows={1}
-            />
-            <Button
-              size="sm"
-              onClick={handleSubmit}
-              disabled={!input.trim() || isStreaming}
-              className="shrink-0 h-10 w-10 p-0"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
       </Card>
     );
   }
