@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DocumentPreview } from "@/components/DocumentPreview";
 import { OverTypeEditor } from "@/components/OverTypeEditor";
@@ -194,8 +194,11 @@ export function DocumentDetailModal({
           </div>
         </div>
 
-        {/* Tab content */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        {/* Tab content — double-tap to close on mobile */}
+        <div
+          className="flex-1 min-h-0 overflow-y-auto"
+          onDoubleClick={() => { if (window.innerWidth < 768) handleClose(); }}
+        >
           {loading && <p className="text-sm text-muted-foreground p-4">読み込み中...</p>}
 
           {tab === "view" && doc && (

@@ -158,6 +158,13 @@
   }
 }
 
+/* Prevent mobile browser auto-zoom on focus (requires font-size >= 16px) */
+@media (max-width: 767px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
