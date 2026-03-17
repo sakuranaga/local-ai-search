@@ -44,6 +44,7 @@ import {
   Bot,
   FolderIcon,
   FolderPlus,
+  Menu,
   Plus,
   X,
   Undo2,
@@ -118,8 +119,10 @@ export function FileExplorerPage() {
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({ file_types: [], creators: [] });
   const [searchTokens, setSearchTokens] = useState<string[]>([]);
 
-  // AI chat panel visibility for small screens
-  const [chatOpen, setChatOpen] = useState(true);
+  // AI chat panel visibility (default closed on mobile)
+  const [chatOpen, setChatOpen] = useState(false);
+  // Mobile sidebar drawer
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [aiStreaming, setAiStreaming] = useState(false);
 
   // Search history
@@ -174,7 +177,7 @@ export function FileExplorerPage() {
   // Selecting a folder/tag while searching should clear the search query
   const selectFolder = useCallback((id: string | null) => {
     setActiveFolderId(id);
-
+    setSidebarOpen(false);
     setShowTrash(false);
     if (isSearching) {
       navigate("/", { replace: true });
@@ -768,7 +771,7 @@ export function FileExplorerPage() {
 
   return (
     <div
-      className="p-4 flex gap-4 relative h-full overflow-hidden"
+      className="p-2 md:p-4 flex gap-2 md:gap-4 relative h-full overflow-hidden"
       onDragEnter={handleFileDragEnter}
       onDragLeave={handleFileDragLeave}
       onDragOver={handleFileDragOver}
@@ -784,8 +787,17 @@ export function FileExplorerPage() {
           </div>
         </div>
       )}
+      {/* Sidebar backdrop (mobile) */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
       {/* Sidebar */}
-      <div className="w-56 flex-shrink-0 flex flex-col gap-4 overflow-y-auto">
+      <div className={`
+        fixed inset-y-0 left-0 z-50 w-64 bg-background border-r p-4 flex flex-col gap-4 overflow-y-auto
+        transform transition-transform duration-200 ease-in-out
+        md:static md:w-56 md:z-auto md:border-r-0 md:transform-none md:transition-none md:p-0
+        ${sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+      `}>
         {/* Folder tree */}
         <div>
           <div className="flex items-center justify-between mb-1">
@@ -833,7 +845,7 @@ export function FileExplorerPage() {
                 key={tag.id}
                 tag={tag}
                 isActive={activeTag === tag.name}
-                onSelect={() => { setActiveTag(activeTag === tag.name ? null : tag.name); setShowTrash(false); if (isSearching) navigate("/", { replace: true }); }}
+                onSelect={() => { setActiveTag(activeTag === tag.name ? null : tag.name); setShowTrash(false); setSidebarOpen(false); if (isSearching) navigate("/", { replace: true }); }}
                 onDeleted={() => {
                   setAllTags((prev) => prev.filter((t) => t.id !== tag.id));
                   if (activeTag === tag.name) setActiveTag(null);
@@ -900,7 +912,7 @@ export function FileExplorerPage() {
         <TrashDropTarget
           isActive={showTrash}
           count={trashItems.length}
-          onClick={() => { setShowTrash(true); loadTrash(); }}
+          onClick={() => { setShowTrash(true); loadTrash(); setSidebarOpen(false); }}
           onDrop={handleDropOnTrash}
         />
         </div>
@@ -910,7 +922,10 @@ export function FileExplorerPage() {
       <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-hidden px-0.5 pb-0.5">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold">
+          <Button variant="ghost" size="icon" className="md:hidden -ml-1 mr-1 shrink-0 h-12 w-12" onClick={() => setSidebarOpen(true)}>
+            <Menu className="h-8 w-8" strokeWidth={2.5} />
+          </Button>
+          <h1 className="text-lg md:text-xl font-bold truncate">
             {showTrash ? "ゴミ箱" : isSearching ? `検索結果: ${urlQ}` : folderBreadcrumb ? (
               folderBreadcrumb.map((seg, i) => (
                 <span key={seg.id}>
@@ -946,7 +961,7 @@ export function FileExplorerPage() {
             </div>
           ) : (
             <Button onClick={() => setUploadOpen(true)}>
-              <Upload className="h-4 w-4 mr-2" />アップロード
+              <Upload className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">アップロード</span>
             </Button>
           )}
         </div>
@@ -1058,7 +1073,7 @@ export function FileExplorerPage() {
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
-          <div className="flex items-center gap-1">
+          <div className="hidden md:flex items-center gap-1">
             <input
               type="date"
               value={filterDateFrom}
@@ -1099,7 +1114,7 @@ export function FileExplorerPage() {
 
         {/* Table */}
         <Card className="!py-0 !gap-0 flex-1 min-h-0 overflow-hidden flex flex-col">
-          <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+          <table className="doc-table w-full text-sm" style={{ tableLayout: "fixed" }}>
             <colgroup>
               <col />
               <col style={{ width: 64 }} />
@@ -1137,7 +1152,7 @@ export function FileExplorerPage() {
             </TableHeader>
           </table>
           <div className="w-full flex-1 min-h-0 overflow-y-auto" ref={scrollContainerRef}>
-            <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+            <table className="doc-table w-full text-sm" style={{ tableLayout: "fixed" }}>
               <colgroup>
                 <col />
                 <col style={{ width: 64 }} />
@@ -1156,6 +1171,20 @@ export function FileExplorerPage() {
                     onClick={(e) => handleRowClick(item, e)}
                     onDoubleClick={() => handleRowDoubleClick(item)}
                     onContextMenu={(e) => handleContextMenu(e, item)}
+                    onTouchStart={(e) => {
+                      const touch = e.touches[0];
+                      const timerId = window.setTimeout(() => {
+                        handleContextMenu(
+                          { preventDefault: () => {}, clientX: touch.clientX, clientY: touch.clientY } as any,
+                          item,
+                        );
+                      }, 500);
+                      const row = e.currentTarget;
+                      const cancel = () => { window.clearTimeout(timerId); row.removeEventListener("touchend", cancel); row.removeEventListener("touchmove", cancelMove); };
+                      const cancelMove = (ev: TouchEvent) => { if (Math.abs(ev.touches[0].clientX - touch.clientX) > 10 || Math.abs(ev.touches[0].clientY - touch.clientY) > 10) cancel(); };
+                      row.addEventListener("touchend", cancel, { once: true });
+                      row.addEventListener("touchmove", cancelMove as any);
+                    }}
                   >
                     <TableCell className="pl-4">
                       <span className="font-medium text-sm max-w-[400px] truncate flex items-center gap-1">
@@ -1248,12 +1277,25 @@ export function FileExplorerPage() {
         )}
       </div>
 
-      {/* AI Chat Panel — slide in/out */}
+      {/* AI Chat Panel — slide-in drawer on mobile, width transition on desktop */}
+      {/* Mobile: overlay backdrop */}
+      {chatOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/30 md:hidden animate-in fade-in-0 duration-200"
+          onClick={() => setChatOpen(false)}
+        />
+      )}
       <div
-        className="flex-shrink-0 min-h-0 transition-[width,opacity] duration-300 ease-in-out overflow-hidden"
-        style={{ width: chatOpen ? "36rem" : "0", opacity: chatOpen ? 1 : 0 }}
+        className={`flex-shrink-0 min-h-0 overflow-hidden
+          max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-50 max-md:w-full max-md:max-w-lg
+          max-md:transform max-md:transition-transform max-md:duration-300 max-md:ease-in-out
+          md:transition-[width] md:duration-300 md:ease-in-out
+          ${chatOpen
+            ? "max-md:translate-x-0 md:w-[36rem]"
+            : "max-md:translate-x-full md:w-0"
+          }`}
       >
-        <div className="w-[36rem] h-full px-px py-px">
+        <div className="h-full w-[36rem] max-md:w-full md:px-px md:py-px">
           <ChatPanel
             initialQuery={urlQ || undefined}
             onSourceClick={(docId) => {

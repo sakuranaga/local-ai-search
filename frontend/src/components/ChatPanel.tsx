@@ -280,10 +280,10 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
       <Card className="h-full border-dashed flex flex-col !py-0 !gap-0">
         {onCollapse && (
           <div className="flex items-center justify-between px-4 py-1.5 border-b shrink-0">
-            <div className="flex items-center gap-2 text-sm font-medium">
+            <button onClick={onCollapse} className="flex items-center gap-2 text-sm font-medium hover:text-muted-foreground transition-colors">
               <Sparkles className={`h-4 w-4 text-primary ${isStreaming ? "animate-ai-glow" : ""}`} />
               AI チャット
-            </div>
+            </button>
             <Button variant="ghost" size="sm" onClick={onCollapse} className="h-7 px-2" title="閉じる">
               <ChevronRight className="h-3.5 w-3.5" />
             </Button>
@@ -330,7 +330,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
     <Card className="h-full flex flex-col !py-0 !gap-0">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-1.5 border-b shrink-0">
-        <div className="flex items-center gap-2 text-sm font-medium">
+        <button onClick={onCollapse} className="flex items-center gap-2 text-sm font-medium hover:text-muted-foreground transition-colors">
           <Sparkles className={`h-4 w-4 text-primary ${isStreaming ? "animate-ai-glow" : ""}`} />
           AI チャット
           {chatStatus && (
@@ -340,7 +340,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
               <span className="text-xs font-normal text-red-500">（モデル未設定）</span>
             )
           )}
-        </div>
+        </button>
         <div className="flex items-center">
           {messages.length > 0 && (
             <Button variant="ghost" size="sm" onClick={handleClear} className="h-7 px-2">
