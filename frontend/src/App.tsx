@@ -150,7 +150,7 @@ function StatsFooter() {
   if (!stats) return null;
 
   return (
-    <div className="border-t px-4 py-2 flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+    <div className="border-t px-2 md:px-4 py-2 flex items-center gap-2 md:gap-3 text-xs text-muted-foreground shrink-0 overflow-hidden">
       <Badge variant="outline" className="text-xs font-normal">
         {stats.total_documents.toLocaleString()}文書登録済み
       </Badge>
@@ -158,7 +158,7 @@ function StatsFooter() {
         {stats.total_chunks.toLocaleString()}チャンク
       </Badge>
       {stats.disk_total_bytes > 0 && (
-        <Badge variant="outline" className="text-xs font-normal">
+        <Badge variant="outline" className="text-xs font-normal hidden md:inline-flex">
           ディスク {formatBytes(stats.disk_used_bytes)}/{formatBytes(stats.disk_total_bytes)} ({Math.round(stats.disk_used_bytes / stats.disk_total_bytes * 100)}%)
         </Badge>
       )}
@@ -169,7 +169,7 @@ function StatsFooter() {
 
 function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="h-screen flex flex-col bg-background">
+    <div className="h-screen flex flex-col bg-background overflow-hidden">
       <NavBar />
       <div className="flex-1 min-h-0">{children}</div>
       <StatsFooter />

@@ -130,6 +130,34 @@
   animation: ai-glow 1.2s ease-in-out infinite, ai-spin-step 2.4s ease-in-out infinite;
 }
 
+/* Responsive table columns: hide non-essential columns on smaller screens */
+@media (max-width: 767px) {
+  .doc-table col:nth-child(2),
+  .doc-table th:nth-child(2),
+  .doc-table td:nth-child(2),
+  .doc-table col:nth-child(3),
+  .doc-table th:nth-child(3),
+  .doc-table td:nth-child(3),
+  .doc-table col:nth-child(4),
+  .doc-table th:nth-child(4),
+  .doc-table td:nth-child(4),
+  .doc-table col:nth-child(6),
+  .doc-table th:nth-child(6),
+  .doc-table td:nth-child(6) {
+    display: none;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .doc-table col:nth-child(3),
+  .doc-table th:nth-child(3),
+  .doc-table td:nth-child(3),
+  .doc-table col:nth-child(4),
+  .doc-table th:nth-child(4),
+  .doc-table td:nth-child(4) {
+    display: none;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
