@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DocumentPreview, hasExtractedContent, isPreviewable, isVideoType } from "@/components/DocumentPreview";
 import { OverTypeEditor } from "@/components/OverTypeEditor";
@@ -73,6 +73,7 @@ export function DocumentDetailModal({
   onPrev?: () => void;
   onNext?: () => void;
 }) {
+  const popupRef = useRef<HTMLDivElement>(null);
   const [doc, setDoc] = useState<Document | null>(null);
   const [tab, setTab] = useState<"view" | "edit" | "permissions" | "raw" | "share">("view");
   const [loading, setLoading] = useState(false);
@@ -92,13 +93,6 @@ export function DocumentDetailModal({
     getDocument(item.id).then(setDoc).catch(() => toast.error("文書取得失敗")).finally(() => setLoading(false));
   }, [item?.id]);
 
-  const handleDialogKeyDown = useCallback((e: React.KeyboardEvent) => {
-    const tag = (e.target as HTMLElement).tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable) return;
-    if (e.key === "ArrowLeft" && onPrev) { e.preventDefault(); onPrev(); }
-    if (e.key === "ArrowRight" && onNext) { e.preventDefault(); onNext(); }
-  }, [onPrev, onNext]);
-
   function handleClose() {
     if (contentDirty) {
       if (!confirm("編集内容が保存されていません。閉じますか？")) return;
@@ -106,6 +100,15 @@ export function DocumentDetailModal({
     setEditedContent(null);
     onClose();
   }
+
+  const handleDialogKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable) return;
+    if (tag === "BUTTON") return;
+    if ((e.key === "ArrowLeft" || e.key === "ArrowUp") && onPrev) { e.preventDefault(); onPrev(); }
+    if ((e.key === "ArrowRight" || e.key === "ArrowDown") && onNext) { e.preventDefault(); onNext(); }
+    if (e.key === " ") { e.preventDefault(); e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); onClose(); }
+  }, [onPrev, onNext, onClose]);
 
   async function handleSaveContent() {
     if (!doc || editedContent === null) return;
@@ -123,7 +126,7 @@ export function DocumentDetailModal({
 
   return (
     <Dialog open={!!item} onOpenChange={() => handleClose()}>
-      <DialogContent onKeyDown={handleDialogKeyDown} className={`!max-w-none !w-screen !h-screen !max-h-screen !rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 md:!rounded-lg md:!top-1/2 md:!left-1/2 md:!-translate-x-1/2 md:!-translate-y-1/2 flex flex-col ${
+      <DialogContent ref={popupRef} initialFocus={popupRef} onKeyDown={handleDialogKeyDown} className={`!max-w-none !w-screen !h-screen !max-h-screen !rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 md:!rounded-lg md:!top-1/2 md:!left-1/2 md:!-translate-x-1/2 md:!-translate-y-1/2 flex flex-col ${
         isVideoType(item.file_type)
           ? "md:!max-w-6xl md:!w-[95vw] md:!h-auto md:!max-h-[95vh]"
           : "md:!max-w-5xl md:!w-[95vw] md:!h-[85vh] md:!max-h-[85vh]"

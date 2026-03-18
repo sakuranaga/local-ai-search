@@ -382,8 +382,8 @@ export function FileExplorerPage() {
         return;
       }
 
-      // Enter: open detail modal for focused item
-      if (e.key === "Enter" && focusedIdx !== null && items[focusedIdx]) {
+      // Enter / Space: open detail modal for focused item
+      if ((e.key === "Enter" || e.key === " ") && focusedIdx !== null && items[focusedIdx]) {
         e.preventDefault();
         setDetailDoc(items[focusedIdx]);
         return;
