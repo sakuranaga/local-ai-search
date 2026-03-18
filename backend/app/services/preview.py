@@ -43,9 +43,14 @@ async def render_preview_html(path: str, file_type: str) -> str:
 
 
 def _render_excel(path: str) -> str:
+    from io import BytesIO
     from openpyxl import load_workbook
 
-    wb = load_workbook(path, read_only=True, data_only=True)
+    # openpyxl checks file extension — TUS uploads have no extension,
+    # so read into BytesIO to bypass the filename check.
+    with open(path, "rb") as f:
+        buf = BytesIO(f.read())
+    wb = load_workbook(buf, read_only=True, data_only=True)
     parts: list[str] = []
 
     for sheet_name in wb.sheetnames:
