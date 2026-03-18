@@ -10,7 +10,7 @@ from sqlalchemy.orm import aliased
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import Chunk, Document, DocumentTag, Folder, Group, Tag, User
+from app.models import Chunk, Document, DocumentTag, File, Folder, Group, Tag, User
 from app.services.permissions import build_visibility_filter, get_user_group_ids
 from app.services.search import fulltext_search, merged_search, vector_search
 from app.services.tokenizer import tokenize_query
@@ -98,6 +98,12 @@ async def search_documents_list(
         .subquery()
     )
 
+    file_size_sq = (
+        select(File.document_id, func.sum(File.file_size).label("file_size"))
+        .group_by(File.document_id)
+        .subquery()
+    )
+
     stmt = (
         select(
             Document.id, Document.title, Document.source_path, Document.file_type,
@@ -108,11 +114,13 @@ async def search_documents_list(
             Document.memo, Document.folder_id, Folder.name.label("folder_name"),
             Group.name.label("group_name"),
             Document.created_at, Document.updated_at,
+            file_size_sq.c.file_size.label("file_size"),
             func.coalesce(chunk_count_sq.c.chunk_count, 0).label("chunk_count"),
             CreatedByUser.username.label("created_by_name"),
             UpdatedByUser.username.label("updated_by_name"),
         )
         .outerjoin(chunk_count_sq, Document.id == chunk_count_sq.c.document_id)
+        .outerjoin(file_size_sq, Document.id == file_size_sq.c.document_id)
         .outerjoin(CreatedByUser, Document.created_by_id == CreatedByUser.id)
         .outerjoin(UpdatedByUser, Document.updated_by_id == UpdatedByUser.id)
         .outerjoin(OwnerUser, Document.owner_id == OwnerUser.id)
