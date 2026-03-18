@@ -91,6 +91,7 @@ def make_doc_list_item(
         permissions=format_permission_string(g_read, g_write, o_read if o_read is not None else True, o_write),
         searchable=getattr(row, "searchable", True),
         ai_knowledge=getattr(row, "ai_knowledge", True),
+        file_size=getattr(row, "file_size", None),
         chunk_count=getattr(row, "chunk_count", 0),
         share_prohibited=getattr(row, "share_prohibited", False),
         download_prohibited=getattr(row, "download_prohibited", False),

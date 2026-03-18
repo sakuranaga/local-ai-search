@@ -97,6 +97,7 @@ export interface DocumentListItem {
   ai_knowledge: boolean;
   share_prohibited: boolean;
   download_prohibited: boolean;
+  file_size: number | null;
   chunk_count: number;
   memo: string | null;
   folder_id: string | null;

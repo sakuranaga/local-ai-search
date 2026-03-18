@@ -113,6 +113,7 @@ export function FileExplorerPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const sentinelRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
   const [filterType, setFilterType] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
@@ -300,6 +301,21 @@ export function FileExplorerPage() {
   useEffect(() => {
     if (urlQ) setSearchHistory(addSearchHistory(urlQ));
   }, [urlQ]);
+
+  // Sync header padding with scrollbar width
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    const header = headerRef.current;
+    if (!el || !header) return;
+    const sync = () => {
+      const sw = el.offsetWidth - el.clientWidth;
+      header.style.paddingRight = `${sw}px`;
+    };
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
 
   // Infinite scroll via IntersectionObserver
   useEffect(() => {
@@ -1122,11 +1138,12 @@ export function FileExplorerPage() {
 
         {/* Table */}
         <Card className="!py-0 !gap-0 flex-1 min-h-0 overflow-hidden flex flex-col">
+          <div ref={headerRef}>
           <table className="doc-table w-full text-sm" style={{ tableLayout: "fixed" }}>
             <colgroup>
               <col />
               <col style={{ width: 64 }} />
-              <col style={{ width: 56 }} />
+              <col style={{ width: 88 }} />
               <col style={{ width: 96 }} />
               <col style={{ width: 96 }} />
               <col style={{ width: 112 }} />
@@ -1150,7 +1167,7 @@ export function FileExplorerPage() {
                   </span>
                 </TableHead>
                 <TableHead>種別</TableHead>
-                <TableHead>チャンク</TableHead>
+                <TableHead className="!text-right">サイズ</TableHead>
                 <TableHead>登録者</TableHead>
                 <TableHead className={isSearching ? "" : "cursor-pointer select-none"} onClick={isSearching ? undefined : () => handleSort("updated_at")}>
                   <span className="flex items-center">更新日 {!isSearching && <SortIcon col="updated_at" />}</span>
@@ -1159,12 +1176,13 @@ export function FileExplorerPage() {
               </TableRow>
             </TableHeader>
           </table>
+          </div>
           <div className="w-full flex-1 min-h-0 overflow-y-auto" ref={scrollContainerRef}>
             <table className="doc-table w-full text-sm" style={{ tableLayout: "fixed" }}>
               <colgroup>
                 <col />
                 <col style={{ width: 64 }} />
-                <col style={{ width: 56 }} />
+                <col style={{ width: 88 }} />
                 <col style={{ width: 96 }} />
                 <col style={{ width: 96 }} />
                 <col style={{ width: 112 }} />
@@ -1224,8 +1242,8 @@ export function FileExplorerPage() {
                     <TableCell>
                       <Badge variant="outline" className="text-xs">{item.file_type}</Badge>
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {item.chunk_count}
+                    <TableCell className="text-xs text-muted-foreground !text-right tabular-nums">
+                      {item.file_size ? formatBytes(item.file_size) : "-"}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {item.created_by_name ?? "-"}

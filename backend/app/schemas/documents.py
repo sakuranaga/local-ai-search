@@ -28,6 +28,7 @@ class DocumentListItem(BaseModel):
     ai_knowledge: bool
     share_prohibited: bool = False
     download_prohibited: bool = False
+    file_size: int | None = None
     chunk_count: int
     memo: str | None
     folder_id: str | None = None
