@@ -181,10 +181,10 @@ export function DocumentDetailModal({
             <Button
               variant="destructive" size="sm"
               onClick={async () => {
-                if (!confirm("この文書を削除しますか？")) return;
+                if (!confirm("この文書をゴミ箱に移動しますか？")) return;
                 try {
                   await deleteDocument(item.id);
-                  toast.success("削除しました");
+                  toast.success("ゴミ箱に移動しました");
                   onUpdated();
                 } catch { toast.error("削除失敗"); }
               }}
