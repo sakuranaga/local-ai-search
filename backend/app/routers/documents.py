@@ -522,6 +522,8 @@ async def purge_from_trash(
                 Path(f.storage_path).unlink(missing_ok=True)
             except OSError:
                 pass
+        from app.services.preview_generator import delete_preview_images
+        delete_preview_images(str(doc.id))
         await audit_log(db, user=current_user, action="document.purge", target_type="document",
                         target_id=str(doc.id), target_name=doc.title, request=request)
         await db.delete(doc)
@@ -550,6 +552,8 @@ async def empty_trash(
                 Path(f.storage_path).unlink(missing_ok=True)
             except OSError:
                 pass
+        from app.services.preview_generator import delete_preview_images
+        delete_preview_images(str(doc.id))
         await audit_log(db, user=current_user, action="document.purge", target_type="document",
                         target_id=str(doc.id), target_name=doc.title, request=request)
         await db.delete(doc)
@@ -698,15 +702,76 @@ async def preview_document(
     token: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return an HTML preview for Excel/PowerPoint files."""
+    """Return an HTML preview for office documents.
+
+    Uses pre-generated LibreOffice images if available, falling back to
+    text-based rendering.
+    """
     from fastapi.responses import HTMLResponse
     from app.services.preview import render_preview_html
+    from app.services.preview_generator import get_preview_images
 
     current_user = await _resolve_token_user(request, token, db)
     doc, file_record = await _get_doc_file(document_id, current_user, db)
 
+    # Try pre-generated image preview first
+    images = get_preview_images(str(document_id))
+    if images:
+        token_qs = f"?token={token}" if token else ""
+        img_tags = []
+        for i in range(len(images)):
+            src = f"/api/documents/{document_id}/preview/image/{i}{token_qs}"
+            img_tags.append(
+                f'<div class="page">'
+                f'<div class="page-num">Page {i + 1} / {len(images)}</div>'
+                f'<img src="{src}" alt="Page {i + 1}">'
+                f'</div>'
+            )
+        html = _IMAGE_PREVIEW_TEMPLATE.format(content="\n".join(img_tags))
+        return HTMLResponse(content=html)
+
+    # Fallback to text-based preview
     html = await render_preview_html(file_record.storage_path, doc.file_type)
     return HTMLResponse(content=html)
+
+
+_IMAGE_PREVIEW_TEMPLATE = """<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<style>
+  body {{ margin: 0; padding: 16px; background: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+  @media (prefers-color-scheme: dark) {{ body {{ background: #1a1a1a; color: #e0e0e0; }} }}
+  .page {{ margin-bottom: 16px; text-align: center; }}
+  .page img {{ max-width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border-radius: 4px; background: #fff; }}
+  @media (prefers-color-scheme: dark) {{ .page img {{ box-shadow: 0 2px 8px rgba(0,0,0,0.4); }} }}
+  .page-num {{ font-size: 12px; color: #888; margin-bottom: 6px; }}
+</style>
+</head>
+<body>{content}</body>
+</html>"""
+
+
+@router.get("/{document_id}/preview/image/{page}")
+async def preview_image(
+    request: Request,
+    document_id: uuid.UUID,
+    page: int,
+    token: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve a single preview page image."""
+    from fastapi.responses import FileResponse
+    from app.services.preview_generator import get_preview_images
+
+    current_user = await _resolve_token_user(request, token, db)
+    await _get_doc_file(document_id, current_user, db)
+
+    images = get_preview_images(str(document_id))
+    if not images or page < 0 or page >= len(images):
+        raise HTTPException(status_code=404, detail="Preview image not found")
+
+    return FileResponse(images[page], media_type="image/png")
 
 
 # ---------------------------------------------------------------------------

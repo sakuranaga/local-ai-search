@@ -50,7 +50,7 @@ _TYPE_MAP = {
 
 # Tier 1: file types that support text extraction → chunk → embed → summarize
 EXTRACTABLE_TYPES = {
-    "md", "pdf", "docx", "xlsx", "csv", "html", "pptx",
+    "md", "pdf", "docx", "xlsx", "csv", "html", "pptx", "rtf",
     "png", "jpg", "gif", "bmp", "tiff", "webp",
 }
 
@@ -232,6 +232,15 @@ async def process_document_background(doc_id: uuid.UUID, storage_path: str, file
                     doc.summary = summary
                 doc.processing_status = "done"
                 await db.commit()
+
+        # Phase 5: Preview image generation (LibreOffice, non-GPU)
+        from app.services.preview_generator import PREVIEW_ELIGIBLE, generate_preview_images
+        if file_type in PREVIEW_ELIGIBLE:
+            try:
+                page_count = await generate_preview_images(str(doc_id), storage_path, file_type)
+                logger.info(f"Generated {page_count} preview images for {filename}")
+            except Exception as e:
+                logger.warning(f"Preview generation failed for {filename}: {e}")
 
         logger.info(f"Background processing complete: {filename} ({doc_id})")
 
