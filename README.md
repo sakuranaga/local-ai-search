@@ -51,6 +51,7 @@ LAN 内（非公開）              インターネット（公開）
 | OCR テキスト抽出 | 画像・スキャンPDF を自動処理して検索可能に |
 | ドキュメント自動要約 | LLM で要約を自動生成 |
 | 全ファイルタイプ対応 | テキスト抽出・動画音声プレビュー・メタ情報検索の3層分類 |
+| LibreOffice プレビュー | PPTX/DOCX/DOC/RTF をページ画像に変換してプレビュー |
 | 動画プレビュー (video.js v10) | mp4/mov/mkv/avi 等主要フォーマット対応 |
 | 音声プレビュー | mp3/wav/ogg/m4a/flac/aac をブラウザ内再生 |
 | tus レジューマブルアップロード | 中断しても途中から再開可能 |
@@ -77,7 +78,8 @@ LAN 内（非公開）              インターネット（公開）
 - **ファイルエクスプローラー** — フォルダ階層、タグ、ドラッグ&ドロップ整理
 - **tus レジューマブルアップロード** — 大容量ファイル対応、中断再開可能、進捗率リアルタイム表示
 - **ClamAV ウイルススキャン** — アップロード時に自動スキャン、感染ファイルは即削除
-- **全ファイルタイプ対応** — あらゆるファイルをアップロード可能。テキスト抽出対応(MD/PDF/DOCX/XLSX/CSV/HTML/PPTX/画像OCR)、動画・音声はブラウザ内プレビュー、その他ファイルもメタ情報で検索可能
+- **全ファイルタイプ対応** — あらゆるファイルをアップロード可能。テキスト抽出対応(MD/PDF/DOCX/XLSX/CSV/HTML/PPTX/RTF/画像OCR)、動画・音声はブラウザ内プレビュー、その他ファイルもメタ情報で検索可能
+- **LibreOffice プレビュー** — PPTX/DOCX/DOC/RTF をアップロード時に LibreOffice headless で PDF 変換 → ページ画像生成。Excel/CSV は表形式 HTML プレビュー
 - **動画プレビュー** — video.js v10 でmp4/mov/mkv/avi等を再生（シーク、再生速度、PiP、フルスクリーン対応）
 - **音声プレビュー** — mp3/wav/ogg/m4a/flac/aac をブラウザ内再生
 - **テキスト編集** — OverType エディタでOCR誤認識の修正等（再チャンク・再ベクトル化を自動実行）
@@ -147,6 +149,7 @@ LAN 内（非公開）              インターネット（公開）
 | Upload | tusd (tus プロトコル — レジューマブルアップロード) |
 | Antivirus | ClamAV (360万+シグネチャ、自動定義更新) |
 | Share Server | Go + SQLite (WAL) — 外部共有専用、独立デプロイ |
+| Document Preview | LibreOffice headless + PyMuPDF — PPTX/DOCX/DOC/RTF → PDF → PNG 変換 |
 | OCR | Surya OCR — GPU対応（ROCm/CUDA）、画像・スキャンPDFのテキスト抽出 |
 | Text Editor | OverType (91KB、依存ゼロの WYSIWYG マークダウンエディタ) |
 | Video Player | video.js v10 (@videojs/react) — リッチな動画プレイヤー |

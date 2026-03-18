@@ -25,6 +25,7 @@ AI搭載のローカルファイル管理システムとして、ファイル管
 | Unix スタイルパーミッション | ✅ | owner / group / others の read / write 制御 |
 | 監査ログ | ✅ | 全操作記録、フィルタ、CSVエクスポート |
 | 汎用ファイルアップロード | ✅ | 全ファイルタイプ対応、Tier 1/2/3 分類 |
+| LibreOffice プレビュー | ✅ | PPTX/DOCX/DOC/RTF → PDF → PNG 画像プレビュー |
 | 動画プレビュー (video.js v10) | ✅ | 全主要ビデオフォーマット対応 |
 | 音声プレビュー | ✅ | ブラウザネイティブ `<audio>` |
 | ゴミ箱 | ✅ | ソフトデリート + 復元 + 完全削除 |
@@ -345,11 +346,86 @@ POST /api/documents/apply-recommendations     — リコメンド結果を一括
 
 ---
 
+## 5. SSO / エンタープライズ認証
+
+### 概要
+企業の既存 ID 基盤（Active Directory, Azure AD, Okta, Google Workspace 等）と連携し、シングルサインオンを実現する。
+
+### 背景
+現在はユーザー名 + パスワードによる独自認証。企業導入時に「既存の ID 基盤と統合したい」という要望が想定される。
+
+### 構成案: Keycloak（IdP ブローカー）
+
+```
+顧客企業 A         顧客企業 B
+┌──────────┐      ┌──────────┐
+│ Azure AD │      │  Okta    │
+└────┬─────┘      └────┬─────┘
+     │ SAML/OIDC       │ SAML/OIDC
+     ▼                  ▼
+┌───────────────────────────┐       OIDC        ┌──────────────┐
+│        Keycloak           │◄─────────────────►│ FastAPI      │
+│  (IdP ブローカー)          │    トークン検証    │ バックエンド   │
+│  - Realm per 顧客         │                   └──────┬───────┘
+│  - Identity Brokering     │                          │
+└───────────────────────────┘                   ┌──────┴───────┐
+                                                │ React        │
+                                                │ フロントエンド │
+                                                └──────────────┘
+```
+
+**Keycloak の役割:**
+- 各顧客の IdP（Azure AD, Okta, Google Workspace, LDAP 等）を Identity Brokering で統合
+- LAS は Keycloak とだけ OIDC で接続すればよい（顧客追加時にコード変更不要）
+- 顧客ごとに Realm または Identity Provider を追加するだけで対応完了
+
+### Keycloak vs Authentik
+
+| | Keycloak | Authentik |
+|---|---|---|
+| 実績 | Red Hat、企業採用多数 | 新しめ、成長中 |
+| リソース | 重い（Java、1-2GB RAM） | 軽い（Python/Go、512MB〜） |
+| Docker | 公式対応 | Docker-first 設計 |
+| AD/LDAP 連携 | 非常に成熟 | 対応している |
+| UI | 機能的だが古め | モダンで使いやすい |
+| SCIM | プラグイン | 組み込み |
+
+**推奨:** 企業向け提供なら Keycloak（「Keycloak 対応」で IT 部門が安心する）
+
+### バックエンド変更
+
+現在のパスワード認証は**残したまま** OIDC を追加する形で実装可能:
+
+1. `docker-compose.yml` に Keycloak コンテナ追加（PostgreSQL 共有可）
+2. FastAPI に OIDC ミドルウェア追加（既存パスワード認証と並行稼働）
+3. ログイン画面に「SSO でログイン」ボタン追加
+4. JWT からユーザー自動作成（JIT Provisioning）
+
+**想定工数:** バックエンド変更は 100-200 行程度
+
+### 顧客導入フロー
+
+1. 顧客「うちは Azure AD 使ってる」
+2. Keycloak 管理画面で Identity Provider 追加（Azure AD のメタデータ URL を入れるだけ）
+3. 顧客側はエンタープライズアプリ登録（redirect URI 設定）
+4. 完了 — コード変更不要
+
+### エンドポイント（追加分）
+
+```
+GET  /api/auth/sso/login     — SSO ログイン開始（Keycloak にリダイレクト）
+GET  /api/auth/sso/callback   — OIDC コールバック（トークン受取 → JWT 発行）
+GET  /api/auth/sso/config     — SSO 設定状態（有効/無効、プロバイダ名）
+```
+
+---
+
 ## 実装優先順位
 
 | 優先度 | 機能 | 理由 |
 |--------|------|------|
 | 1 | AI フォルダ自動整理 | AI差別化の目玉機能。既存インフラで実現可能 |
 | 2 | バージョン管理 | データ保護。誤編集からの復旧 |
-| 3 | ストレージクォータ | マルチユーザー運用で必要 |
-| 4 | S3連携 | 大規模運用・クラウド移行時に必要 |
+| 3 | SSO / エンタープライズ認証 | 企業導入時の必須要件になりうる |
+| 4 | ストレージクォータ | マルチユーザー運用で必要 |
+| 5 | S3連携 | 大規模運用・クラウド移行時に必要 |
