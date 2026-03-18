@@ -1,7 +1,8 @@
-import { apiFetch } from "./client";
+import { apiFetch, API_BASE, getToken } from "./client";
 import type {
   ApiKeyCreateResponse,
   ApiKeyInfo,
+  AuditLogListResponse,
   Folder,
   Group,
   GroupMember,
@@ -248,4 +249,59 @@ export async function updateApiKey(id: string, data: {
 
 export async function deleteApiKey(id: string): Promise<void> {
   return apiFetch(`/api-keys/${id}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------------------
+// Audit Logs
+// ---------------------------------------------------------------------------
+
+export async function getAuditLogs(params: {
+  page?: number;
+  per_page?: number;
+  action?: string;
+  user_id?: string;
+  date_from?: string;
+  date_to?: string;
+  q?: string;
+} = {}): Promise<AuditLogListResponse> {
+  const p = new URLSearchParams();
+  if (params.page) p.set("page", String(params.page));
+  if (params.per_page) p.set("per_page", String(params.per_page));
+  if (params.action) p.set("action", params.action);
+  if (params.user_id) p.set("user_id", params.user_id);
+  if (params.date_from) p.set("date_from", params.date_from);
+  if (params.date_to) p.set("date_to", params.date_to);
+  if (params.q) p.set("q", params.q);
+  return apiFetch(`/admin/audit-logs?${p.toString()}`);
+}
+
+export async function getAuditLogActions(): Promise<string[]> {
+  return apiFetch("/admin/audit-logs/actions");
+}
+
+export async function exportAuditLogsCsv(params: {
+  action?: string;
+  user_id?: string;
+  date_from?: string;
+  date_to?: string;
+  q?: string;
+} = {}): Promise<void> {
+  const p = new URLSearchParams();
+  if (params.action) p.set("action", params.action);
+  if (params.user_id) p.set("user_id", params.user_id);
+  if (params.date_from) p.set("date_from", params.date_from);
+  if (params.date_to) p.set("date_to", params.date_to);
+  if (params.q) p.set("q", params.q);
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/admin/audit-logs/export?${p.toString()}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error("Export failed");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "audit_logs.csv";
+  a.click();
+  URL.revokeObjectURL(url);
 }

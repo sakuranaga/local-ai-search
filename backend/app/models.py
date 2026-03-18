@@ -393,3 +393,27 @@ class ShareLink(Base):
 
     document: Mapped["Document"] = relationship()
     created_by: Mapped["User"] = relationship()
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_created_at", "created_at"),
+        Index("ix_audit_logs_user_id", "user_id"),
+        Index("ix_audit_logs_action", "action"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    username: Mapped[str] = mapped_column(String(150), nullable=False, default="")
+    action: Mapped[str] = mapped_column(String(50), nullable=False)  # login, logout, document.create, document.update, ...
+    target_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # document, folder, user, setting, ...
+    target_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    target_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON or free text
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

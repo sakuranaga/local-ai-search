@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { DocumentPreview } from "@/components/DocumentPreview";
 import { OverTypeEditor } from "@/components/OverTypeEditor";

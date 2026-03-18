@@ -1,4 +1,4 @@
-import { API_BASE, apiFetch, getToken } from "./client";
+import { apiFetch } from "./client";
 import type { Document, DocumentListResponse, UnixPermissions, TrashItem } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -67,22 +67,6 @@ export async function updateDocument(
   });
 }
 
-export async function uploadDocument(file: File, folderId?: string | null): Promise<Document> {
-  const token = getToken();
-  const form = new FormData();
-  form.append("file", file);
-  const url = folderId
-    ? `${API_BASE}/documents/upload?folder_id=${encodeURIComponent(folderId)}`
-    : `${API_BASE}/documents/upload`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: form,
-  });
-  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-  return res.json();
-}
-
 export async function getProcessingStatus(docId: string): Promise<string> {
   const data = await apiFetch<{ status: string }>(`/documents/status/${docId}`);
   return data.status;
@@ -90,13 +74,6 @@ export async function getProcessingStatus(docId: string): Promise<string> {
 
 export async function deleteDocument(id: string): Promise<void> {
   return apiFetch(`/documents/${id}`, { method: "DELETE" });
-}
-
-export async function bulkDeleteDocuments(ids: string[]): Promise<{ deleted: number }> {
-  return apiFetch("/documents/bulk-delete", {
-    method: "POST",
-    body: JSON.stringify({ ids }),
-  });
 }
 
 export async function bulkAction(

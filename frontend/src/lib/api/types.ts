@@ -203,6 +203,26 @@ export interface DocumentSearchResponse {
   tokens: string[];
 }
 
+export interface AuditLogItem {
+  id: number;
+  user_id: string | null;
+  username: string;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  target_name: string | null;
+  detail: string | null;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export interface AuditLogListResponse {
+  items: AuditLogItem[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
 export interface ChatStatus {
   model: string;
   available: boolean;

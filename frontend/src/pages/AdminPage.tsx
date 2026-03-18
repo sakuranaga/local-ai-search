@@ -49,15 +49,19 @@ import {
   updateApiKey,
   deleteApiKey,
   getFolders,
+  getAuditLogs,
+  getAuditLogActions,
+  exportAuditLogsCsv,
   type User,
   type Role,
   type SystemSetting,
   type Group,
   type GroupMember,
   type ApiKeyInfo,
+  type AuditLogItem,
   type Folder,
 } from "@/lib/api";
-import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check } from "lucide-react";
+import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -1086,6 +1090,187 @@ function ApiKeysTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Audit Logs Tab
+// ---------------------------------------------------------------------------
+
+const ACTION_LABELS: Record<string, string> = {
+  login: "ログイン",
+  "login.failed": "ログイン失敗",
+  logout: "ログアウト",
+  "document.upload": "ドキュメントアップロード",
+  "document.create": "ドキュメント作成",
+  "document.update": "ドキュメント更新",
+  "document.delete": "ゴミ箱へ移動",
+  "document.purge": "完全削除",
+  "document.restore": "ゴミ箱から復元",
+  "document.overwrite": "ドキュメント上書き",
+};
+
+function AuditLogsTab() {
+  const [items, setItems] = useState<AuditLogItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [perPage] = useState(50);
+  const [actions, setActions] = useState<string[]>([]);
+  const [filterAction, setFilterAction] = useState("");
+  const [filterQ, setFilterQ] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await getAuditLogs({
+        page,
+        per_page: perPage,
+        action: filterAction || undefined,
+        q: filterQ || undefined,
+        date_from: filterDateFrom || undefined,
+        date_to: filterDateTo || undefined,
+      });
+      setItems(res.items);
+      setTotal(res.total);
+    } catch {
+      toast.error("監査ログの取得に失敗");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, perPage, filterAction, filterQ, filterDateFrom, filterDateTo]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    getAuditLogActions().then(setActions).catch(() => {});
+  }, []);
+
+  const totalPages = Math.ceil(total / perPage);
+
+  async function handleExport() {
+    try {
+      await exportAuditLogsCsv({
+        action: filterAction || undefined,
+        q: filterQ || undefined,
+        date_from: filterDateFrom || undefined,
+        date_to: filterDateTo || undefined,
+      });
+    } catch {
+      toast.error("CSV出力に失敗しました");
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-base">監査ログ</CardTitle>
+        <Button size="sm" variant="outline" onClick={handleExport}>
+          <Download className="h-4 w-4 mr-1" /> CSV出力
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* Filters */}
+        <div className="flex flex-wrap gap-2 items-end">
+          <div className="w-40">
+            <label className="text-xs text-muted-foreground">アクション</label>
+            <select
+              value={filterAction}
+              onChange={(e) => { setFilterAction(e.target.value); setPage(1); }}
+              className="w-full h-9 rounded-md border bg-background px-2 text-sm"
+            >
+              <option value="">すべて</option>
+              {actions.map((a) => (
+                <option key={a} value={a}>{ACTION_LABELS[a] || a}</option>
+              ))}
+            </select>
+          </div>
+          <div className="w-36">
+            <label className="text-xs text-muted-foreground">開始日</label>
+            <Input type="date" value={filterDateFrom} onChange={(e) => { setFilterDateFrom(e.target.value); setPage(1); }} className="h-9" />
+          </div>
+          <div className="w-36">
+            <label className="text-xs text-muted-foreground">終了日</label>
+            <Input type="date" value={filterDateTo} onChange={(e) => { setFilterDateTo(e.target.value); setPage(1); }} className="h-9" />
+          </div>
+          <div className="flex-1 min-w-[160px]">
+            <label className="text-xs text-muted-foreground">検索</label>
+            <div className="flex gap-1">
+              <Input
+                placeholder="ユーザー名・対象名..."
+                value={filterQ}
+                onChange={(e) => setFilterQ(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); load(); } }}
+                className="h-9"
+              />
+              <Button size="sm" variant="ghost" onClick={() => { setPage(1); load(); }}>
+                <Search className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-40">日時</TableHead>
+                <TableHead className="w-28">ユーザー</TableHead>
+                <TableHead className="w-36">アクション</TableHead>
+                <TableHead>対象</TableHead>
+                <TableHead className="w-28">IP</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading && items.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">読み込み中...</TableCell>
+                </TableRow>
+              ) : items.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">ログがありません</TableCell>
+                </TableRow>
+              ) : items.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                    {new Date(item.created_at).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </TableCell>
+                  <TableCell className="text-sm">{item.username || "—"}</TableCell>
+                  <TableCell>
+                    <Badge variant={item.action.includes("failed") ? "destructive" : "secondary"} className="text-xs">
+                      {ACTION_LABELS[item.action] || item.action}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-sm truncate max-w-[300px]">
+                    {item.target_name || item.detail || "—"}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{item.ip_address || "—"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>{total}件中 {(page - 1) * perPage + 1}〜{Math.min(page * perPage, total)}件</span>
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="px-2">{page} / {totalPages}</span>
+              <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Admin Page
 // ---------------------------------------------------------------------------
 
@@ -1100,6 +1285,7 @@ export function AdminPage() {
           <TabsTrigger value="groups">グループ管理</TabsTrigger>
           <TabsTrigger value="roles">ロール管理</TabsTrigger>
           <TabsTrigger value="apikeys">APIキー</TabsTrigger>
+          <TabsTrigger value="audit">監査ログ</TabsTrigger>
         </TabsList>
         <TabsContent value="settings" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <SettingsTab />
@@ -1115,6 +1301,9 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="apikeys" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <ApiKeysTab />
+        </TabsContent>
+        <TabsContent value="audit" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
+          <AuditLogsTab />
         </TabsContent>
       </Tabs>
     </div>

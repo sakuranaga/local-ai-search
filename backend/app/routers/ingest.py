@@ -26,6 +26,7 @@ from app.config import settings
 from app.db import async_session, get_db
 from app.deps import get_api_key, get_current_user
 from app.models import ApiKey, Chunk, Document, File, Folder, User
+from app.services.audit import audit_log
 from app.services.auth import verify_token
 from app.services.document_processing import get_file_type, process_document_background
 
@@ -235,6 +236,10 @@ async def _ingest_single_file(
         mime_type=file.content_type,
     ))
 
+    await audit_log(db, user=user, action="document.upload" if created else "document.overwrite",
+                    target_type="document", target_id=str(doc.id), target_name=doc.title,
+                    detail={"via": "api_key", "api_key": api_key.name})
+
     await db.commit()
     await db.refresh(doc)
 
@@ -362,6 +367,9 @@ async def ingest_delete(
 
     from datetime import timezone
     doc.deleted_at = datetime.now(timezone.utc)
+    await audit_log(db, user=current_user, action="document.delete",
+                    target_type="document", target_id=str(doc.id), target_name=doc.title,
+                    detail={"via": "api_key"})
     await db.commit()
 
 
@@ -495,6 +503,19 @@ async def tus_hook(
 
     if event_type == "post-finish":
         # File upload complete — create Document and start processing
+        # Extract client IP from tusd hook payload
+        http_req = body.get("Event", {}).get("HTTPRequest", {})
+        client_ip = None
+        # Check X-Forwarded-For header first
+        fwd_headers = http_req.get("Header", {}).get("X-Forwarded-For", [])
+        if fwd_headers:
+            client_ip = fwd_headers[0].split(",")[0].strip()
+        if not client_ip:
+            # Fall back to RemoteAddr (format: "ip:port")
+            remote_addr = http_req.get("RemoteAddr", "")
+            if remote_addr:
+                client_ip = remote_addr.rsplit(":", 1)[0].strip("[]")
+
         storage_info = upload.get("Storage", {})
         raw_path = storage_info.get("Path", "")
         # tusd stores paths as /data/uploads/tus/xxx but backend sees /data/storage/uploads/tus/xxx
@@ -597,6 +618,10 @@ async def tus_hook(
                 file_size=file_size,
                 mime_type=filetype or None,
             ))
+
+            await audit_log(db, user=user, action="document.upload",
+                            target_type="document", target_id=str(doc.id), target_name=filename,
+                            detail={"via": "tus"}, ip_address=client_ip)
 
             await db.commit()
             logger.info("tus upload complete: %s (%s), doc_id=%s", filename, file_type, doc.id)
