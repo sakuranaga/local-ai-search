@@ -44,7 +44,7 @@ import {
   deleteShareLink,
   type ShareLinkInfo,
 } from "@/lib/api";
-import { formatDate, formatPermString } from "@/lib/fileExplorerHelpers";
+import { formatDate, formatBytes, formatPermString } from "@/lib/fileExplorerHelpers";
 
 // ---------------------------------------------------------------------------
 // Document Detail Modal
@@ -122,6 +122,7 @@ export function DocumentDetailModal({
           </DialogTitle>
           <DialogDescription className="flex items-center gap-3 text-xs">
             <Badge variant="outline">{item.file_type}</Badge>
+            {item.file_size != null && <span>サイズ: {formatBytes(item.file_size)}</span>}
             <span>チャンク: {item.chunk_count}</span>
             {item.folder_name && (
               <span className="flex items-center gap-0.5"><FolderIcon className="h-3 w-3" />{item.folder_name}</span>

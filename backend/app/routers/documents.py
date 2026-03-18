@@ -87,6 +87,16 @@ async def list_documents(
         .subquery()
     )
 
+    # Subquery for file size (sum of all files per document)
+    file_size_sq = (
+        select(
+            File.document_id,
+            func.sum(File.file_size).label("file_size"),
+        )
+        .group_by(File.document_id)
+        .subquery()
+    )
+
     # Subquery for active share link count
     from app.models import ShareLink
     share_count_sq = (
@@ -129,11 +139,13 @@ async def list_documents(
             Group.name.label("group_name"),
             Document.created_at,
             Document.updated_at,
+            file_size_sq.c.file_size.label("file_size"),
             func.coalesce(chunk_count_sq.c.chunk_count, 0).label("chunk_count"),
             func.coalesce(share_count_sq.c.share_count, 0).label("share_count"),
             CreatedByUser.username.label("created_by_name"),
             UpdatedByUser.username.label("updated_by_name"),
         )
+        .outerjoin(file_size_sq, Document.id == file_size_sq.c.document_id)
         .outerjoin(chunk_count_sq, Document.id == chunk_count_sq.c.document_id)
         .outerjoin(share_count_sq, Document.id == share_count_sq.c.document_id)
         .outerjoin(CreatedByUser, Document.created_by_id == CreatedByUser.id)
