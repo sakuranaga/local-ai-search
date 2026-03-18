@@ -1194,14 +1194,14 @@ export function FileExplorerPage() {
                       row.addEventListener("touchmove", cancelMove as any);
                     }}
                   >
-                    <TableCell className="pl-4">
-                      <span className="font-medium text-sm max-w-[400px] truncate flex items-center gap-1">
+                    <TableCell className="pl-4 overflow-hidden max-w-0">
+                      <div className="font-medium text-sm truncate">
                         {item.title}
+                      </div>
+                      <div className="flex items-center gap-1 mt-0.5 flex-wrap truncate">
                         {(item as any).share_count > 0 && (
                           <span title={`共有中（${(item as any).share_count}件）`}><Link className="h-3 w-3 text-primary flex-shrink-0" /></span>
                         )}
-                      </span>
-                      <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                         {item.folder_name && (
                           <span className="text-xs text-muted-foreground flex items-center gap-0.5">
                             <FolderIcon className="h-3 w-3" />{item.folder_name}
