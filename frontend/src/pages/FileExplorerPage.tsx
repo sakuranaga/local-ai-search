@@ -786,7 +786,7 @@ export function FileExplorerPage() {
           <div className="text-center">
             <Upload className="h-12 w-12 text-primary mx-auto mb-3" />
             <p className="text-lg font-medium">ファイルをドロップしてアップロード</p>
-            <p className="text-sm text-muted-foreground mt-1">.md, .txt, .pdf, .docx, .xlsx, .csv, .html, .pptx, 画像 に対応</p>
+            <p className="text-sm text-muted-foreground mt-1">すべてのファイル形式に対応しています</p>
           </div>
         </div>
       )}

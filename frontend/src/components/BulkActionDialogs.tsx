@@ -305,9 +305,9 @@ export function UploadDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>ファイルアップロード</DialogTitle>
-          <DialogDescription>対応形式: Markdown, テキスト, PDF, Word, Excel, 画像 など</DialogDescription>
+          <DialogDescription>すべてのファイル形式に対応しています</DialogDescription>
         </DialogHeader>
-        <Input type="file" multiple accept=".md,.txt,.pdf,.docx,.doc,.markdown,.xlsx,.xls,.csv,.tsv,.html,.htm,.pptx,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.tif,.webp" onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
+        <Input type="file" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
         {files.length > 0 && (
           <div className="text-sm text-muted-foreground space-y-0.5">
             {files.map((f, i) => (

@@ -24,32 +24,42 @@ logger = logging.getLogger(__name__)
 # File type detection
 # ---------------------------------------------------------------------------
 
+_TYPE_MAP = {
+    "md": "md",
+    "markdown": "md",
+    "txt": "md",
+    "pdf": "pdf",
+    "docx": "docx",
+    "doc": "docx",
+    "xlsx": "xlsx",
+    "xls": "xlsx",
+    "csv": "csv",
+    "tsv": "csv",
+    "html": "html",
+    "htm": "html",
+    "pptx": "pptx",
+    "png": "png",
+    "jpg": "jpg",
+    "jpeg": "jpg",
+    "gif": "gif",
+    "bmp": "bmp",
+    "tiff": "tiff",
+    "tif": "tiff",
+    "webp": "webp",
+}
+
+# Tier 1: file types that support text extraction → chunk → embed → summarize
+EXTRACTABLE_TYPES = {
+    "md", "pdf", "docx", "xlsx", "csv", "html", "pptx",
+    "png", "jpg", "gif", "bmp", "tiff", "webp",
+}
+
+
 def get_file_type(filename: str) -> str:
     ext = Path(filename).suffix.lower().lstrip(".")
-    type_map = {
-        "md": "md",
-        "markdown": "md",
-        "txt": "md",
-        "pdf": "pdf",
-        "docx": "docx",
-        "doc": "docx",
-        "xlsx": "xlsx",
-        "xls": "xlsx",
-        "csv": "csv",
-        "tsv": "csv",
-        "html": "html",
-        "htm": "html",
-        "pptx": "pptx",
-        "png": "png",
-        "jpg": "jpg",
-        "jpeg": "jpg",
-        "gif": "gif",
-        "bmp": "bmp",
-        "tiff": "tiff",
-        "tif": "tiff",
-        "webp": "webp",
-    }
-    return type_map.get(ext, "md")
+    if not ext:
+        return "other"
+    return _TYPE_MAP.get(ext, ext)
 
 
 # ---------------------------------------------------------------------------
@@ -142,8 +152,15 @@ async def process_document_background(doc_id: uuid.UUID, storage_path: str, file
 
     Each phase opens/closes its own DB session so connections are not held
     during long-running GPU operations (embedding, summarization).
+    Non-extractable file types (Tier 2/3) skip the pipeline entirely.
     """
     try:
+        # Tier 2/3: no text extraction — mark done immediately
+        if file_type not in EXTRACTABLE_TYPES:
+            await _set_status(doc_id, "done")
+            logger.info(f"Non-extractable file, skipped processing: {filename} ({file_type})")
+            return
+
         # Phase 1: Parse / OCR (no DB session held during I/O)
         await _set_status(doc_id, "parsing")
         try:

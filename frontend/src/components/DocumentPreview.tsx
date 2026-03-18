@@ -1,7 +1,9 @@
 import { getToken } from "@/lib/api";
+import { Download, FileIcon } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import { Button } from "@/components/ui/button";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
@@ -10,10 +12,31 @@ const PDF_TYPES = new Set(["pdf"]);
 const IMAGE_TYPES = new Set(["png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "webp"]);
 /** File types rendered as HTML via the /preview endpoint. */
 const OFFICE_TYPES = new Set(["xlsx", "xls", "csv", "tsv", "pptx", "docx", "doc"]);
+/** Tier 1: text-extractable types (have content via processing pipeline). */
+const TEXT_EXTRACTABLE = new Set([
+  "md", "pdf", "docx", "xlsx", "csv", "html", "pptx",
+  "png", "jpg", "gif", "bmp", "tiff", "webp",
+]);
+/** Tier 2: browser-native preview via <audio> / <video>. */
+const AUDIO_TYPES = new Set(["mp3", "wav", "ogg", "m4a", "flac", "aac"]);
+const VIDEO_TYPES = new Set(["mp4", "webm"]);
+const SVG_TYPES = new Set(["svg"]);
 
 export function isPreviewable(fileType: string): boolean {
   const ft = fileType.toLowerCase();
-  return PDF_TYPES.has(ft) || IMAGE_TYPES.has(ft) || OFFICE_TYPES.has(ft);
+  return (
+    PDF_TYPES.has(ft) ||
+    IMAGE_TYPES.has(ft) ||
+    OFFICE_TYPES.has(ft) ||
+    AUDIO_TYPES.has(ft) ||
+    VIDEO_TYPES.has(ft) ||
+    SVG_TYPES.has(ft)
+  );
+}
+
+/** Returns true if the file type has text content from the processing pipeline or is markdown. */
+export function hasExtractedContent(fileType: string): boolean {
+  return TEXT_EXTRACTABLE.has(fileType.toLowerCase());
 }
 
 function downloadUrl(docId: string): string {
@@ -84,10 +107,59 @@ export function DocumentPreview({ docId, fileType, content, mode }: DocumentPrev
     );
   }
 
-  // Default: Markdown render
+  // Tier 2: Audio preview
+  if (AUDIO_TYPES.has(ft)) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-4">
+        <audio src={downloadUrl(docId)} controls className="w-full max-w-md" />
+      </div>
+    );
+  }
+
+  // Tier 2: Video preview
+  if (VIDEO_TYPES.has(ft)) {
+    return (
+      <video
+        src={downloadUrl(docId)}
+        controls
+        className="w-full max-h-[60vh] rounded"
+      />
+    );
+  }
+
+  // Tier 2: SVG preview
+  if (SVG_TYPES.has(ft)) {
+    return (
+      <div className="flex items-center justify-center p-4">
+        <img
+          src={downloadUrl(docId)}
+          alt="SVG Preview"
+          className="max-w-full max-h-[65vh] object-contain rounded"
+        />
+      </div>
+    );
+  }
+
+  // Tier 1 with content: Markdown render
+  if (content) {
+    return (
+      <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-headings:my-3 prose-pre:my-2 prose-pre:overflow-x-auto prose-code:text-xs p-1">
+        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{content}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  // Tier 3: No preview available
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-headings:my-3 prose-pre:my-2 prose-pre:overflow-x-auto prose-code:text-xs p-1">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{content}</ReactMarkdown>
+    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
+      <FileIcon className="h-16 w-16" />
+      <p className="text-sm">このファイルのプレビューは利用できません</p>
+      <p className="text-xs">{ft.toUpperCase()} ファイル</p>
+      <a href={downloadUrl(docId)} download>
+        <Button variant="outline">
+          <Download className="h-4 w-4 mr-2" />ダウンロード
+        </Button>
+      </a>
     </div>
   );
 }
