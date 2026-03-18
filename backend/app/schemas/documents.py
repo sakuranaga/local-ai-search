@@ -113,3 +113,9 @@ class TrashItem(BaseModel):
 
 class TrashActionRequest(BaseModel):
     ids: list[str]
+
+
+class CreateTextDocumentRequest(BaseModel):
+    title: str
+    content: str
+    folder_id: str | None = None

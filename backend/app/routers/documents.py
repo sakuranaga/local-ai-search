@@ -17,6 +17,7 @@ from app.models import Chunk, Document, DocumentTag, File, Folder, Group, Tag, U
 from app.schemas.documents import (
     BulkActionRequest,
     BulkDeleteRequest,
+    CreateTextDocumentRequest,
     DocumentDetail,
     DocumentListItem,
     DocumentListResponse,
@@ -331,6 +332,151 @@ async def upload_document(
     # Launch background processing (detached from request lifecycle)
     asyncio.create_task(
         process_document_background(doc.id, str(storage_path), file_type, file.filename)
+    )
+
+    return DocumentListItem(
+        id=str(doc.id),
+        title=doc.title,
+        summary=doc.summary,
+        source_path=doc.source_path,
+        file_type=doc.file_type,
+        owner_id=str(doc.owner_id) if doc.owner_id else None,
+        owner_name=current_user.username,
+        group_id=str(doc.group_id) if doc.group_id else None,
+        group_read=doc.group_read,
+        group_write=doc.group_write,
+        others_read=doc.others_read,
+        others_write=doc.others_write,
+        permissions=format_permission_string(doc.group_read, doc.group_write, doc.others_read, doc.others_write),
+        searchable=doc.searchable,
+        ai_knowledge=doc.ai_knowledge,
+        chunk_count=0,
+        memo=doc.memo,
+        created_by_name=current_user.username,
+        updated_by_name=current_user.username,
+        created_at=doc.created_at,
+        updated_at=doc.updated_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Create text document (from editor, saved as .md)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/create-text", response_model=DocumentListItem, status_code=status.HTTP_201_CREATED)
+async def create_text_document(
+    body: CreateTextDocumentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a new markdown document from text content."""
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    if not title.endswith(".md"):
+        title += ".md"
+
+    folder_id = uuid.UUID(body.folder_id) if body.folder_id else None
+
+    # Write content to disk as .md
+    storage_dir = Path(settings.STORAGE_PATH) / "uploads" / str(current_user.id)
+    storage_dir.mkdir(parents=True, exist_ok=True)
+
+    file_id = uuid.uuid4()
+    suffix = ".md"
+    max_name_bytes = 255 - 37 - len(suffix.encode("utf-8"))
+    base_name = Path(title).stem
+    truncated = base_name.encode("utf-8")[:max_name_bytes].decode("utf-8", errors="ignore")
+    stored_filename = f"{file_id}_{truncated}{suffix}"
+    storage_path = storage_dir / stored_filename
+
+    content_bytes = body.content.encode("utf-8")
+    with open(storage_path, "wb") as f:
+        f.write(content_bytes)
+
+    file_size = len(content_bytes)
+
+    # Check for existing document with the same title
+    existing_result = await db.execute(
+        select(Document).where(
+            Document.title == title,
+            Document.deleted_at.is_(None),
+        )
+    )
+    existing_doc = existing_result.scalars().first()
+
+    if existing_doc:
+        doc = existing_doc
+        old_files = await db.execute(select(File).where(File.document_id == doc.id))
+        for old_f in old_files.scalars().all():
+            try:
+                Path(old_f.storage_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+            await db.delete(old_f)
+        doc.source_path = str(storage_path)
+        doc.file_type = "md"
+        doc.content = ""
+        doc.processing_status = "pending"
+        doc.updated_by_id = current_user.id
+        doc.updated_at = func.now()
+        if folder_id is not None:
+            doc.folder_id = folder_id
+    else:
+        from app.services.settings import get_setting
+        default_share_prohibited = (await get_setting(db, "default_share_prohibited")).lower() == "true"
+        default_download_prohibited = (await get_setting(db, "default_download_prohibited")).lower() == "true"
+
+        doc_group_id = None
+        doc_group_read = False
+        doc_group_write = False
+        doc_others_read = True
+        doc_others_write = False
+        if folder_id:
+            folder_obj = await db.get(Folder, folder_id)
+            if folder_obj:
+                doc_group_id = folder_obj.group_id
+                doc_group_read = folder_obj.group_read
+                doc_group_write = folder_obj.group_write
+                doc_others_read = folder_obj.others_read
+                doc_others_write = folder_obj.others_write
+
+        doc = Document(
+            title=title,
+            source_path=str(storage_path),
+            file_type="md",
+            content="",
+            owner_id=current_user.id,
+            group_id=doc_group_id,
+            group_read=doc_group_read,
+            group_write=doc_group_write,
+            others_read=doc_others_read,
+            others_write=doc_others_write,
+            created_by_id=current_user.id,
+            updated_by_id=current_user.id,
+            processing_status="pending",
+            folder_id=folder_id,
+            share_prohibited=default_share_prohibited,
+            download_prohibited=default_download_prohibited,
+        )
+        db.add(doc)
+    await db.flush()
+
+    file_record = File(
+        document_id=doc.id,
+        filename=title,
+        storage_path=str(storage_path),
+        file_size=file_size,
+        mime_type="text/markdown",
+    )
+    db.add(file_record)
+
+    await db.commit()
+    await db.refresh(doc)
+
+    asyncio.create_task(
+        process_document_background(doc.id, str(storage_path), "md", title)
     )
 
     return DocumentListItem(

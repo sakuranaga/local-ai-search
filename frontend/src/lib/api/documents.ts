@@ -150,6 +150,17 @@ export async function purgeFromTrash(ids: string[]): Promise<{ purged: number }>
   });
 }
 
+export async function createTextDocument(data: {
+  title: string;
+  content: string;
+  folder_id?: string | null;
+}): Promise<Document> {
+  return apiFetch("/documents/create-text", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 export async function emptyTrash(): Promise<{ purged: number }> {
   return apiFetch("/documents/trash/empty", { method: "POST" });
 }
