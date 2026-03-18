@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +16,6 @@ from app.deps import get_current_user
 from app.models import Chunk, Document, DocumentTag, File, Folder, Group, Tag, User
 from app.schemas.documents import (
     BulkActionRequest,
-    BulkDeleteRequest,
     CreateTextDocumentRequest,
     DocumentDetail,
     DocumentListItem,
@@ -33,6 +32,7 @@ from app.services.document_processing import (
     make_doc_list_item,
     process_document_background,
 )
+from app.services.audit import audit_log
 from app.services.embedding import get_embeddings
 from app.services.parser import chunk_text, parse_file
 from app.services.permissions import (
@@ -210,155 +210,6 @@ async def list_documents(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/upload", response_model=DocumentListItem, status_code=status.HTTP_201_CREATED)
-async def upload_document(
-    file: UploadFile,
-    background_tasks: BackgroundTasks,
-    folder_id: uuid.UUID | None = Query(None),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Upload a file and return immediately. Processing runs in background."""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No filename provided")
-
-    file_type = get_file_type(file.filename)
-
-    # Save uploaded file to storage
-    storage_dir = Path(settings.STORAGE_PATH) / "uploads" / str(current_user.id)
-    storage_dir.mkdir(parents=True, exist_ok=True)
-
-    file_id = uuid.uuid4()
-    # Truncate stored filename to stay within 255-byte filesystem limit
-    # UUID (36) + underscore (1) = 37 bytes reserved for prefix
-    suffix = Path(file.filename).suffix  # e.g. ".md"
-    max_name_bytes = 255 - 37 - len(suffix.encode("utf-8"))
-    base_name = Path(file.filename).stem
-    truncated = base_name.encode("utf-8")[:max_name_bytes].decode("utf-8", errors="ignore")
-    stored_filename = f"{file_id}_{truncated}{suffix}"
-    storage_path = storage_dir / stored_filename
-
-    content_bytes = await file.read()
-    with open(storage_path, "wb") as f:
-        f.write(content_bytes)
-
-    file_size = len(content_bytes)
-
-    # Check for existing document with the same title (duplicate prevention)
-    existing_result = await db.execute(
-        select(Document).where(
-            Document.title == file.filename,
-            Document.deleted_at.is_(None),
-        )
-    )
-    existing_doc = existing_result.scalars().first()
-
-    if existing_doc:
-        doc = existing_doc
-
-        # Remove old file from disk and DB
-        old_files = await db.execute(select(File).where(File.document_id == doc.id))
-        for old_f in old_files.scalars().all():
-            try:
-                Path(old_f.storage_path).unlink(missing_ok=True)
-            except OSError:
-                pass
-            await db.delete(old_f)
-
-        doc.source_path = str(storage_path)
-        doc.file_type = file_type
-        doc.content = ""
-        doc.processing_status = "pending"
-        doc.updated_by_id = current_user.id
-        doc.updated_at = func.now()
-        if folder_id is not None:
-            doc.folder_id = folder_id
-    else:
-        # Get default security flags
-        from app.services.settings import get_setting
-        default_share_prohibited = (await get_setting(db, "default_share_prohibited")).lower() == "true"
-        default_download_prohibited = (await get_setting(db, "default_download_prohibited")).lower() == "true"
-
-        # Copy permissions from folder if uploading into one
-        doc_group_id = None
-        doc_group_read = False
-        doc_group_write = False
-        doc_others_read = True
-        doc_others_write = False
-        if folder_id:
-            folder_obj = await db.get(Folder, folder_id)
-            if folder_obj:
-                doc_group_id = folder_obj.group_id
-                doc_group_read = folder_obj.group_read
-                doc_group_write = folder_obj.group_write
-                doc_others_read = folder_obj.others_read
-                doc_others_write = folder_obj.others_write
-
-        doc = Document(
-            title=file.filename,
-            source_path=str(storage_path),
-            file_type=file_type,
-            content="",
-            owner_id=current_user.id,
-            group_id=doc_group_id,
-            group_read=doc_group_read,
-            group_write=doc_group_write,
-            others_read=doc_others_read,
-            others_write=doc_others_write,
-            created_by_id=current_user.id,
-            updated_by_id=current_user.id,
-            processing_status="pending",
-            folder_id=folder_id,
-            share_prohibited=default_share_prohibited,
-            download_prohibited=default_download_prohibited,
-        )
-        db.add(doc)
-    await db.flush()
-
-    # Create file record
-    file_record = File(
-        document_id=doc.id,
-        filename=file.filename,
-        storage_path=str(storage_path),
-        file_size=file_size,
-        mime_type=file.content_type,
-    )
-    db.add(file_record)
-
-    # Commit now so background task can find the document
-    await db.commit()
-    await db.refresh(doc)
-
-    # Launch background processing (detached from request lifecycle)
-    asyncio.create_task(
-        process_document_background(doc.id, str(storage_path), file_type, file.filename)
-    )
-
-    return DocumentListItem(
-        id=str(doc.id),
-        title=doc.title,
-        summary=doc.summary,
-        source_path=doc.source_path,
-        file_type=doc.file_type,
-        owner_id=str(doc.owner_id) if doc.owner_id else None,
-        owner_name=current_user.username,
-        group_id=str(doc.group_id) if doc.group_id else None,
-        group_read=doc.group_read,
-        group_write=doc.group_write,
-        others_read=doc.others_read,
-        others_write=doc.others_write,
-        permissions=format_permission_string(doc.group_read, doc.group_write, doc.others_read, doc.others_write),
-        searchable=doc.searchable,
-        ai_knowledge=doc.ai_knowledge,
-        chunk_count=0,
-        memo=doc.memo,
-        created_by_name=current_user.username,
-        updated_by_name=current_user.username,
-        created_at=doc.created_at,
-        updated_at=doc.updated_at,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Create text document (from editor, saved as .md)
 # ---------------------------------------------------------------------------
@@ -366,6 +217,7 @@ async def upload_document(
 
 @router.post("/create-text", response_model=DocumentListItem, status_code=status.HTTP_201_CREATED)
 async def create_text_document(
+    request: Request,
     body: CreateTextDocumentRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -471,6 +323,9 @@ async def create_text_document(
         mime_type="text/markdown",
     )
     db.add(file_record)
+
+    await audit_log(db, user=current_user, action="document.create", target_type="document",
+                    target_id=str(doc.id), target_name=doc.title, request=request)
 
     await db.commit()
     await db.refresh(doc)
@@ -604,6 +459,7 @@ async def list_trash(
 @router.post("/trash/restore")
 async def restore_from_trash(
     body: TrashActionRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -621,6 +477,8 @@ async def restore_from_trash(
         if not _is_admin(current_user) and doc.owner_id != current_user.id:
             continue
         doc.deleted_at = None
+        await audit_log(db, user=current_user, action="document.restore", target_type="document",
+                        target_id=str(doc.id), target_name=doc.title, request=request)
         restored += 1
     await db.flush()
     return {"restored": restored}
@@ -629,6 +487,7 @@ async def restore_from_trash(
 @router.post("/trash/purge")
 async def purge_from_trash(
     body: TrashActionRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -651,6 +510,8 @@ async def purge_from_trash(
                 Path(f.storage_path).unlink(missing_ok=True)
             except OSError:
                 pass
+        await audit_log(db, user=current_user, action="document.purge", target_type="document",
+                        target_id=str(doc.id), target_name=doc.title, request=request)
         await db.delete(doc)
         purged += 1
     await db.flush()
@@ -659,6 +520,7 @@ async def purge_from_trash(
 
 @router.post("/trash/empty")
 async def empty_trash(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -676,6 +538,8 @@ async def empty_trash(
                 Path(f.storage_path).unlink(missing_ok=True)
             except OSError:
                 pass
+        await audit_log(db, user=current_user, action="document.purge", target_type="document",
+                        target_id=str(doc.id), target_name=doc.title, request=request)
         await db.delete(doc)
         purged += 1
     await db.flush()
@@ -946,6 +810,7 @@ async def get_document(
 @router.patch("/{document_id}", response_model=DocumentListItem)
 async def update_document(
     document_id: uuid.UUID,
+    request: Request,
     body: DocumentUpdateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1051,6 +916,9 @@ async def update_document(
         _r = await db.execute(select(User.username).where(User.id == doc.owner_id))
         _owner_name = _r.scalar_one_or_none()
 
+    await audit_log(db, user=current_user, action="document.update", target_type="document",
+                    target_id=str(doc.id), target_name=doc.title, request=request)
+
     return DocumentListItem(
         id=str(doc.id),
         title=doc.title,
@@ -1087,6 +955,7 @@ async def update_document(
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
     document_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1102,51 +971,19 @@ async def delete_document(
 
     doc.deleted_at = datetime.now(timezone.utc)
 
-
-# ---------------------------------------------------------------------------
-# 6. POST /documents/bulk-delete
-# ---------------------------------------------------------------------------
-
-
-@router.post("/bulk-delete")
-async def bulk_delete_documents(
-    body: BulkDeleteRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Soft-delete multiple documents (move to trash)."""
-    deleted = 0
-    now = datetime.now(timezone.utc)
-
-    for doc_id_str in body.ids:
-        try:
-            doc_id = uuid.UUID(doc_id_str)
-        except ValueError:
-            continue
-
-        result = await db.execute(select(Document).where(Document.id == doc_id, Document.deleted_at.is_(None)))
-        doc = result.scalar_one_or_none()
-        if doc is None:
-            continue
-
-        if not await _check_doc_access(doc, current_user, need_write=True, db=db):
-            continue
-
-        doc.deleted_at = now
-        deleted += 1
-
-    await db.flush()
-    return {"deleted": deleted}
+    await audit_log(db, user=current_user, action="document.delete", target_type="document",
+                    target_id=str(doc.id), target_name=doc.title, request=request)
 
 
 # ---------------------------------------------------------------------------
-# 6b. POST /documents/bulk-action — unified bulk operations
+# 6. POST /documents/bulk-action — unified bulk operations
 # ---------------------------------------------------------------------------
 
 
 @router.post("/bulk-action")
 async def bulk_action(
     body: BulkActionRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1191,6 +1028,8 @@ async def bulk_action(
         now = datetime.now(timezone.utc)
         for doc in docs:
             doc.deleted_at = now
+            await audit_log(db, user=current_user, action="document.delete", target_type="document",
+                            target_id=str(doc.id), target_name=doc.title, request=request)
         await db.flush()
         return {"action": "delete", "processed": len(docs)}
 

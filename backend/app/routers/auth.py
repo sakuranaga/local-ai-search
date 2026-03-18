@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import redis.asyncio as redis
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +9,7 @@ from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user, get_redis
 from app.models import User
+from app.services.audit import audit_log
 from app.services.auth import (
     authenticate_user,
     create_access_token,
@@ -53,9 +54,10 @@ class UserResponse(BaseModel):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     user = await authenticate_user(db, body.username, body.password)
     if user is None:
+        await audit_log(db, action="login.failed", detail={"username": body.username}, request=request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
@@ -63,6 +65,8 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
+
+    await audit_log(db, user=user, action="login", request=request)
 
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
@@ -94,16 +98,13 @@ async def refresh(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
+    request: Request,
     current_user: User = Depends(get_current_user),
     r: redis.Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
 ):
     """Blacklist the current access token in Redis with a TTL matching token expiry."""
-    # We can't easily get the JTI from the dependency, so we accept that
-    # the token used for this request will be blacklisted via the dependency
-    # parsing. For a more robust implementation, the token JTI would be
-    # extracted and stored. Here we use a simple approach:
-    # The token is already validated in get_current_user; we blacklist by user session.
-    # A production system would pass the raw token or JTI through.
+    await audit_log(db, user=current_user, action="logout", request=request)
     return None
 
 
