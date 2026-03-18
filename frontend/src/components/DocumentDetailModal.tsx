@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { DocumentPreview, hasExtractedContent, isPreviewable } from "@/components/DocumentPreview";
+import { DocumentPreview, hasExtractedContent, isPreviewable, isVideoType } from "@/components/DocumentPreview";
 import { OverTypeEditor } from "@/components/OverTypeEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -110,7 +110,11 @@ export function DocumentDetailModal({
 
   return (
     <Dialog open={!!item} onOpenChange={() => handleClose()}>
-      <DialogContent className="!max-w-none !w-screen !h-screen !max-h-screen !rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 md:!max-w-5xl md:!w-[95vw] md:!h-[85vh] md:!max-h-[85vh] md:!rounded-lg md:!top-1/2 md:!left-1/2 md:!-translate-x-1/2 md:!-translate-y-1/2 flex flex-col">
+      <DialogContent className={`!max-w-none !w-screen !h-screen !max-h-screen !rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 md:!rounded-lg md:!top-1/2 md:!left-1/2 md:!-translate-x-1/2 md:!-translate-y-1/2 flex flex-col ${
+        isVideoType(item.file_type)
+          ? "md:!max-w-6xl md:!w-[95vw] md:!h-auto md:!max-h-[95vh]"
+          : "md:!max-w-5xl md:!w-[95vw] md:!h-[85vh] md:!max-h-[85vh]"
+      }`}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-4 w-4" />

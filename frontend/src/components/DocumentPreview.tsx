@@ -4,6 +4,11 @@ import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
+import "@videojs/react/video/skin.css";
+import { createPlayer, videoFeatures } from "@videojs/react";
+import { VideoSkin, Video } from "@videojs/react/video";
+
+const Player = createPlayer({ features: videoFeatures });
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
@@ -19,7 +24,11 @@ const TEXT_EXTRACTABLE = new Set([
 ]);
 /** Tier 2: browser-native preview via <audio> / <video>. */
 const AUDIO_TYPES = new Set(["mp3", "wav", "ogg", "m4a", "flac", "aac"]);
-const VIDEO_TYPES = new Set(["mp4", "webm"]);
+const VIDEO_TYPES = new Set([
+  "mp4", "m4v", "webm", "ogv", "ogg", "mov",
+  "avi", "wmv", "flv", "mkv", "ts", "m2ts", "mts",
+  "3gp", "3g2", "f4v", "asf", "vob", "mpg", "mpeg",
+]);
 const SVG_TYPES = new Set(["svg"]);
 
 export function isPreviewable(fileType: string): boolean {
@@ -37,6 +46,10 @@ export function isPreviewable(fileType: string): boolean {
 /** Returns true if the file type has text content from the processing pipeline or is markdown. */
 export function hasExtractedContent(fileType: string): boolean {
   return TEXT_EXTRACTABLE.has(fileType.toLowerCase());
+}
+
+export function isVideoType(fileType: string): boolean {
+  return VIDEO_TYPES.has(fileType.toLowerCase());
 }
 
 function downloadUrl(docId: string): string {
@@ -116,14 +129,16 @@ export function DocumentPreview({ docId, fileType, content, mode }: DocumentPrev
     );
   }
 
-  // Tier 2: Video preview
+  // Tier 2: Video preview (video.js v10)
   if (VIDEO_TYPES.has(ft)) {
     return (
-      <video
-        src={downloadUrl(docId)}
-        controls
-        className="w-full max-h-[60vh] rounded"
-      />
+      <div className="w-full rounded overflow-hidden" style={{ aspectRatio: "16/9" }}>
+        <Player.Provider>
+          <VideoSkin className="rounded">
+            <Video src={downloadUrl(docId)} playsInline />
+          </VideoSkin>
+        </Player.Provider>
+      </div>
     );
   }
 
