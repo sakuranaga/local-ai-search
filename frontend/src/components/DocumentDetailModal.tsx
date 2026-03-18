@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { DocumentPreview } from "@/components/DocumentPreview";
+import { DocumentPreview, hasExtractedContent, isPreviewable } from "@/components/DocumentPreview";
 import { OverTypeEditor } from "@/components/OverTypeEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,8 +74,13 @@ export function DocumentDetailModal({
   const [savingContent, setSavingContent] = useState(false);
   const contentDirty = editedContent !== null && editedContent !== doc?.content;
 
+  const showViewTab = item ? (isPreviewable(item.file_type) || hasExtractedContent(item.file_type)) : true;
+  const showRawTab = item ? hasExtractedContent(item.file_type) : true;
+
   useEffect(() => {
     if (!item) { setDoc(null); setTab("view"); setEditedContent(null); return; }
+    const canPreview = isPreviewable(item.file_type) || hasExtractedContent(item.file_type);
+    setTab(canPreview ? "view" : "edit");
     setLoading(true);
     setEditedContent(null);
     getDocument(item.id).then(setDoc).catch(() => toast.error("文書取得失敗")).finally(() => setLoading(false));
@@ -129,7 +134,7 @@ export function DocumentDetailModal({
 
         {/* Tabs — hidden on mobile */}
         <div className="hidden md:flex gap-1 border-b">
-          {(["view", "edit", "permissions", "raw", ...(shareEnabled && !item.share_prohibited ? ["share" as const] : [])] as const).map((t) => (
+          {([...(showViewTab ? ["view" as const] : []), "edit" as const, "permissions" as const, ...(showRawTab ? ["raw" as const] : []), ...(shareEnabled && !item.share_prohibited ? ["share" as const] : [])] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}

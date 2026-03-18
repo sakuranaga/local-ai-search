@@ -213,7 +213,12 @@ async def execute_tool(
                 return f"文書ID {doc_id} へのアクセス権限がありません。", sources
 
             sources.append({"document_id": str(doc.id), "title": doc.title})
-            content = doc.content
+            content = doc.content or ""
+            if not content.strip():
+                return (
+                    f"**{doc.title}** にはテキスト情報がありません。"
+                    f"\nファイルタイプ: {doc.file_type}"
+                ), sources
             if len(content) > 4000:
                 content = content[:4000] + "\n\n... (以下省略、全文は4000文字を超えています)"
             return f"**{doc.title}** の全文:\n\n{content}", sources
