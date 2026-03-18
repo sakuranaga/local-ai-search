@@ -132,6 +132,7 @@ export function FileExplorerPage() {
   const navigate = useNavigate();
   const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>(loadSearchHistory);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [focusedIdx, setFocusedIdx] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Folder state
@@ -346,6 +347,48 @@ export function FileExplorerPage() {
 
       const isMod = e.metaKey || e.ctrlKey;
 
+      // Arrow key navigation (←↑ = up, →↓ = down)
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) && !isMod) {
+        e.preventDefault();
+        const isUp = e.key === "ArrowUp" || e.key === "ArrowLeft";
+        setFocusedIdx((prev) => {
+          const cur = prev ?? (isUp ? 0 : -1);
+          const next = isUp ? Math.max(0, cur - 1) : Math.min(items.length - 1, cur + 1);
+          const item = items[next];
+          if (!item) return prev;
+
+          // Selection
+          if (e.shiftKey) {
+            // Shift+arrow: toggle the item we moved TO into selection
+            setSelected((s) => { const n = new Set(s); n.add(item.id); return n; });
+          } else {
+            // Normal arrow: select only this item
+            setSelected(new Set([item.id]));
+          }
+          lastClickedIdx.current = next;
+
+          // Scroll row into view
+          const row = scrollContainerRef.current?.querySelector(`[data-row-idx="${next}"]`);
+          row?.scrollIntoView({ block: "nearest" });
+
+          // Trigger infinite scroll when near bottom
+          if (next >= items.length - 3 && hasMore && !loadingRef.current) {
+            pageRef.current += 1;
+            load();
+          }
+
+          return next;
+        });
+        return;
+      }
+
+      // Enter: open detail modal for focused item
+      if (e.key === "Enter" && focusedIdx !== null && items[focusedIdx]) {
+        e.preventDefault();
+        setDetailDoc(items[focusedIdx]);
+        return;
+      }
+
       // Ctrl/Cmd+A: select all
       if (isMod && e.key === "a") {
         e.preventDefault();
@@ -353,9 +396,10 @@ export function FileExplorerPage() {
         return;
       }
 
-      // Escape: clear selection
+      // Escape: clear selection and focus
       if (e.key === "Escape") {
         setSelected(new Set());
+        setFocusedIdx(null);
         return;
       }
 
@@ -367,6 +411,7 @@ export function FileExplorerPage() {
         bulkAction(ids, "delete").then((res) => {
           toast.success(`${res.processed}件をゴミ箱に移動しました`, { id: tid });
           setSelected(new Set());
+          setFocusedIdx(null);
           setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
           setTotal((prev) => Math.max(0, prev - ids.length));
           loadFolders();
@@ -378,7 +423,7 @@ export function FileExplorerPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [items, selected, showTrash, detailDoc, bulkActionOpen, uploadOpen, newFolderOpen]);
+  }, [items, selected, showTrash, detailDoc, bulkActionOpen, uploadOpen, newFolderOpen, focusedIdx, hasMore]);
 
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
 
@@ -1188,13 +1233,14 @@ export function FileExplorerPage() {
                 <col style={{ width: 112 }} />
               </colgroup>
               <TableBody className="[&_tr:last-child]:border-b">
-                {items.map((item) => (
+                {items.map((item, rowIdx) => (
                   <TableRow
                     key={item.id}
+                    data-row-idx={rowIdx}
                     draggable
                     onDragStart={(e) => handleDragStart(e, item.id)}
                     className={`cursor-pointer select-none ${selected.has(item.id) ? "bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-50 dark:hover:bg-blue-950/30" : ""}`}
-                    onClick={(e) => handleRowClick(item, e)}
+                    onClick={(e) => { handleRowClick(item, e); setFocusedIdx(rowIdx); }}
                     onDoubleClick={() => handleRowDoubleClick(item)}
                     onContextMenu={(e) => handleContextMenu(e, item)}
                     onTouchStart={(e) => {
@@ -1346,12 +1392,26 @@ export function FileExplorerPage() {
         onPrev={(() => {
           if (!detailDoc) return undefined;
           const idx = items.findIndex((i) => i.id === detailDoc.id);
-          return idx > 0 ? () => setDetailDoc(items[idx - 1]) : undefined;
+          return idx > 0 ? () => {
+            const prev = items[idx - 1];
+            setDetailDoc(prev);
+            setSelected(new Set([prev.id]));
+            setFocusedIdx(idx - 1);
+            const row = scrollContainerRef.current?.querySelector(`[data-row-idx="${idx - 1}"]`);
+            row?.scrollIntoView({ block: "nearest" });
+          } : undefined;
         })()}
         onNext={(() => {
           if (!detailDoc) return undefined;
           const idx = items.findIndex((i) => i.id === detailDoc.id);
-          return idx >= 0 && idx < items.length - 1 ? () => setDetailDoc(items[idx + 1]) : undefined;
+          return idx >= 0 && idx < items.length - 1 ? () => {
+            const next = items[idx + 1];
+            setDetailDoc(next);
+            setSelected(new Set([next.id]));
+            setFocusedIdx(idx + 1);
+            const row = scrollContainerRef.current?.querySelector(`[data-row-idx="${idx + 1}"]`);
+            row?.scrollIntoView({ block: "nearest" });
+          } : undefined;
         })()}
       />
 
