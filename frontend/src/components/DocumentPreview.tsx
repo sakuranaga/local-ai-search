@@ -16,10 +16,10 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const PDF_TYPES = new Set(["pdf"]);
 const IMAGE_TYPES = new Set(["png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "webp"]);
 /** File types rendered as HTML via the /preview endpoint. */
-const OFFICE_TYPES = new Set(["xlsx", "xls", "csv", "tsv", "pptx", "docx", "doc"]);
+const OFFICE_TYPES = new Set(["xlsx", "xls", "csv", "tsv", "pptx", "docx", "doc", "rtf"]);
 /** Tier 1: text-extractable types (have content via processing pipeline). */
 const TEXT_EXTRACTABLE = new Set([
-  "md", "pdf", "docx", "xlsx", "csv", "html", "pptx",
+  "md", "pdf", "docx", "xlsx", "csv", "html", "pptx", "rtf",
   "png", "jpg", "gif", "bmp", "tiff", "webp",
 ]);
 /** Tier 2: browser-native preview via <audio> / <video>. */

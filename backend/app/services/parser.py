@@ -32,6 +32,8 @@ async def parse_file(path: str, file_type: str) -> str:
         return await _parse_html(path)
     elif file_type == "pptx":
         return await _parse_pptx(path)
+    elif file_type == "rtf":
+        return await _parse_rtf(path)
     elif file_type in _IMAGE_EXTENSIONS:
         return await _parse_image_ocr(path)
     else:
@@ -197,6 +199,34 @@ async def _parse_pptx(path: str) -> str:
         return "\n".join(parts)
 
     return await asyncio.get_event_loop().run_in_executor(None, _extract)
+
+
+async def _parse_rtf(path: str) -> str:
+    """Extract text from an RTF file using LibreOffice headless conversion to txt."""
+    import os
+    import tempfile
+    import uuid as _uuid
+
+    async def _convert() -> str:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # LibreOffice needs a file extension
+            symlink = os.path.join(tmpdir, f"{_uuid.uuid4().hex}.rtf")
+            os.symlink(path, symlink)
+            user_inst = f"file://{tmpdir}/lo_profile"
+            proc = await asyncio.create_subprocess_exec(
+                "soffice", "--headless", "--norestore",
+                f"-env:UserInstallation={user_inst}",
+                "--convert-to", "txt:Text", "--outdir", tmpdir, symlink,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=60)
+            txt_path = symlink.rsplit(".", 1)[0] + ".txt"
+            if os.path.exists(txt_path):
+                with open(txt_path, "r", encoding="utf-8", errors="replace") as f:
+                    return f.read()
+        return ""
+
+    return await _convert()
 
 
 async def _parse_image_ocr(path: str) -> str:

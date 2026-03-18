@@ -8,10 +8,11 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <style>
-  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 16px; color: #222; background: #fff; }}
+  html, body {{ margin: 0; padding: 0; overflow: hidden; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #222; background: #fff; }}
   @media (prefers-color-scheme: dark) {{ body {{ background: #1a1a1a; color: #e0e0e0; }} }}
-  table {{ border-collapse: collapse; width: 100%; margin-bottom: 24px; font-size: 13px; }}
-  th, td {{ border: 1px solid #ccc; padding: 6px 10px; text-align: left; white-space: pre-wrap; }}
+  .table-wrap {{ overflow: auto; height: 100vh; }}
+  table {{ border-collapse: collapse; width: max-content; min-width: 100%; font-size: 13px; }}
+  th, td {{ border: 1px solid #ccc; padding: 6px 10px; text-align: left; white-space: nowrap; }}
   @media (prefers-color-scheme: dark) {{ th, td {{ border-color: #444; }} }}
   th {{ background: #f0f0f0; font-weight: 600; }}
   @media (prefers-color-scheme: dark) {{ th {{ background: #2a2a2a; }} }}
@@ -53,9 +54,12 @@ def _render_excel(path: str) -> str:
     wb = load_workbook(buf, read_only=True, data_only=True)
     parts: list[str] = []
 
+    multi_sheet = len(wb.sheetnames) > 1
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
-        parts.append(f"<h2>{_esc(sheet_name)}</h2>")
+        parts.append('<div class="table-wrap">')
+        if multi_sheet:
+            parts.append(f"<h2>{_esc(sheet_name)}</h2>")
         parts.append("<table>")
         for i, row in enumerate(ws.iter_rows(values_only=True)):
             cells = [str(c) if c is not None else "" for c in row]
@@ -63,7 +67,7 @@ def _render_excel(path: str) -> str:
                 continue
             tag = "th" if i == 0 else "td"
             parts.append("<tr>" + "".join(f"<{tag}>{_esc(c)}</{tag}>" for c in cells) + "</tr>")
-        parts.append("</table>")
+        parts.append("</table>\n</div>")
 
     wb.close()
     return _HTML_TEMPLATE.format(content="\n".join(parts))
@@ -100,7 +104,7 @@ def _render_csv(path: str, ft: str) -> str:
     import csv
 
     delimiter = "\t" if ft == "tsv" else ","
-    parts: list[str] = ["<table>"]
+    parts: list[str] = ['<div class="table-wrap"><table>']
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         reader = csv.reader(f, delimiter=delimiter)
         for i, row in enumerate(reader):
@@ -108,7 +112,7 @@ def _render_csv(path: str, ft: str) -> str:
                 continue
             tag = "th" if i == 0 else "td"
             parts.append("<tr>" + "".join(f"<{tag}>{_esc(c)}</{tag}>" for c in row) + "</tr>")
-    parts.append("</table>")
+    parts.append("</table></div>")
     return _HTML_TEMPLATE.format(content="\n".join(parts))
 
 

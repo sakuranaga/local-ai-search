@@ -7,6 +7,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         gcc \
         libffi-dev \
+        libreoffice-nogui \
+        fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
