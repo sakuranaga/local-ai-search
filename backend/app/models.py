@@ -212,6 +212,10 @@ class Document(Base):
         Index("ix_documents_folder_id", "folder_id"),
         Index("ix_documents_owner_id", "owner_id"),
         Index("ix_documents_group_id", "group_id"),
+        Index("ix_documents_title_embedding_cosine", "title_embedding",
+              postgresql_using="ivfflat",
+              postgresql_with={"lists": 100},
+              postgresql_ops={"title_embedding": "vector_cosine_ops"}),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -259,6 +263,7 @@ class Document(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    title_embedding = mapped_column(Vector(1024), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )

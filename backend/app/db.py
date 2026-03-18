@@ -5,8 +5,8 @@ from app.config import settings
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
-    pool_size=20,
-    max_overflow=10,
+    pool_size=30,
+    max_overflow=20,
     connect_args={"ssl": None},
 )
 

@@ -1261,6 +1261,9 @@ export function FileExplorerPage() {
                     <TableCell className="pl-4 overflow-hidden max-w-0">
                       <div className="font-medium text-sm truncate">
                         {item.title}
+                        {isSearching && (item as any).rrf_score != null && (
+                          <span className={`ml-2 text-xs font-normal ${(item as any).rrf_score >= 0.5 ? "text-green-600" : "text-orange-500"}`}>{((item as any).rrf_score as number).toFixed(4)}</span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1 mt-0.5 flex-wrap truncate">
                         {(item as any).share_count > 0 && (

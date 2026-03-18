@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import async_session
 from app.models import Chunk, Document, DocumentTag, Tag
 from app.schemas.documents import DocumentListItem, TagInfo
-from app.services.embedding import get_embeddings
+from app.services.embedding import get_embedding, get_embeddings
 from app.services.llm import generate_summary
 from app.services.parser import chunk_text, parse_file
 from app.services.permissions import format_permission_string
@@ -182,6 +182,20 @@ async def process_document_background(doc_id: uuid.UUID, storage_path: str, file
                 embeddings = await get_embeddings(chunks_text)
             except Exception:
                 embeddings = [None] * len(chunks_text)
+            # Title embedding (title + filename for semantic search)
+            try:
+                title_text = filename
+                async with async_session() as db:
+                    result = await db.execute(select(Document.title, Document.source_path).where(Document.id == doc_id))
+                    row = result.one_or_none()
+                    if row:
+                        parts = [row.title]
+                        if row.source_path and row.source_path != row.title:
+                            parts.append(row.source_path)
+                        title_text = " | ".join(parts)
+                title_emb = await get_embedding(title_text)
+            except Exception:
+                title_emb = None
 
         # Phase 3: Save content + chunks to DB (short session)
         async with async_session() as db:
@@ -190,6 +204,7 @@ async def process_document_background(doc_id: uuid.UUID, storage_path: str, file
             if not doc:
                 return
             doc.content = text_content
+            doc.title_embedding = title_emb
             doc.processing_status = "summarizing"
             await db.execute(delete(Chunk).where(Chunk.document_id == doc_id))
             for i, (chunk_content, embedding) in enumerate(zip(chunks_text, embeddings)):
