@@ -25,6 +25,8 @@ import {
   Check,
   Link,
   Plus,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   getDocument,
@@ -58,6 +60,8 @@ export function DocumentDetailModal({
   onClose,
   onUpdated,
   onTagsChanged,
+  onPrev,
+  onNext,
 }: {
   item: DocumentListItem | null;
   folders: Folder[];
@@ -66,6 +70,8 @@ export function DocumentDetailModal({
   onClose: () => void;
   onUpdated: () => void;
   onTagsChanged: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
 }) {
   const [doc, setDoc] = useState<Document | null>(null);
   const [tab, setTab] = useState<"view" | "edit" | "permissions" | "raw" | "share">("view");
@@ -85,6 +91,13 @@ export function DocumentDetailModal({
     setEditedContent(null);
     getDocument(item.id).then(setDoc).catch(() => toast.error("文書取得失敗")).finally(() => setLoading(false));
   }, [item?.id]);
+
+  const handleDialogKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable) return;
+    if (e.key === "ArrowLeft" && onPrev) { e.preventDefault(); onPrev(); }
+    if (e.key === "ArrowRight" && onNext) { e.preventDefault(); onNext(); }
+  }, [onPrev, onNext]);
 
   function handleClose() {
     if (contentDirty) {
@@ -110,15 +123,25 @@ export function DocumentDetailModal({
 
   return (
     <Dialog open={!!item} onOpenChange={() => handleClose()}>
-      <DialogContent className={`!max-w-none !w-screen !h-screen !max-h-screen !rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 md:!rounded-lg md:!top-1/2 md:!left-1/2 md:!-translate-x-1/2 md:!-translate-y-1/2 flex flex-col ${
+      <DialogContent onKeyDown={handleDialogKeyDown} className={`!max-w-none !w-screen !h-screen !max-h-screen !rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 md:!rounded-lg md:!top-1/2 md:!left-1/2 md:!-translate-x-1/2 md:!-translate-y-1/2 flex flex-col ${
         isVideoType(item.file_type)
           ? "md:!max-w-6xl md:!w-[95vw] md:!h-auto md:!max-h-[95vh]"
           : "md:!max-w-5xl md:!w-[95vw] md:!h-[85vh] md:!max-h-[85vh]"
       }`}>
+        {/* Prev / Next navigation */}
+        <div className="absolute top-2 right-10 flex items-center gap-0.5">
+          <Button variant="ghost" size="icon-sm" disabled={!onPrev} onClick={onPrev} title="前のファイル (←)" tabIndex={-1} className="!ring-0 !outline-none">
+            <ChevronLeft />
+          </Button>
+          <Button variant="ghost" size="icon-sm" disabled={!onNext} onClick={onNext} title="次のファイル (→)" tabIndex={-1} className="!ring-0 !outline-none">
+            <ChevronRight />
+          </Button>
+        </div>
+
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-4 w-4" />
-            {item.title}
+          <DialogTitle className="flex items-center gap-2 pr-20">
+            <FileText className="h-4 w-4 shrink-0" />
+            <span className="truncate">{item.title}</span>
           </DialogTitle>
           <DialogDescription className="flex items-center gap-3 text-xs">
             <Badge variant="outline">{item.file_type}</Badge>

@@ -1343,6 +1343,16 @@ export function FileExplorerPage() {
         onClose={() => setDetailDoc(null)}
         onUpdated={() => { setDetailDoc(null); load(true); loadFolders(); loadTags(); }}
         onTagsChanged={loadTags}
+        onPrev={(() => {
+          if (!detailDoc) return undefined;
+          const idx = items.findIndex((i) => i.id === detailDoc.id);
+          return idx > 0 ? () => setDetailDoc(items[idx - 1]) : undefined;
+        })()}
+        onNext={(() => {
+          if (!detailDoc) return undefined;
+          const idx = items.findIndex((i) => i.id === detailDoc.id);
+          return idx >= 0 && idx < items.length - 1 ? () => setDetailDoc(items[idx + 1]) : undefined;
+        })()}
       />
 
       {/* Bulk action confirms */}
