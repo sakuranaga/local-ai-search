@@ -335,6 +335,15 @@ export function FileExplorerPage() {
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [hasMore, load, loading, showTrash]);
+
+  // Keyboard-driven infinite scroll: trigger load when focusedIdx nears bottom
+  useEffect(() => {
+    if (focusedIdx !== null && items.length > 0 && focusedIdx >= items.length - 3 && hasMore && !loadingRef.current) {
+      pageRef.current += 1;
+      load();
+    }
+  }, [focusedIdx, items.length, hasMore, load]);
+
   // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -370,12 +379,6 @@ export function FileExplorerPage() {
           // Scroll row into view
           const row = scrollContainerRef.current?.querySelector(`[data-row-idx="${next}"]`);
           row?.scrollIntoView({ block: "nearest" });
-
-          // Trigger infinite scroll when near bottom
-          if (next >= items.length - 3 && hasMore && !loadingRef.current) {
-            pageRef.current += 1;
-            load();
-          }
 
           return next;
         });
