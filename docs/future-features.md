@@ -6,6 +6,47 @@ AI搭載のローカルファイル管理システムとして、ファイル管
 
 ---
 
+## 実装済み機能
+
+以下は設計・実装が完了した機能です。
+
+| 機能 | 状態 | 備考 |
+|------|------|------|
+| AI エージェント検索 | ✅ | ReAct 方式ツール呼び出し |
+| ベクトル検索 + 全文検索 (RRF) | ✅ | pgvector + pg_bigm ハイブリッド |
+| OCR テキスト抽出 | ✅ | Surya OCR (GPU対応) |
+| ドキュメント自動要約 | ✅ | LLM で自動生成 |
+| テキスト編集（WYSIWYG） | ✅ | OverType エディタ |
+| API キーによる外部連携 | ✅ | フォルダスコープ + 権限制限付き |
+| tus レジューマブルアップロード | ✅ | 中断再開可能、進捗表示 |
+| ClamAV ウイルススキャン | ✅ | アップロード時自動スキャン |
+| 外部共有リンク (Share Server) | ✅ | Go + SQLite 独立デプロイ、パスワード・期限付き |
+| 共有・ダウンロード制御 | ✅ | ユーザー/ファイル単位で禁止フラグ |
+| Unix スタイルパーミッション | ✅ | owner / group / others の read / write 制御 |
+| 監査ログ | ✅ | 全操作記録、フィルタ、CSVエクスポート |
+| 汎用ファイルアップロード | ✅ | 全ファイルタイプ対応、Tier 1/2/3 分類 |
+| 動画プレビュー (video.js v10) | ✅ | 全主要ビデオフォーマット対応 |
+| 音声プレビュー | ✅ | ブラウザネイティブ `<audio>` |
+| ゴミ箱 | ✅ | ソフトデリート + 復元 + 完全削除 |
+
+---
+
+## 改善検討事項
+
+### ClamAV 未接続時のアップロード拒否
+
+現在、ClamAV が停止・未接続の場合はウイルススキャンをスキップ（`skipped`）してアップロードが成功する。
+拡張子偽装を含む全ファイルを確実にスキャンするため、ClamAV が利用不可の場合にアップロードを拒否するオプション（`require_virus_scan` システム設定）を追加を検討。
+
+- `require_virus_scan = true`: ClamAV 接続不可 → アップロード拒否（安全優先）
+- `require_virus_scan = false`: 現行動作（スキップしてアップロード許可）
+
+---
+
+## 未実装機能
+
+---
+
 ## 1. バージョン管理
 
 ### 概要
@@ -44,64 +85,7 @@ CREATE TABLE document_versions (
 
 ---
 
-## 2. 共有リンク
-
-### 概要
-外部ユーザー（アカウントなし）にファイルを一時的に共有できるURL。
-
-### 要件
-- ドキュメント/フォルダ単位で共有リンク生成
-- 有効期限設定（1時間〜無期限）
-- パスワード保護（オプション）
-- ダウンロード回数制限（オプション）
-- 権限レベル（閲覧のみ / ダウンロード可）
-- 共有リンク一覧管理（管理画面から無効化可能）
-- アクセスログ記録
-
-### データモデル
-
-```sql
-CREATE TABLE share_links (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    document_id UUID REFERENCES documents(id) ON DELETE CASCADE,
-    folder_id UUID REFERENCES folders(id) ON DELETE CASCADE,
-    token VARCHAR(64) UNIQUE NOT NULL,    -- URLに含めるランダムトークン
-    password_hash VARCHAR(255),           -- オプション
-    permission VARCHAR(20) DEFAULT 'view', -- 'view' | 'download'
-    max_downloads INTEGER,                -- NULL = 無制限
-    download_count INTEGER DEFAULT 0,
-    expires_at TIMESTAMPTZ,               -- NULL = 無期限
-    created_by_id UUID NOT NULL REFERENCES users(id),
-    created_at TIMESTAMPTZ DEFAULT now(),
-    is_active BOOLEAN DEFAULT TRUE,
-    CHECK (document_id IS NOT NULL OR folder_id IS NOT NULL)
-);
-
-CREATE TABLE share_link_access_log (
-    id BIGSERIAL PRIMARY KEY,
-    share_link_id UUID NOT NULL REFERENCES share_links(id) ON DELETE CASCADE,
-    ip_address VARCHAR(45),
-    user_agent TEXT,
-    accessed_at TIMESTAMPTZ DEFAULT now()
-);
-```
-
-### エンドポイント
-- `POST /api/share` — 共有リンク作成
-- `GET /api/share/{token}` — 共有コンテンツ取得（認証不要）
-- `GET /api/share/{token}/download` — ファイルダウンロード（認証不要）
-- `GET /api/share/list` — 自分の共有リンク一覧
-- `DELETE /api/share/{id}` — 共有リンク無効化
-
-### UI
-- 右クリックメニューに「共有リンク作成」追加
-- ダイアログで期限・パスワード・権限設定
-- 生成されたURLをワンクリックコピー
-- 共有ページは独立したシンプルなレイアウト（ログイン不要）
-
----
-
-## 3. ストレージクォータ
+## 2. ストレージクォータ
 
 ### 概要
 ユーザー/グループ別のストレージ使用量を制限・管理する機能。
@@ -143,61 +127,7 @@ CREATE TABLE storage_usage_cache (
 
 ---
 
-## 4. 監査ログ
-
-### 概要
-誰がいつ何をしたかを全て記録し、セキュリティ監査・トラブルシューティングに使用。
-
-### 要件
-- 全操作をログ記録:
-  - ファイル操作: アップロード、ダウンロード、編集、削除、復元、移動
-  - フォルダ操作: 作成、リネーム、削除、権限変更
-  - ユーザー操作: ログイン、ログアウト、ログイン失敗
-  - 管理操作: ユーザー作成/削除、設定変更、グループ操作
-  - 共有操作: リンク作成、アクセス
-  - AI操作: 検索クエリ、チャット質問
-- フィルタリング（ユーザー、操作種別、日時範囲、対象ドキュメント）
-- CSV/JSONエクスポート
-- ログ保持期間設定（自動パージ）
-- 改ざん防止（ログの削除・編集不可、管理者でも）
-
-### データモデル
-
-```sql
-CREATE TABLE audit_logs (
-    id BIGSERIAL PRIMARY KEY,
-    user_id UUID REFERENCES users(id),
-    username VARCHAR(150),           -- ユーザー削除後も残す
-    action VARCHAR(50) NOT NULL,     -- 'upload', 'download', 'delete', 'login', etc.
-    resource_type VARCHAR(30),       -- 'document', 'folder', 'user', 'setting', etc.
-    resource_id VARCHAR(100),        -- 対象のID
-    resource_name VARCHAR(500),      -- 対象の名前（削除後も残す）
-    details JSONB,                   -- 追加情報（変更前後の値、IPアドレス等）
-    ip_address VARCHAR(45),
-    user_agent TEXT,
-    created_at TIMESTAMPTZ DEFAULT now() NOT NULL
-);
-
-CREATE INDEX ix_audit_logs_user_id ON audit_logs (user_id);
-CREATE INDEX ix_audit_logs_action ON audit_logs (action);
-CREATE INDEX ix_audit_logs_created_at ON audit_logs (created_at);
-CREATE INDEX ix_audit_logs_resource ON audit_logs (resource_type, resource_id);
-```
-
-### 実装方針
-- FastAPI ミドルウェアで自動記録（リクエスト/レスポンスをフック）
-- または各エンドポイントで明示的に `audit_log()` ヘルパーを呼ぶ
-- ログテーブルは DELETE 権限なし（DB レベルで REVOKE DELETE）
-
-### UI
-- 管理画面に「監査ログ」タブ追加
-- テーブル表示（無限スクロール）
-- フィルタ: ユーザー、操作種別、日時範囲
-- ドキュメント詳細モーダルに「アクティビティ」タブ（そのファイルに関するログのみ）
-
----
-
-## 5. S3 / 外部ストレージ連携
+## 3. S3 / 外部ストレージ連携
 
 ### 概要
 ローカルディスク以外のストレージバックエンドをサポート。
@@ -279,7 +209,7 @@ tusd:
 
 ---
 
-## 6. AI フォルダ自動整理
+## 4. AI フォルダ自動整理
 
 ### 概要
 AIがファイルの内容を分析し、最適なフォルダへの仕分けをリコメンド・自動実行する機能。
@@ -419,28 +349,7 @@ POST /api/documents/apply-recommendations     — リコメンド結果を一括
 
 | 優先度 | 機能 | 理由 |
 |--------|------|------|
-| 1 | 監査ログ | セキュリティの基盤。他の機能にも必要 |
-| 2 | 共有リンク | ユーザーからの要望が多い典型的機能 |
-| 3 | AI フォルダ自動整理 | AI差別化の目玉機能。既存インフラで実現可能 |
-| 4 | バージョン管理 | データ保護。誤編集からの復旧 |
-| 5 | ストレージクォータ | マルチユーザー運用で必要 |
-| 6 | S3連携 | 大規模運用・クラウド移行時に必要 |
-
----
-
-## 現在の実装済み機能
-
-| 機能 | 状態 |
-|------|------|
-| AI エージェント検索 | ✓ ツール呼び出しで自律的に文書を探索・回答 |
-| ベクトル検索 | ✓ 意味的な類似検索 |
-| 全文検索 + RRF統合 | ✓ 全文+ベクトルのハイブリッド |
-| OCR テキスト抽出 | ✓ 組み込み |
-| ドキュメント自動要約 | ✓ LLMで自動生成 |
-| テキスト編集（WYSIWYG） | ✓ OverType エディタ |
-| API キーによる外部連携 | ✓ フォルダスコープ付き |
-| tus レジューマブルアップロード | ✓ |
-| ClamAV ウイルススキャン | ✓ |
-| 外部共有リンク (Share Server) | ✓ |
-| 共有・ダウンロード制御 | ✓ ユーザー/ファイル単位 |
-| AI フォルダ自動整理 | 実装予定 |
+| 1 | AI フォルダ自動整理 | AI差別化の目玉機能。既存インフラで実現可能 |
+| 2 | バージョン管理 | データ保護。誤編集からの復旧 |
+| 3 | ストレージクォータ | マルチユーザー運用で必要 |
+| 4 | S3連携 | 大規模運用・クラウド移行時に必要 |
