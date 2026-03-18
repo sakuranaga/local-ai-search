@@ -7,6 +7,7 @@ import { DocumentContextMenu, type ContextMenuState } from "@/components/Documen
 import { BulkPermissionsDialog, BulkFolderDialog, BulkTagDialog, UploadDialog } from "@/components/BulkActionDialogs";
 import { FolderPermissionsDialog } from "@/components/FolderPermissionsDialog";
 import { ShareLinkDialog } from "@/components/ShareLinkDialog";
+import { CreateTextDocumentDialog } from "@/components/CreateTextDocumentDialog";
 import { SidebarTagItem, DropTarget, TrashDropTarget, FolderTreeItem } from "@/components/FolderSidebarItems";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ import {
   FileText,
   Bot,
   FolderIcon,
+  FilePlus,
   FolderPlus,
   Menu,
   Plus,
@@ -152,6 +154,7 @@ export function FileExplorerPage() {
   // Dialogs
   const [detailDoc, setDetailDoc] = useState<DocumentListItem | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [createTextOpen, setCreateTextOpen] = useState(false);
   const [bulkActionOpen, setBulkActionOpen] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<DocumentListItem | null>(null);
   const [shareEnabled, setShareEnabled] = useState(false);
@@ -960,9 +963,14 @@ export function FileExplorerPage() {
               )}
             </div>
           ) : (
-            <Button onClick={() => setUploadOpen(true)}>
-              <Upload className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">アップロード</span>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => setCreateTextOpen(true)}>
+                <FilePlus className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">新規作成</span>
+              </Button>
+              <Button onClick={() => setUploadOpen(true)}>
+                <Upload className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">アップロード</span>
+              </Button>
+            </div>
           )}
         </div>
 
@@ -1626,6 +1634,15 @@ export function FileExplorerPage() {
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         onSubmit={(files) => { setUploadOpen(false); startUploadWithCheck(files); }}
+      />
+
+      {/* Create Text Document Dialog */}
+      <CreateTextDocumentDialog
+        open={createTextOpen}
+        onClose={() => setCreateTextOpen(false)}
+        folders={folders}
+        currentFolderId={uploadFolderId}
+        onCreated={() => { setCreateTextOpen(false); load(true); }}
       />
     </div>
   );
