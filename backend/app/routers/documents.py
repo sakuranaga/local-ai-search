@@ -121,7 +121,7 @@ async def list_documents(
             Document.source_path,
             Document.file_type,
             Document.owner_id,
-            OwnerUser.username.label("owner_name"),
+            func.coalesce(func.nullif(OwnerUser.display_name, ""), OwnerUser.username).label("owner_name"),
             Document.group_id,
             Document.group_read,
             Document.group_write,
@@ -142,8 +142,8 @@ async def list_documents(
             file_size_sq.c.file_size.label("file_size"),
             func.coalesce(chunk_count_sq.c.chunk_count, 0).label("chunk_count"),
             func.coalesce(share_count_sq.c.share_count, 0).label("share_count"),
-            CreatedByUser.username.label("created_by_name"),
-            UpdatedByUser.username.label("updated_by_name"),
+            func.coalesce(func.nullif(CreatedByUser.display_name, ""), CreatedByUser.username).label("created_by_name"),
+            func.coalesce(func.nullif(UpdatedByUser.display_name, ""), UpdatedByUser.username).label("updated_by_name"),
         )
         .outerjoin(file_size_sq, Document.id == file_size_sq.c.document_id)
         .outerjoin(chunk_count_sq, Document.id == chunk_count_sq.c.document_id)
@@ -795,9 +795,9 @@ async def get_document(
     result = await db.execute(
         select(
             Document,
-            OwnerUser.username.label("owner_name"),
-            CreatedByUser.username.label("created_by_name"),
-            UpdatedByUser.username.label("updated_by_name"),
+            func.coalesce(func.nullif(OwnerUser.display_name, ""), OwnerUser.username).label("owner_name"),
+            func.coalesce(func.nullif(CreatedByUser.display_name, ""), CreatedByUser.username).label("created_by_name"),
+            func.coalesce(func.nullif(UpdatedByUser.display_name, ""), UpdatedByUser.username).label("updated_by_name"),
             Folder.name.label("folder_name"),
             Group.name.label("group_name"),
         )

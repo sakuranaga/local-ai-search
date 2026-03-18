@@ -107,7 +107,7 @@ async def search_documents_list(
     stmt = (
         select(
             Document.id, Document.title, Document.source_path, Document.file_type,
-            Document.owner_id, OwnerUser.username.label("owner_name"),
+            Document.owner_id, func.coalesce(func.nullif(OwnerUser.display_name, ""), OwnerUser.username).label("owner_name"),
             Document.group_id, Document.group_read, Document.group_write,
             Document.others_read, Document.others_write,
             Document.searchable, Document.ai_knowledge, Document.summary,
@@ -116,8 +116,8 @@ async def search_documents_list(
             Document.created_at, Document.updated_at,
             file_size_sq.c.file_size.label("file_size"),
             func.coalesce(chunk_count_sq.c.chunk_count, 0).label("chunk_count"),
-            CreatedByUser.username.label("created_by_name"),
-            UpdatedByUser.username.label("updated_by_name"),
+            func.coalesce(func.nullif(CreatedByUser.display_name, ""), CreatedByUser.username).label("created_by_name"),
+            func.coalesce(func.nullif(UpdatedByUser.display_name, ""), UpdatedByUser.username).label("updated_by_name"),
         )
         .outerjoin(chunk_count_sq, Document.id == chunk_count_sq.c.document_id)
         .outerjoin(file_size_sq, Document.id == file_size_sq.c.document_id)
