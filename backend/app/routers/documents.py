@@ -996,6 +996,9 @@ async def update_document(
     await audit_log(db, user=current_user, action="document.update", target_type="document",
                     target_id=str(doc.id), target_name=doc.title, request=request)
 
+    from app.services.mail import notify_update
+    notify_update(current_user.display_name or current_user.username, [doc.title])
+
     return DocumentListItem(
         id=str(doc.id),
         title=doc.title,
@@ -1050,6 +1053,9 @@ async def delete_document(
 
     await audit_log(db, user=current_user, action="document.delete", target_type="document",
                     target_id=str(doc.id), target_name=doc.title, request=request)
+
+    from app.services.mail import notify_delete
+    notify_delete(current_user.display_name or current_user.username, [doc.title])
 
 
 # ---------------------------------------------------------------------------
@@ -1108,6 +1114,9 @@ async def bulk_action(
             await audit_log(db, user=current_user, action="document.delete", target_type="document",
                             target_id=str(doc.id), target_name=doc.title, request=request)
         await db.flush()
+        if docs:
+            from app.services.mail import notify_delete
+            notify_delete(current_user.display_name or current_user.username, [d.title for d in docs])
         return {"action": "delete", "processed": len(docs)}
 
     elif body.action == "reindex":

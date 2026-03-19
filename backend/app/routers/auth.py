@@ -68,6 +68,9 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
 
     await audit_log(db, user=user, action="login", request=request)
 
+    from app.services.mail import notify_login
+    notify_login(user.display_name or user.username, request.client.host if request.client else None)
+
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
 

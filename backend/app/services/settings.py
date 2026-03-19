@@ -93,6 +93,67 @@ DEFAULTS = {
         "description": "新規アップロード時のデフォルトダウンロード禁止 (true/false)",
         "placeholder": "false",
     },
+    # ── Mail notification ──
+    "mail_provider": {
+        "value": "",
+        "description": "メール送信プロバイダ (smtp / sendgrid / resend / ses)。空欄で無効",
+        "placeholder": "smtp",
+    },
+    "mail_from": {
+        "value": "",
+        "description": "送信元メールアドレス",
+        "placeholder": "noreply@example.com",
+    },
+    "smtp_host": {
+        "value": "",
+        "description": "SMTPホスト",
+        "placeholder": "smtp.gmail.com",
+    },
+    "smtp_port": {
+        "value": "587",
+        "description": "SMTPポート",
+        "placeholder": "587",
+    },
+    "smtp_username": {
+        "value": "",
+        "description": "SMTPユーザー名",
+        "placeholder": "user@gmail.com",
+    },
+    "smtp_password": {
+        "value": "",
+        "description": "SMTPパスワード",
+        "placeholder": "",
+        "secret": True,
+    },
+    "sendgrid_api_key": {
+        "value": "",
+        "description": "SendGrid APIキー",
+        "placeholder": "SG.xxxx",
+        "secret": True,
+    },
+    "resend_api_key": {
+        "value": "",
+        "description": "Resend APIキー",
+        "placeholder": "re_xxxx",
+        "secret": True,
+    },
+    "ses_region": {
+        "value": "ap-northeast-1",
+        "description": "AWS SES リージョン",
+        "placeholder": "ap-northeast-1",
+    },
+    "ses_access_key": {
+        "value": "",
+        "description": "AWS SES アクセスキー",
+        "placeholder": "",
+        "secret": True,
+    },
+    "ses_secret_key": {
+        "value": "",
+        "description": "AWS SES シークレットキー",
+        "placeholder": "",
+        "secret": True,
+    },
 }
 
 
