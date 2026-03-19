@@ -60,6 +60,7 @@ LAN 内（非公開）              インターネット（公開）
 | 外部共有リンク | 独立した Share Server 経由で安全にファイル共有 |
 | API キー外部連携 | フォルダスコープ + 権限制限付き |
 | 共有・ダウンロード制御 | ユーザー単位・ファイル単位で禁止フラグ設定可能 |
+| メール通知 | ログイン・追加・更新・削除をメールで通知（SMTP/SendGrid/Resend/SES対応） |
 | 監査ログ | 全操作記録、フィルタ、CSVエクスポート |
 | 完全ローカル | データはクラウドに送信されません |
 
@@ -99,7 +100,8 @@ LAN 内（非公開）              インターネット（公開）
 
 ### 管理
 
-- **管理画面** — ユーザー管理、ロール管理、グループ管理、APIキー管理、システム設定、監査ログ
+- **管理画面** — ユーザー管理、ロール管理、グループ管理、APIキー管理、システム設定、メール通知、監査ログ
+- **メール通知** — ログイン・ファイル追加・更新・削除をメールで通知。SMTP / SendGrid / Resend / AWS SES 対応。通知先ごとにイベント選択可能。バルク操作は自動集約して1通に
 - **監査ログ** — ログイン・アップロード・削除・復元等の全操作を記録。ユーザー・操作種別・日時でフィルタ、CSVエクスポート
 - **システム設定** — LLM/Embedding接続先、検索パラメータ等をUIから変更
 
@@ -333,6 +335,11 @@ docker compose exec backend python -m pytest tests/ -v
 | GET | `/api/settings` | システム設定 (admin) |
 | GET | `/api/api-keys` | APIキー一覧 (admin) |
 | GET | `/api/groups` | グループ一覧 |
+| GET | `/api/admin/mail/recipients` | メール通知先一覧 (admin) |
+| POST | `/api/admin/mail/recipients` | メール通知先追加 (admin) |
+| PATCH | `/api/admin/mail/recipients/{id}` | メール通知先更新 (admin) |
+| DELETE | `/api/admin/mail/recipients/{id}` | メール通知先削除 (admin) |
+| POST | `/api/admin/mail/test` | テストメール送信 (admin) |
 | GET | `/api/admin/audit-logs` | 監査ログ一覧 (admin) |
 | GET | `/api/admin/audit-logs/export` | 監査ログCSVエクスポート (admin) |
 
