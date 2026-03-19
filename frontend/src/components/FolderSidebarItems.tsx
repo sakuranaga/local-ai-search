@@ -226,7 +226,7 @@ export function FolderTreeItem({
         >
           {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}
         </button>
-        <button onClick={() => onSelect(node.id)} className="flex items-center gap-1 flex-1 truncate text-left">
+        <button onClick={() => onSelect(node.id)} onDoubleClick={() => hasChildren && setExpanded(!expanded)} className="flex items-center gap-1 flex-1 truncate text-left">
           {isActive || dragOver ? <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" /> : <FolderIcon className="h-3.5 w-3.5 flex-shrink-0" />}
           <span className="truncate">{node.name}</span>
           {node.document_count > 0 && (
