@@ -1292,6 +1292,7 @@ export function FileExplorerPage() {
                     key={`folder-${folder.id}`}
                     className="cursor-pointer select-none"
                     onDoubleClick={() => selectFolder(folder.id)}
+                    onContextMenu={(e) => { e.preventDefault(); handleFolderContextMenu(e, { ...folder, children: [] }); }}
                   >
                     <TableCell className="pl-4 overflow-hidden max-w-0">
                       <div className="font-medium text-sm truncate flex items-center gap-1.5">
