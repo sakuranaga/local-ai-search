@@ -846,8 +846,20 @@ export function FileExplorerPage() {
     setOverwriteQueue((q) => q.slice(1));
   }
 
+  function handleOverwriteAll() {
+    const reload = () => { load(true); loadFolders(); };
+    for (const file of overwriteQueue) {
+      uploadWithProgress(file, reload, uploadFolderId);
+    }
+    setOverwriteQueue([]);
+  }
+
   function handleOverwriteSkip() {
     setOverwriteQueue((q) => q.slice(1));
+  }
+
+  function handleOverwriteSkipAll() {
+    setOverwriteQueue([]);
   }
 
   function handleOverwriteCancel() {
@@ -1662,7 +1674,7 @@ export function FileExplorerPage() {
 
       {/* Overwrite confirmation (one by one) */}
       <Dialog open={overwriteQueue.length > 0} onOpenChange={() => handleOverwriteCancel()}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>上書き確認</DialogTitle>
             <DialogDescription>
@@ -1675,9 +1687,12 @@ export function FileExplorerPage() {
               <p className="text-muted-foreground">{formatBytes(overwriteQueue[0].size)}</p>
             </div>
           )}
-          <div className="flex gap-2 justify-end">
+          <div className="flex gap-2 justify-end flex-wrap">
             {overwriteQueue.length > 1 && (
-              <Button variant="ghost" onClick={handleOverwriteCancel}>全てキャンセル</Button>
+              <>
+                <Button variant="outline" onClick={handleOverwriteSkipAll}>すべてスキップ</Button>
+                <Button variant="outline" className="text-destructive border-destructive/50 hover:text-destructive" onClick={handleOverwriteAll}>すべて上書き</Button>
+              </>
             )}
             <Button variant="outline" onClick={handleOverwriteSkip}>スキップ</Button>
             <Button variant="destructive" onClick={handleOverwriteConfirm}>上書き</Button>
