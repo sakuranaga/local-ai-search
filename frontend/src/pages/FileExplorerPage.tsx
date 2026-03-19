@@ -277,6 +277,9 @@ export function FileExplorerPage() {
           params.unfiled = true;
         } else if (activeFolderId) {
           params.folder_id = activeFolderId;
+        } else {
+          // "All" view: show only unfiled files (folders shown separately)
+          params.unfiled = true;
         }
         if (activeTag) {
           params.tag = activeTag;
@@ -462,6 +465,17 @@ export function FileExplorerPage() {
   }, [activeFolderId, folders]);
   const folderDocTotal = useMemo(() => folders.reduce((s, f) => s + f.document_count, 0), [folders]);
   const unfiledCount = Math.max(0, allDocCount - folderDocTotal);
+
+  // Child folders to display in the file list (Google Drive style)
+  const listFolders = useMemo(() => {
+    if (isSearching || showTrash || activeFolderId === "unfiled") return [];
+    if (activeFolderId === null) {
+      // Root: show folders with no parent
+      return folders.filter((f) => !f.parent_id).sort((a, b) => a.name.localeCompare(b.name));
+    }
+    // Inside a folder: show direct children
+    return folders.filter((f) => f.parent_id === activeFolderId).sort((a, b) => a.name.localeCompare(b.name));
+  }, [folders, activeFolderId, isSearching, showTrash]);
 
   function handleSort(col: string) {
     if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -1273,6 +1287,33 @@ export function FileExplorerPage() {
                 <col style={{ width: 112 }} />
               </colgroup>
               <TableBody className="[&_tr:last-child]:border-b">
+                {listFolders.map((folder) => (
+                  <TableRow
+                    key={`folder-${folder.id}`}
+                    className="cursor-pointer select-none"
+                    onDoubleClick={() => selectFolder(folder.id)}
+                  >
+                    <TableCell className="pl-4 overflow-hidden max-w-0">
+                      <div className="font-medium text-sm truncate flex items-center gap-1.5">
+                        <FolderIcon className="h-4 w-4 text-primary flex-shrink-0" />
+                        {folder.name}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">フォルダ</Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground !text-right tabular-nums">
+                      {folder.document_count > 0 ? `${folder.document_count}件` : "-"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {folder.owner_name ?? "-"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {formatDate(folder.updated_at)}
+                    </TableCell>
+                    <TableCell />
+                  </TableRow>
+                ))}
                 {items.map((item, rowIdx) => (
                   <TableRow
                     key={item.id}
