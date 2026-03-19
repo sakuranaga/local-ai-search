@@ -90,6 +90,8 @@ import {
   togglePinSearchHistory,
   removeSearchHistory,
   clearUnpinnedSearchHistory,
+  checkInterruptedUploads,
+  clearInterruptedUpload,
   TAG_COLORS,
   type FolderNode,
   type SearchHistoryEntry,
@@ -298,7 +300,22 @@ export function FileExplorerPage() {
   useEffect(() => { load(true); }, [load]);
   // Re-trigger search when URL timestamp changes (re-search same query)
   useEffect(() => { if (urlT) load(true); }, [urlT]);
-  useEffect(() => { loadFolders(); loadTags(); loadTrash(); getFilterOptions().then(setFilterOptions).catch(() => {}); getShareEnabled().then(setShareEnabled).catch(() => {}); }, []);
+  useEffect(() => {
+    loadFolders(); loadTags(); loadTrash(); getFilterOptions().then(setFilterOptions).catch(() => {}); getShareEnabled().then(setShareEnabled).catch(() => {});
+    // Check for uploads interrupted by page reload
+    const interrupted = checkInterruptedUploads();
+    for (const filename of interrupted) {
+      toast.warning(`中断: ${filename}`, {
+        id: `interrupted-${filename}`,
+        description: "同じファイルを再度ドロップすると再開できます",
+        duration: Infinity,
+        action: {
+          label: "取り消し",
+          onClick: () => clearInterruptedUpload(filename),
+        },
+      });
+    }
+  }, []);
   // Reset when search query changes & record search history
   useEffect(() => {
     if (urlQ) setSearchHistory(addSearchHistory(urlQ));
