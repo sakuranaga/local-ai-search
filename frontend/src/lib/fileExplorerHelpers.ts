@@ -148,6 +148,59 @@ export function buildFolderTree(folders: Folder[]): FolderNode[] {
 }
 
 // ---------------------------------------------------------------------------
+// Active upload tracking (survives reload)
+// ---------------------------------------------------------------------------
+
+const ACTIVE_UPLOADS_KEY = "las_active_uploads";
+
+interface ActiveUploadEntry {
+  filename: string;
+  startedAt: number;
+}
+
+function getActiveUploads(): Record<string, ActiveUploadEntry> {
+  try { return JSON.parse(localStorage.getItem(ACTIVE_UPLOADS_KEY) || "{}"); } catch { return {}; }
+}
+
+function saveActiveUploads(entries: Record<string, ActiveUploadEntry>) {
+  localStorage.setItem(ACTIVE_UPLOADS_KEY, JSON.stringify(entries));
+}
+
+function trackUploadStart(filename: string) {
+  const entries = getActiveUploads();
+  entries[filename] = { filename, startedAt: Date.now() };
+  saveActiveUploads(entries);
+}
+
+function trackUploadEnd(filename: string) {
+  const entries = getActiveUploads();
+  delete entries[filename];
+  saveActiveUploads(entries);
+}
+
+export function checkInterruptedUploads(): string[] {
+  const entries = getActiveUploads();
+  return Object.values(entries).map((e) => e.filename);
+}
+
+export function clearInterruptedUpload(filename: string) {
+  trackUploadEnd(filename);
+  // Remove tus fingerprints from localStorage so re-upload starts fresh
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith("tus::") && key.includes(filename)) {
+      keysToRemove.push(key);
+    }
+  }
+  for (const key of keysToRemove) localStorage.removeItem(key);
+}
+
+export function clearAllInterruptedUploads() {
+  saveActiveUploads({});
+}
+
+// ---------------------------------------------------------------------------
 // Upload with progress toast
 // ---------------------------------------------------------------------------
 
@@ -155,9 +208,29 @@ export function uploadWithProgress(
   file: globalThis.File,
   onUploaded: () => void,
   folderId?: string | null,
-): void {
+): () => void {
+  // Dismiss interrupted upload toast if present
+  toast.dismiss(`interrupted-${file.name}`);
   const toastId = toast.loading(`${file.name}: アップロード準備中...`);
   const token = getToken() || "";
+  let aborted = false;
+  let activeUpload: tus.Upload | null = null;
+
+  trackUploadStart(file.name);
+
+  const cancel = () => {
+    aborted = true;
+    trackUploadEnd(file.name);
+    if (activeUpload) {
+      activeUpload.abort(true).catch(() => {});
+    }
+    toast.info(`${file.name}: アップロードを中止しました`, { id: toastId });
+  };
+
+  const cancelAction = {
+    label: "中止",
+    onClick: cancel,
+  };
 
   const upload = new tus.Upload(file, {
     endpoint: "/tusd/",
@@ -170,40 +243,49 @@ export function uploadWithProgress(
       token,
     },
     onProgress: (loaded, total) => {
+      if (aborted) return;
       const pct = Math.round((loaded / total) * 100);
-      toast.loading(`${file.name}: アップロード中... ${pct}%`, { id: toastId });
+      toast.loading(`${file.name}: アップロード中... ${pct}%`, { id: toastId, action: cancelAction });
     },
     onSuccess: () => {
+      if (aborted) return;
+      trackUploadEnd(file.name);
       toast.loading(`${file.name}: 処理中...`, { id: toastId });
       onUploaded();
-      // Poll processing status by title (Document created by tus-hook)
       _pollProcessingByTitle(file.name, toastId, onUploaded);
     },
     onError: (error) => {
+      if (aborted) return;
       // If resume failed, clear previous uploads and retry from scratch
       if (error.message && error.message.includes("failed to resume")) {
-        upload.abort(true).catch(() => {}); // clear stored URL
+        upload.abort(true).catch(() => {});
         const freshUpload = new tus.Upload(file, { ...upload.options });
+        activeUpload = freshUpload;
         freshUpload.start();
-        toast.loading(`${file.name}: 再アップロード中...`, { id: toastId });
+        toast.loading(`${file.name}: 再アップロード中...`, { id: toastId, action: cancelAction });
         return;
       }
+      trackUploadEnd(file.name);
       toast.error(`${file.name}: アップロード失敗 - ${error.message}`, { id: toastId });
     },
     removeFingerprintOnSuccess: true,
   });
 
+  activeUpload = upload;
+
   // Resume previous upload if exists, otherwise start fresh
   upload.findPreviousUploads().then((prev) => {
+    if (aborted) return;
     if (prev.length > 0) {
-      toast.loading(`${file.name}: アップロード再開中...`, { id: toastId });
+      toast.loading(`${file.name}: アップロード再開中...`, { id: toastId, action: cancelAction });
       upload.resumeFromPreviousUpload(prev[0]);
     }
     upload.start();
   }).catch(() => {
-    // findPreviousUploads failed — start fresh
-    upload.start();
+    if (!aborted) upload.start();
   });
+
+  return cancel;
 }
 
 async function _pollProcessingByTitle(
