@@ -112,6 +112,12 @@ export function removeSearchHistory(query: string): SearchHistoryEntry[] {
   return entries;
 }
 
+export function clearUnpinnedSearchHistory(): SearchHistoryEntry[] {
+  const entries = loadSearchHistory().filter((e) => e.pinned);
+  saveSearchHistory(entries);
+  return entries;
+}
+
 // ---------------------------------------------------------------------------
 // Folder tree
 // ---------------------------------------------------------------------------

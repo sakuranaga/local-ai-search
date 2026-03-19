@@ -89,6 +89,7 @@ import {
   addSearchHistory,
   togglePinSearchHistory,
   removeSearchHistory,
+  clearUnpinnedSearchHistory,
   TAG_COLORS,
   type FolderNode,
   type SearchHistoryEntry,
@@ -931,6 +932,13 @@ export function FileExplorerPage() {
             <div>
               <h3 className="text-sm font-semibold text-muted-foreground mb-1 flex items-center gap-1">
                 <History className="h-3.5 w-3.5" />検索履歴
+                <button
+                  onClick={() => { if (confirm("検索履歴を削除しますか？（ピン留めは残ります）")) setSearchHistory(clearUnpinnedSearchHistory()); }}
+                  className="ml-auto p-0.5 hover:bg-muted rounded text-muted-foreground"
+                  title="ピン留め以外を一括削除"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </h3>
               <div className="space-y-0.5">
                 {/* Pinned first, then unpinned (each group by recency) */}
