@@ -305,3 +305,49 @@ export async function exportAuditLogsCsv(params: {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+// ---------------------------------------------------------------------------
+// Mail Recipients
+// ---------------------------------------------------------------------------
+
+export interface MailRecipient {
+  id: string;
+  email: string;
+  on_login: boolean;
+  on_create: boolean;
+  on_update: boolean;
+  on_delete: boolean;
+  enabled: boolean;
+}
+
+export async function getMailRecipients(): Promise<MailRecipient[]> {
+  return apiFetch("/admin/mail/recipients");
+}
+
+export async function addMailRecipient(email: string): Promise<MailRecipient> {
+  return apiFetch("/admin/mail/recipients", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function updateMailRecipient(
+  id: string,
+  data: Partial<Pick<MailRecipient, "on_login" | "on_create" | "on_update" | "on_delete" | "enabled">>,
+): Promise<MailRecipient> {
+  return apiFetch(`/admin/mail/recipients/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteMailRecipient(id: string): Promise<void> {
+  return apiFetch(`/admin/mail/recipients/${id}`, { method: "DELETE" });
+}
+
+export async function sendTestMail(to: string): Promise<{ status: string; message: string }> {
+  return apiFetch("/admin/mail/test", {
+    method: "POST",
+    body: JSON.stringify({ to }),
+  });
+}

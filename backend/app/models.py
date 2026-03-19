@@ -400,6 +400,26 @@ class ShareLink(Base):
     created_by: Mapped["User"] = relationship()
 
 
+class MailRecipient(Base):
+    __tablename__ = "mail_recipients"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    on_login: Mapped[bool] = mapped_column(Boolean, default=False)
+    on_create: Mapped[bool] = mapped_column(Boolean, default=False)
+    on_update: Mapped[bool] = mapped_column(Boolean, default=False)
+    on_delete: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     __table_args__ = (

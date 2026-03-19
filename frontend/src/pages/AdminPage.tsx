@@ -22,13 +22,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   getUsers,
   createUser,
   updateUser,
@@ -60,8 +53,14 @@ import {
   type ApiKeyInfo,
   type AuditLogItem,
   type Folder,
+  getMailRecipients,
+  addMailRecipient,
+  updateMailRecipient,
+  deleteMailRecipient,
+  sendTestMail,
+  type MailRecipient,
 } from "@/lib/api";
-import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -251,12 +250,9 @@ function UsersTab() {
             </div>
             <div>
               <Label className="text-xs">ロール</Label>
-              <Select value={createForm.role || undefined} onValueChange={(v) => setCreateForm({ ...createForm, role: v ?? "" })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {roleNames.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <select value={createForm.role} onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })} className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
+                {roleNames.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
             </div>
           </div>
           <DialogFooter>
@@ -305,12 +301,9 @@ function UsersTab() {
             </div>
             <div>
               <Label className="text-xs">ロール</Label>
-              <Select value={editForm.role || undefined} onValueChange={(v) => setEditForm({ ...editForm, role: v ?? "" })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {roleNames.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
+                {roleNames.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
             </div>
             <div className="flex items-center justify-between">
               <Label className="text-sm">アカウント有効</Label>
@@ -1032,26 +1025,21 @@ function ApiKeysTab() {
               </div>
               <div className="space-y-2">
                 <Label>操作ユーザー</Label>
-                <Select value={form.owner_id || undefined} onValueChange={(v) => setForm({ ...form, owner_id: v ?? "" })}>
-                  <SelectTrigger><SelectValue placeholder="ユーザーを選択" /></SelectTrigger>
-                  <SelectContent>
-                    {users.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>{u.display_name || u.username}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <select value={form.owner_id} onChange={(e) => setForm({ ...form, owner_id: e.target.value })} className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
+                  <option value="">ユーザーを選択</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>{u.display_name || u.username}</option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-2">
                 <Label>対象フォルダ（空 = 制限なし）</Label>
-                <Select value={form.folder_id || undefined} onValueChange={(v) => setForm({ ...form, folder_id: v === "__none__" || !v ? "" : v })}>
-                  <SelectTrigger><SelectValue placeholder="フォルダを選択" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">制限なし</SelectItem>
-                    {folders.map((f) => (
-                      <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <select value={form.folder_id} onChange={(e) => setForm({ ...form, folder_id: e.target.value })} className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
+                  <option value="">制限なし</option>
+                  {folders.map((f) => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-2">
                 <Label>権限</Label>
@@ -1105,6 +1093,274 @@ const ACTION_LABELS: Record<string, string> = {
   "document.restore": "ゴミ箱から復元",
   "document.overwrite": "ドキュメント上書き",
 };
+
+// ---------------------------------------------------------------------------
+// Mail Notification Tab
+// ---------------------------------------------------------------------------
+
+const MAIL_PROVIDER_FIELDS: Record<string, { key: string; label: string; secret?: boolean; placeholder?: string }[]> = {
+  smtp: [
+    { key: "smtp_host", label: "SMTPホスト", placeholder: "smtp.gmail.com" },
+    { key: "smtp_port", label: "SMTPポート", placeholder: "587" },
+    { key: "smtp_username", label: "SMTPユーザー名", placeholder: "user@gmail.com" },
+    { key: "smtp_password", label: "SMTPパスワード", secret: true },
+  ],
+  sendgrid: [
+    { key: "sendgrid_api_key", label: "SendGrid APIキー", secret: true, placeholder: "SG.xxxx" },
+  ],
+  resend: [
+    { key: "resend_api_key", label: "Resend APIキー", secret: true, placeholder: "re_xxxx" },
+  ],
+  ses: [
+    { key: "ses_region", label: "AWS SES リージョン", placeholder: "ap-northeast-1" },
+    { key: "ses_access_key", label: "AWS SES アクセスキー", secret: true },
+    { key: "ses_secret_key", label: "AWS SES シークレットキー", secret: true },
+  ],
+};
+
+function MailTab() {
+  const [recipients, setRecipients] = useState<MailRecipient[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [testEmail, setTestEmail] = useState("");
+  const [testSending, setTestSending] = useState(false);
+
+  // Mail provider settings
+  const [settings, setSettings] = useState<Record<string, string>>({});
+  const [edited, setEdited] = useState<Record<string, string>>({});
+  const [savingConfig, setSavingConfig] = useState(false);
+
+  const provider = edited.mail_provider ?? settings.mail_provider ?? "";
+
+  const loadSettings = useCallback(() => {
+    getSettings().then((s) => {
+      const map: Record<string, string> = {};
+      for (const item of s) map[item.key] = item.value;
+      setSettings(map);
+      setEdited({});
+    }).catch(() => toast.error("設定の取得に失敗"));
+  }, []);
+
+  const loadRecipients = useCallback(() => {
+    getMailRecipients().then(setRecipients).catch(() => toast.error("通知先の取得に失敗"));
+  }, []);
+
+  useEffect(() => { loadSettings(); loadRecipients(); }, [loadSettings, loadRecipients]);
+
+  const handleSaveConfig = async () => {
+    setSavingConfig(true);
+    try {
+      for (const [key, value] of Object.entries(edited)) {
+        await updateSetting(key, value);
+      }
+      toast.success("メール設定を保存しました");
+      // Apply edited values to local state immediately to avoid race with DB commit
+      setSettings((prev) => ({ ...prev, ...edited }));
+      setEdited({});
+    } catch {
+      toast.error("保存に失敗しました");
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!newEmail.trim()) return;
+    try {
+      await addMailRecipient(newEmail.trim());
+      setNewEmail("");
+      setAddOpen(false);
+      loadRecipients();
+    } catch {
+      toast.error("追加に失敗しました");
+    }
+  };
+
+  const handleToggle = async (id: string, field: keyof Pick<MailRecipient, "on_login" | "on_create" | "on_update" | "on_delete">, value: boolean) => {
+    try {
+      const updated = await updateMailRecipient(id, { [field]: value });
+      setRecipients((prev) => prev.map((r) => (r.id === id ? updated : r)));
+    } catch {
+      toast.error("更新に失敗しました");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    const r = recipients.find((r) => r.id === id);
+    if (!confirm(`${r?.email ?? "この通知先"} を削除しますか？`)) return;
+    try {
+      await deleteMailRecipient(id);
+      setRecipients((prev) => prev.filter((r) => r.id !== id));
+    } catch {
+      toast.error("削除に失敗しました");
+    }
+  };
+
+  const handleTest = async () => {
+    if (!testEmail.trim()) return;
+    setTestSending(true);
+    try {
+      const res = await sendTestMail(testEmail.trim());
+      toast.success(res.message);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "送信に失敗しました");
+    } finally {
+      setTestSending(false);
+    }
+  };
+
+  const getVal = (key: string) => edited[key] ?? settings[key] ?? "";
+  const setVal = (key: string, value: string) => setEdited((prev) => ({ ...prev, [key]: value }));
+  const hasChanges = Object.keys(edited).length > 0;
+
+  const providerFields = MAIL_PROVIDER_FIELDS[provider] ?? [];
+
+  return (
+    <div className="space-y-6">
+      {/* Provider config */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2"><Settings className="h-4 w-4" />メール送信設定</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-1.5">
+            <Label>プロバイダ</Label>
+            <select
+              value={provider || ""}
+              onChange={(e) => setVal("mail_provider", e.target.value)}
+              className="h-8 w-60 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <option value="">無効</option>
+              <option value="smtp">SMTP</option>
+              <option value="sendgrid">SendGrid</option>
+              <option value="resend">Resend</option>
+              <option value="ses">AWS SES</option>
+            </select>
+          </div>
+
+          {provider && (
+            <>
+              <div className="grid gap-1.5">
+                <Label>送信元メールアドレス</Label>
+                <Input
+                  value={getVal("mail_from")}
+                  onChange={(e) => setVal("mail_from", e.target.value)}
+                  placeholder="noreply@example.com"
+                  className="max-w-sm"
+                />
+              </div>
+
+              {providerFields.map((f) => (
+                <div key={f.key} className="grid gap-1.5">
+                  <Label>{f.label}</Label>
+                  <Input
+                    type={f.secret ? "password" : "text"}
+                    value={getVal(f.key)}
+                    onChange={(e) => setVal(f.key, e.target.value)}
+                    placeholder={f.placeholder ?? ""}
+                    className="max-w-sm"
+                  />
+                </div>
+              ))}
+            </>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <Button onClick={handleSaveConfig} disabled={!hasChanges || savingConfig}>
+              <Save className="h-4 w-4 mr-1" />{savingConfig ? "保存中..." : "保存"}
+            </Button>
+            {provider && (
+              <>
+                <Input
+                  placeholder="テスト送信先メールアドレス"
+                  value={testEmail}
+                  onChange={(e) => setTestEmail(e.target.value)}
+                  className="max-w-60"
+                />
+                <Button variant="outline" onClick={handleTest} disabled={testSending || !testEmail.trim()}>
+                  <Send className="h-4 w-4 mr-1" />{testSending ? "送信中..." : "テスト送信"}
+                </Button>
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Recipients */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2"><Mail className="h-4 w-4" />通知先</CardTitle>
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" />追加
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>メールアドレス</TableHead>
+                <TableHead className="text-center w-20">ログイン</TableHead>
+                <TableHead className="text-center w-20">新規</TableHead>
+                <TableHead className="text-center w-20">更新</TableHead>
+                <TableHead className="text-center w-20">削除</TableHead>
+                <TableHead className="w-12"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {recipients.length === 0 && (
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">通知先が登録されていません</TableCell></TableRow>
+              )}
+              {recipients.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell className="font-mono text-sm">{r.email}</TableCell>
+                  <TableCell className="text-center">
+                    <input type="checkbox" checked={r.on_login} onChange={(e) => handleToggle(r.id, "on_login", e.target.checked)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <input type="checkbox" checked={r.on_create} onChange={(e) => handleToggle(r.id, "on_create", e.target.checked)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <input type="checkbox" checked={r.on_update} onChange={(e) => handleToggle(r.id, "on_update", e.target.checked)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <input type="checkbox" checked={r.on_delete} onChange={(e) => handleToggle(r.id, "on_delete", e.target.checked)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(r.id)} className="h-8 w-8 text-destructive hover:text-destructive">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Add dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>通知先を追加</DialogTitle></DialogHeader>
+          <div className="py-4">
+            <Label>メールアドレス</Label>
+            <Input
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              placeholder="user@example.com"
+              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>キャンセル</Button>
+            <Button onClick={handleAdd} disabled={!newEmail.trim()}>追加</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 function AuditLogsTab() {
   const [items, setItems] = useState<AuditLogItem[]>([]);
@@ -1286,6 +1542,7 @@ export function AdminPage() {
           <TabsTrigger value="roles">ロール管理</TabsTrigger>
           <TabsTrigger value="apikeys">APIキー</TabsTrigger>
           <TabsTrigger value="audit">監査ログ</TabsTrigger>
+          <TabsTrigger value="mail">メール通知</TabsTrigger>
         </TabsList>
         <TabsContent value="settings" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <SettingsTab />
@@ -1304,6 +1561,9 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="audit" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <AuditLogsTab />
+        </TabsContent>
+        <TabsContent value="mail" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
+          <MailTab />
         </TabsContent>
       </Tabs>
     </div>

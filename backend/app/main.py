@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import engine, get_db
 from app.deps import get_current_user
 from app.models import ApiKey, AuditLog, Base, Chunk, Document, User
-from app.routers import api_keys, audit, auth, chat, documents, folders, groups, ingest, roles, search, settings, share, tags, users
+from app.routers import api_keys, audit, auth, chat, documents, folders, groups, ingest, mail, roles, search, settings, share, tags, users
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -184,6 +184,7 @@ app.include_router(api_keys.router, prefix="/api")
 app.include_router(ingest.router, prefix="/api")
 app.include_router(share.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
+app.include_router(mail.router, prefix="/api")
 
 
 @app.get("/api/health")
