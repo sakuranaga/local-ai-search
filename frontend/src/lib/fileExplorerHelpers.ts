@@ -14,6 +14,18 @@ export function formatDate(d: string): string {
   });
 }
 
+export function formatDateTime(d: string): string {
+  const dt = new Date(d);
+  return dt.toLocaleDateString("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }) + " " + dt.toLocaleTimeString("ja-JP", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;
