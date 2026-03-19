@@ -46,7 +46,7 @@ import {
   deleteShareLink,
   type ShareLinkInfo,
 } from "@/lib/api";
-import { formatDate, formatBytes, formatPermString } from "@/lib/fileExplorerHelpers";
+import { formatDate, formatDateTime, formatBytes, formatPermString } from "@/lib/fileExplorerHelpers";
 
 // ---------------------------------------------------------------------------
 // Document Detail Modal
@@ -114,9 +114,10 @@ export function DocumentDetailModal({
     if (!doc || editedContent === null) return;
     setSavingContent(true);
     try {
-      await updateDocument(doc.id, { content: editedContent });
-      setDoc({ ...doc, content: editedContent });
+      const updated = await updateDocument(doc.id, { content: editedContent });
+      setDoc({ ...doc, ...updated, content: editedContent });
       setEditedContent(null);
+      onUpdated();
       toast.success("テキストを保存しました（再チャンク・再ベクトル化完了）");
     } catch { toast.error("保存に失敗しました"); }
     finally { setSavingContent(false); }
@@ -158,8 +159,9 @@ export function DocumentDetailModal({
                 {t.name}
               </span>
             ))}
-            {item.created_by_name && <span>登録: {item.created_by_name}</span>}
-            <span>{formatDate(item.updated_at)}</span>
+            {item.created_by_name && <span>登録者: {item.created_by_name}</span>}
+            <span>登録日: {formatDateTime(item.created_at)}</span>
+            <span>更新日: {formatDateTime(item.updated_at)}</span>
           </DialogDescription>
         </DialogHeader>
 
