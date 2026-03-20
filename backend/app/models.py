@@ -191,6 +191,7 @@ class DocumentTag(Base):
     __tablename__ = "document_tags"
     __table_args__ = (
         UniqueConstraint("document_id", "tag_id", name="uq_doc_tag"),
+        Index("ix_document_tags_tag_id", "tag_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -216,6 +217,9 @@ class Document(Base):
               postgresql_using="ivfflat",
               postgresql_with={"lists": 100},
               postgresql_ops={"title_embedding": "vector_cosine_ops"}),
+        Index("ix_documents_updated_at", "updated_at"),
+        Index("ix_documents_created_at", "created_at"),
+        Index("ix_documents_created_by_id", "created_by_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -424,6 +428,7 @@ class UserFavorite(Base):
     __tablename__ = "user_favorites"
     __table_args__ = (
         Index("idx_user_favorites_user", "user_id", "created_at"),
+        Index("idx_user_favorites_document", "document_id"),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
