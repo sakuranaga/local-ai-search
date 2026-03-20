@@ -721,6 +721,32 @@ export function FileExplorerPage() {
     }
   }
 
+  // Check if targetId is a descendant of folderId (prevent circular move)
+  function isDescendant(folderId: string, targetId: string): boolean {
+    const children = folders.filter((f) => f.parent_id === folderId);
+    for (const child of children) {
+      if (child.id === targetId) return true;
+      if (isDescendant(child.id, targetId)) return true;
+    }
+    return false;
+  }
+
+  async function handleDropFolderOnFolder(draggedFolderId: string, targetFolderId: string | null) {
+    if (draggedFolderId === targetFolderId) return;
+    if (targetFolderId && isDescendant(draggedFolderId, targetFolderId)) {
+      toast.error("サブフォルダへの循環移動はできません");
+      return;
+    }
+    try {
+      // Backend requires "" (empty string) to move to root, not null
+      await updateFolder(draggedFolderId, { parent_id: targetFolderId ?? "" });
+      toast.success("フォルダを移動しました");
+      loadFolders();
+    } catch {
+      toast.error("フォルダの移動に失敗しました");
+    }
+  }
+
   function handleDragStart(e: React.DragEvent, itemId: string) {
     // If the dragged item is in the selection, drag all selected; otherwise drag just the one
     const ids = selected.has(itemId) ? [...selected] : [itemId];
@@ -919,15 +945,8 @@ export function FileExplorerPage() {
             </button>
           </div>
           <div className="space-y-0.5">
-            <button
-              onClick={() => selectFolder(null)}
-              className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${activeFolderId === null && !showTrash ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
-            >
-              <FolderIcon className="h-3.5 w-3.5" />
-              <span className="truncate">すべて</span>
-              <span className="ml-auto text-xs text-muted-foreground">{allDocCount}</span>
-            </button>
-            <DropTarget folderId={null} onDrop={handleDropOnFolder} label="未整理" count={unfiledCount} isActive={activeFolderId === "unfiled" && !showTrash} onClick={() => selectFolder("unfiled")} icon={<FileText className="h-3.5 w-3.5" />} />
+            <DropTarget folderId={null} onDrop={handleDropOnFolder} onFolderDrop={handleDropFolderOnFolder} label="すべて" count={allDocCount} isActive={activeFolderId === null && !showTrash} onClick={() => selectFolder(null)} icon={<FolderIcon className="h-3.5 w-3.5" />} />
+            <DropTarget folderId={null} onDrop={handleDropOnFolder} onFolderDrop={handleDropFolderOnFolder} label="未整理" count={unfiledCount} isActive={activeFolderId === "unfiled" && !showTrash} onClick={() => selectFolder("unfiled")} icon={<FileText className="h-3.5 w-3.5" />} />
             {folderTree.map((node) => (
               <FolderTreeItem
                 key={node.id}
@@ -935,6 +954,7 @@ export function FileExplorerPage() {
                 activeFolderId={activeFolderId}
                 onSelect={(id) => selectFolder(id)}
                 onDrop={handleDropOnFolder}
+                onFolderDrop={handleDropFolderOnFolder}
                 onContextMenu={handleFolderContextMenu}
               />
             ))}
@@ -1291,6 +1311,11 @@ export function FileExplorerPage() {
                 {listFolders.map((folder) => (
                   <TableRow
                     key={`folder-${folder.id}`}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("application/x-folder-id", folder.id);
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
                     className={`cursor-pointer select-none ${dragOverFolderRowId === folder.id ? "bg-primary/20 ring-2 ring-primary/40" : ""}`}
                     onDoubleClick={() => selectFolder(folder.id)}
                     onContextMenu={(e) => { e.preventDefault(); handleFolderContextMenu(e, { ...folder, children: [] }); }}
@@ -1300,6 +1325,12 @@ export function FileExplorerPage() {
                       e.preventDefault();
                       e.stopPropagation();
                       setDragOverFolderRowId(null);
+                      // Check folder drag first
+                      const draggedFolderId = e.dataTransfer.getData("application/x-folder-id");
+                      if (draggedFolderId) {
+                        if (draggedFolderId !== folder.id) handleDropFolderOnFolder(draggedFolderId, folder.id);
+                        return;
+                      }
                       try {
                         const ids: string[] = JSON.parse(e.dataTransfer.getData("application/x-doc-ids"));
                         if (ids.length > 0) handleDropOnFolder(folder.id, ids);

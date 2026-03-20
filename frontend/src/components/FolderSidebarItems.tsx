@@ -83,6 +83,7 @@ export function SidebarTagItem({
 export function DropTarget({
   folderId,
   onDrop,
+  onFolderDrop,
   label,
   count,
   isActive,
@@ -91,6 +92,7 @@ export function DropTarget({
 }: {
   folderId: string | null;
   onDrop: (folderId: string | null, docIds: string[]) => void;
+  onFolderDrop?: (draggedFolderId: string, targetFolderId: string | null) => void;
   label: string;
   count?: number;
   isActive: boolean;
@@ -107,6 +109,11 @@ export function DropTarget({
       onDrop={(e) => {
         e.preventDefault();
         setDragOver(false);
+        const draggedFolderId = e.dataTransfer.getData("application/x-folder-id");
+        if (draggedFolderId) {
+          onFolderDrop?.(draggedFolderId, folderId);
+          return;
+        }
         try {
           const ids: string[] = JSON.parse(e.dataTransfer.getData("application/x-doc-ids"));
           if (ids.length > 0) onDrop(folderId, ids);
@@ -172,6 +179,7 @@ export function FolderTreeItem({
   activeFolderId,
   onSelect,
   onDrop,
+  onFolderDrop,
   onContextMenu,
   depth = 0,
 }: {
@@ -179,6 +187,7 @@ export function FolderTreeItem({
   activeFolderId: string | null;
   onSelect: (id: string) => void;
   onDrop: (folderId: string | null, docIds: string[]) => void;
+  onFolderDrop?: (draggedFolderId: string, targetFolderId: string | null) => void;
   onContextMenu: (e: React.MouseEvent, node: FolderNode) => void;
   depth?: number;
 }) {
@@ -202,6 +211,12 @@ export function FolderTreeItem({
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
+    // Check for folder drag first
+    const folderId = e.dataTransfer.getData("application/x-folder-id");
+    if (folderId) {
+      if (folderId !== node.id) onFolderDrop?.(folderId, node.id);
+      return;
+    }
     try {
       const ids: string[] = JSON.parse(e.dataTransfer.getData("application/x-doc-ids"));
       if (ids.length > 0) onDrop(node.id, ids);
@@ -211,6 +226,12 @@ export function FolderTreeItem({
   return (
     <div>
       <div
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("application/x-folder-id", node.id);
+          e.dataTransfer.effectAllowed = "move";
+          e.stopPropagation();
+        }}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDropOnThis}
@@ -241,6 +262,7 @@ export function FolderTreeItem({
           activeFolderId={activeFolderId}
           onSelect={onSelect}
           onDrop={onDrop}
+          onFolderDrop={onFolderDrop}
           onContextMenu={onContextMenu}
           depth={depth + 1}
         />
