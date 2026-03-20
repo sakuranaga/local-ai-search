@@ -10,6 +10,7 @@ import {
   Bot,
   Trash2,
   Link,
+  Star,
 } from "lucide-react";
 import type { DocumentListItem } from "@/lib/api";
 
@@ -23,6 +24,7 @@ export interface DocumentContextMenuProps {
   menu: ContextMenuState;
   selectedCount: number;
   shareEnabled?: boolean;
+  isFavorited?: boolean;
   onClose: () => void;
   onAction: (action: string) => void;
 }
@@ -31,6 +33,7 @@ export function DocumentContextMenu({
   menu,
   selectedCount,
   shareEnabled,
+  isFavorited,
   onClose,
   onAction,
 }: DocumentContextMenuProps) {
@@ -105,6 +108,11 @@ export function DocumentContextMenu({
         <button className={btn} onClick={() => onAction("toggle_ai")}>
           <Bot className="h-4 w-4" />AI {menu.item.ai_knowledge ? "OFF" : "ON"}
         </button>
+        {!isMulti && (
+          <button className={btn} onClick={() => onAction("toggle_favorite")}>
+            <Star className={`h-4 w-4 ${isFavorited ? "fill-current" : ""}`} />{isFavorited ? "お気に入り解除" : "お気に入り追加"}
+          </button>
+        )}
         <div className={sep} />
         <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10" onClick={() => onAction("delete")}>
           <Trash2 className="h-4 w-4" />ゴミ箱に移動{isMulti ? ` (${count}件)` : ""}
