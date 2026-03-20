@@ -11,6 +11,8 @@ import { CreateTextDocumentDialog } from "@/components/CreateTextDocumentDialog"
 import { SidebarTagItem, DropTarget, TrashDropTarget, FolderTreeItem } from "@/components/FolderSidebarItems";
 import { Tooltip } from "@/components/ui/tooltip";
 import { DatePickerInput } from "@/components/DatePickerInput";
+import { UploadProgressPanel } from "@/components/UploadProgressPanel";
+import { UploadQueueManager, type QueueState } from "@/lib/uploadQueue";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -211,6 +213,14 @@ export function FileExplorerPage() {
   // Overwrite confirmation queue (shared by drag-drop and upload dialog)
   const [overwriteQueue, setOverwriteQueue] = useState<globalThis.File[]>([]);
 
+  // Upload queue manager (3+ files)
+  const [queueState, setQueueState] = useState<QueueState | null>(null);
+  const reloadRef = useRef<() => void>(() => {});
+  const queueManagerRef = useRef<UploadQueueManager | null>(null);
+  if (!queueManagerRef.current) {
+    queueManagerRef.current = new UploadQueueManager(() => reloadRef.current());
+  }
+  const queueManager = queueManagerRef.current;
 
   const loadFolders = useCallback(async () => {
     try {
@@ -346,6 +356,7 @@ export function FileExplorerPage() {
     }
   }, [perPage, sortBy, sortDir, filterType, filterDateFrom, filterDateTo, filterCreatedBy, activeFolderId, activeTag, isSearching, urlQ, showFavorites]);
 
+  reloadRef.current = () => { load(true); loadFolders(); };
   useEffect(() => { load(true); }, [load]);
   // Re-trigger search when URL timestamp changes (re-search same query)
   useEffect(() => { if (urlT) load(true); }, [urlT]);
@@ -365,6 +376,12 @@ export function FileExplorerPage() {
       });
     }
   }, []);
+  // Subscribe to upload queue state
+  useEffect(() => {
+    return queueManager.subscribe((state) => {
+      setQueueState(state.items.length > 0 ? state : null);
+    });
+  }, [queueManager]);
   // Reset when search query changes & record search history
   useEffect(() => {
     if (urlQ) setSearchHistory(addSearchHistory(urlQ));
@@ -906,9 +923,17 @@ export function FileExplorerPage() {
       if (dupSet.has(f.name)) dups.push(f);
       else nonDups.push(f);
     }
-    const reload = () => { load(true); loadFolders(); };
-    for (const f of nonDups) {
-      uploadWithProgress(f, reload, uploadFolderId);
+    if (nonDups.length > 0) {
+      if (nonDups.length <= 2 && dups.length === 0) {
+        // Small batch: toast-based upload
+        const reload = () => { load(true); loadFolders(); };
+        for (const f of nonDups) {
+          uploadWithProgress(f, reload, uploadFolderId);
+        }
+      } else {
+        // 3+ files: queue manager with progress panel
+        queueManager.enqueue(nonDups, uploadFolderId);
+      }
     }
     if (dups.length > 0) {
       setOverwriteQueue(dups);
@@ -936,9 +961,13 @@ export function FileExplorerPage() {
   }
 
   function handleOverwriteAll() {
-    const reload = () => { load(true); loadFolders(); };
-    for (const file of overwriteQueue) {
-      uploadWithProgress(file, reload, uploadFolderId);
+    if (overwriteQueue.length <= 2) {
+      const reload = () => { load(true); loadFolders(); };
+      for (const file of overwriteQueue) {
+        uploadWithProgress(file, reload, uploadFolderId);
+      }
+    } else {
+      queueManager.enqueue(overwriteQueue, uploadFolderId);
     }
     setOverwriteQueue([]);
   }
@@ -965,7 +994,11 @@ export function FileExplorerPage() {
     >
       {/* File drop overlay */}
       {fileDragOver && (
-        <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center rounded-lg border-2 border-dashed border-primary m-4 pointer-events-none">
+        <div
+          className="absolute inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center rounded-lg border-2 border-dashed border-primary m-4"
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }}
+          onDrop={handleFileDrop}
+        >
           <div className="text-center">
             <Upload className="h-12 w-12 text-primary mx-auto mb-3" />
             <p className="text-lg font-medium">ファイルをドロップしてアップロード</p>
@@ -1921,6 +1954,15 @@ export function FileExplorerPage() {
         currentFolderId={uploadFolderId}
         onCreated={() => { setCreateTextOpen(false); load(true); }}
       />
+
+      {/* Upload Progress Panel (3+ files) */}
+      {queueState && (
+        <UploadProgressPanel
+          state={queueState}
+          onAbort={() => queueManager.abort()}
+          onClear={() => queueManager.clear()}
+        />
+      )}
     </div>
   );
 }
