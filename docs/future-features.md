@@ -30,6 +30,7 @@ AI搭載のローカルファイル管理システムとして、ファイル管
 | 音声プレビュー | ✅ | ブラウザネイティブ `<audio>` |
 | ゴミ箱 | ✅ | ソフトデリート + 復元 + 完全削除 |
 | メール通知 | ✅ | SMTP/SendGrid/Resend/SES、バッチ集約送信 |
+| お気に入り | ✅ | ユーザー別スター登録、サイドバー・右クリック・モーダルから操作 |
 
 ---
 
@@ -520,44 +521,6 @@ POST /api/folders/bulk
 - Chrome / Edge: `webkitGetAsEntry()` + `webkitdirectory` 完全対応
 - Firefox: `webkitdirectory` 対応、`getAsEntry()` 対応
 - Safari: `webkitdirectory` 対応
-
----
-
-## 7. お気に入り / ピン留め
-
-### 概要
-ユーザーごとによく使うファイルをスター（お気に入り）登録し、サイドバーからクイックアクセスできる機能。他のユーザーからは見えない個人ブックマーク。
-
-### 要件
-- ファイル一覧・プレビューモーダルにスターアイコン（トグル）
-- サイドバーに「お気に入り」セクション追加
-- ユーザーごとに独立（他ユーザーには非公開）
-- 並び順はお気に入り登録日時順
-
-### データモデル
-
-```sql
-CREATE TABLE user_favorites (
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (user_id, document_id)
-);
-CREATE INDEX idx_user_favorites_user ON user_favorites(user_id, created_at DESC);
-```
-
-### エンドポイント
-
-```
-GET    /api/favorites              — お気に入り一覧
-POST   /api/favorites/{doc_id}     — お気に入り追加
-DELETE /api/favorites/{doc_id}     — お気に入り解除
-```
-
-### UI
-- ファイル一覧: ファイル名の左にスターアイコン（☆ / ★）
-- プレビューモーダル: ヘッダーにスターアイコン
-- サイドバー: 「⭐ お気に入り」セクション（クリックでお気に入りファイル一覧表示）
 
 ---
 
