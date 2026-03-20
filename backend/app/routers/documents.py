@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
@@ -170,7 +170,7 @@ async def list_documents(
     if date_from:
         base = base.where(Document.updated_at >= datetime.fromisoformat(date_from))
     if date_to:
-        base = base.where(Document.updated_at < datetime.fromisoformat(date_to + "T23:59:59.999999"))
+        base = base.where(Document.updated_at < datetime.fromisoformat(date_to) + timedelta(days=1))
     if created_by:
         base = base.where(Document.created_by_id == uuid.UUID(created_by))
     if tag:
@@ -189,9 +189,31 @@ async def list_documents(
         )
         base = base.where(Document.id.in_(select(fav_sq.c.document_id)))
 
-    # Count total before pagination
-    count_stmt = select(func.count()).select_from(base.subquery())
-    total = (await db.execute(count_stmt)).scalar() or 0
+    # Count total before pagination (lightweight query without JOINs)
+    count_q = select(func.count(Document.id)).where(visibility_filter).where(Document.deleted_at.is_(None))
+    if file_type:
+        count_q = count_q.where(Document.file_type == file_type)
+    if q:
+        count_q = count_q.where(Document.title.ilike(f"%{q}%"))
+    if folder_id:
+        count_q = count_q.where(Document.folder_id == uuid.UUID(folder_id))
+    elif unfiled:
+        count_q = count_q.where(Document.folder_id.is_(None))
+    if date_from:
+        count_q = count_q.where(Document.updated_at >= datetime.fromisoformat(date_from))
+    if date_to:
+        count_q = count_q.where(Document.updated_at < datetime.fromisoformat(date_to) + timedelta(days=1))
+    if created_by:
+        count_q = count_q.where(Document.created_by_id == uuid.UUID(created_by))
+    if tag:
+        count_q = count_q.where(Document.id.in_(
+            select(DocumentTag.document_id).join(Tag, DocumentTag.tag_id == Tag.id).where(Tag.name == tag)
+        ))
+    if favorites:
+        count_q = count_q.where(Document.id.in_(
+            select(UserFavorite.document_id).where(UserFavorite.user_id == current_user.id)
+        ))
+    total = (await db.execute(count_q)).scalar() or 0
 
     # Sorting
     allowed_sort_cols = {
