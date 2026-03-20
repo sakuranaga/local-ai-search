@@ -1041,7 +1041,9 @@ async def update_document(
                     target_id=str(doc.id), target_name=doc.title, request=request)
 
     from app.services.mail import notify_update
+    from app.services.webhook import webhook_update
     notify_update(current_user.display_name or current_user.username, [doc.title])
+    webhook_update(current_user.display_name or current_user.username, [doc.title])
 
     return DocumentListItem(
         id=str(doc.id),
@@ -1099,7 +1101,9 @@ async def delete_document(
                     target_id=str(doc.id), target_name=doc.title, request=request)
 
     from app.services.mail import notify_delete
+    from app.services.webhook import webhook_delete
     notify_delete(current_user.display_name or current_user.username, [doc.title])
+    webhook_delete(current_user.display_name or current_user.username, [doc.title])
 
 
 # ---------------------------------------------------------------------------
@@ -1160,7 +1164,10 @@ async def bulk_action(
         await db.flush()
         if docs:
             from app.services.mail import notify_delete
-            notify_delete(current_user.display_name or current_user.username, [d.title for d in docs])
+            from app.services.webhook import webhook_delete
+            _titles = [d.title for d in docs]
+            notify_delete(current_user.display_name or current_user.username, _titles)
+            webhook_delete(current_user.display_name or current_user.username, _titles)
         return {"action": "delete", "processed": len(docs)}
 
     elif body.action == "reindex":

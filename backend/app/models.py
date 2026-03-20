@@ -426,6 +426,29 @@ class MailRecipient(Base):
     )
 
 
+class WebhookEndpoint(Base):
+    __tablename__ = "webhook_endpoints"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    url: Mapped[str] = mapped_column(String(2000), nullable=False)
+    format: Mapped[str] = mapped_column(String(20), nullable=False, default="json")  # json, discord, slack
+    secret: Mapped[str | None] = mapped_column(String(255), nullable=True)  # HMAC-SHA256 signing key
+    on_login: Mapped[bool] = mapped_column(Boolean, default=False)
+    on_create: Mapped[bool] = mapped_column(Boolean, default=False)
+    on_update: Mapped[bool] = mapped_column(Boolean, default=False)
+    on_delete: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class UserFavorite(Base):
     __tablename__ = "user_favorites"
     __table_args__ = (

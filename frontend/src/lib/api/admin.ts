@@ -361,3 +361,52 @@ export async function sendTestMail(to: string): Promise<{ status: string; messag
     body: JSON.stringify({ to }),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Webhooks
+// ---------------------------------------------------------------------------
+
+export interface WebhookEndpoint {
+  id: string;
+  name: string;
+  url: string;
+  format: string;
+  secret: string | null;
+  on_login: boolean;
+  on_create: boolean;
+  on_update: boolean;
+  on_delete: boolean;
+  enabled: boolean;
+}
+
+export async function getWebhooks(): Promise<WebhookEndpoint[]> {
+  return apiFetch("/admin/webhooks");
+}
+
+export async function createWebhook(data: { name: string; url: string; format?: string; secret?: string | null }): Promise<WebhookEndpoint> {
+  return apiFetch("/admin/webhooks", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateWebhook(
+  id: string,
+  data: Partial<Pick<WebhookEndpoint, "name" | "url" | "format" | "secret" | "on_login" | "on_create" | "on_update" | "on_delete" | "enabled">>,
+): Promise<WebhookEndpoint> {
+  return apiFetch(`/admin/webhooks/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteWebhook(id: string): Promise<void> {
+  return apiFetch(`/admin/webhooks/${id}`, { method: "DELETE" });
+}
+
+export async function sendTestWebhook(url: string, secret?: string | null, format?: string): Promise<{ status: string; message: string }> {
+  return apiFetch("/admin/webhooks/test", {
+    method: "POST",
+    body: JSON.stringify({ url, secret, format: format || "json" }),
+  });
+}
