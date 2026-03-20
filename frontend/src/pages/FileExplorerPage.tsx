@@ -142,6 +142,7 @@ export function FileExplorerPage() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [allDocCount, setAllDocCount] = useState(0);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null); // null = all, "unfiled" = no folder
+  const [dragOverFolderRowId, setDragOverFolderRowId] = useState<string | null>(null);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderParent, setNewFolderParent] = useState<string | null>(null);
@@ -1290,9 +1291,20 @@ export function FileExplorerPage() {
                 {listFolders.map((folder) => (
                   <TableRow
                     key={`folder-${folder.id}`}
-                    className="cursor-pointer select-none"
+                    className={`cursor-pointer select-none ${dragOverFolderRowId === folder.id ? "bg-primary/20 ring-2 ring-primary/40" : ""}`}
                     onDoubleClick={() => selectFolder(folder.id)}
                     onContextMenu={(e) => { e.preventDefault(); handleFolderContextMenu(e, { ...folder, children: [] }); }}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverFolderRowId(folder.id); }}
+                    onDragLeave={() => setDragOverFolderRowId(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDragOverFolderRowId(null);
+                      try {
+                        const ids: string[] = JSON.parse(e.dataTransfer.getData("application/x-doc-ids"));
+                        if (ids.length > 0) handleDropOnFolder(folder.id, ids);
+                      } catch { /* ignore */ }
+                    }}
                   >
                     <TableCell className="pl-4 overflow-hidden max-w-0">
                       <div className="font-medium text-sm truncate flex items-center gap-1.5">
