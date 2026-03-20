@@ -345,3 +345,100 @@ export function formatPermString(gr: boolean, gw: boolean, or_: boolean, ow: boo
   const others = (or_ ? "r" : "-") + (ow ? "w" : "-");
   return `${owner}${group}${others}`;
 }
+
+// ---------------------------------------------------------------------------
+// Directory entry traversal (for folder drag-and-drop upload)
+// ---------------------------------------------------------------------------
+
+export interface FileWithPath {
+  file: File;
+  /** Relative folder path, e.g. "営業資料/見積書" (empty string for root files) */
+  folderPath: string;
+}
+
+/**
+ * Check if a DataTransfer contains directory entries.
+ */
+export function hasDirectoryEntries(dataTransfer: DataTransfer): boolean {
+  const items = dataTransfer.items;
+  for (let i = 0; i < items.length; i++) {
+    const entry = items[i].webkitGetAsEntry?.();
+    if (entry?.isDirectory) return true;
+  }
+  return false;
+}
+
+export interface TraversalResult {
+  files: FileWithPath[];
+  truncated: boolean;
+}
+
+/**
+ * Recursively traverse DataTransfer entries (files + directories).
+ * Returns a flat list of files with their relative folder paths.
+ * If maxFiles is set, stops early and returns truncated: true.
+ */
+export async function traverseDataTransferItems(
+  dataTransfer: DataTransfer,
+  maxFiles?: number,
+): Promise<TraversalResult> {
+  const results: FileWithPath[] = [];
+  const entries: FileSystemEntry[] = [];
+
+  for (let i = 0; i < dataTransfer.items.length; i++) {
+    const entry = dataTransfer.items[i].webkitGetAsEntry?.();
+    if (entry) entries.push(entry);
+  }
+
+  let truncated = false;
+  for (const entry of entries) {
+    if (truncated) break;
+    truncated = await _traverseEntry(entry, "", results, maxFiles);
+  }
+
+  return { files: results, truncated };
+}
+
+/** Returns true if limit was hit */
+async function _traverseEntry(
+  entry: FileSystemEntry,
+  parentPath: string,
+  results: FileWithPath[],
+  maxFiles?: number,
+): Promise<boolean> {
+  if (maxFiles && results.length > maxFiles) {
+    return true;
+  }
+
+  if (entry.isFile) {
+    const fileEntry = entry as FileSystemFileEntry;
+    const file = await new Promise<File>((resolve, reject) => {
+      fileEntry.file(resolve, reject);
+    });
+    // Skip hidden files (e.g. .DS_Store)
+    if (!file.name.startsWith(".")) {
+      results.push({ file, folderPath: parentPath });
+    }
+  } else if (entry.isDirectory) {
+    // Skip hidden directories (e.g. .git, .svn, __MACOSX)
+    if (entry.name.startsWith(".") || entry.name === "__MACOSX") {
+      return false;
+    }
+    const dirEntry = entry as FileSystemDirectoryEntry;
+    const dirPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+    const reader = dirEntry.createReader();
+
+    let batch: FileSystemEntry[];
+    do {
+      batch = await new Promise<FileSystemEntry[]>((resolve, reject) => {
+        reader.readEntries(resolve, reject);
+      });
+      for (const child of batch) {
+        const hit = await _traverseEntry(child, dirPath, results, maxFiles);
+        if (hit) return true;
+      }
+    } while (batch.length > 0);
+  }
+
+  return false;
+}

@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +10,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { Upload } from "lucide-react";
+import { Upload, FolderUp, Loader2 } from "lucide-react";
 import {
   bulkAction,
   getGroups,
@@ -20,7 +19,13 @@ import {
   type Group,
   type DocumentListItem,
 } from "@/lib/api";
-import { formatBytes, formatPermString } from "@/lib/fileExplorerHelpers";
+import {
+  formatBytes,
+  formatPermString,
+  hasDirectoryEntries,
+  traverseDataTransferItems,
+  type FileWithPath,
+} from "@/lib/fileExplorerHelpers";
 
 // ---------------------------------------------------------------------------
 // Bulk Permissions Dialog
@@ -283,6 +288,9 @@ export function BulkTagDialog({
 // Upload Dialog
 // ---------------------------------------------------------------------------
 
+const MAX_UPLOAD_FILES = 1000;
+const MAX_SHOW_FILES = 5;
+
 export function UploadDialog({
   open,
   onClose,
@@ -290,36 +298,165 @@ export function UploadDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  onSubmit: (files: globalThis.File[]) => void;
+  onSubmit: (items: FileWithPath[]) => void;
 }) {
-  const [files, setFiles] = useState<globalThis.File[]>([]);
+  const [items, setItems] = useState<FileWithPath[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const overLimit = items.length > MAX_UPLOAD_FILES;
+  const hasFolders = items.some((i) => i.folderPath !== "");
+  // Unique top-level folder names for display
+  const folderNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of items) {
+      if (i.folderPath) set.add(i.folderPath.split("/")[0]);
+    }
+    return [...set];
+  }, [items]);
+
+  const reset = useCallback(() => {
+    setItems([]);
+    setDragOver(false);
+    setScanning(false);
+  }, []);
 
   function handleUpload() {
-    if (files.length === 0) return;
-    onSubmit(files);
-    setFiles([]);
+    if (items.length === 0) return;
+    onSubmit(items);
+    reset();
+  }
+
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    setItems(files.map((f) => ({ file: f, folderPath: "" })));
+    // Reset input value so same file can be re-selected
+    e.target.value = "";
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setDragOver(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    // Only trigger when leaving the drop zone itself
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragOver(false);
+  }
+
+  async function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+
+    if (hasDirectoryEntries(e.dataTransfer)) {
+      setScanning(true);
+      try {
+        const result = await traverseDataTransferItems(e.dataTransfer, MAX_UPLOAD_FILES);
+        if (result.truncated) {
+          toast.error(`ファイル数が上限 (${MAX_UPLOAD_FILES}件) を超えています。分割してください。`);
+        } else {
+          setItems(result.files);
+        }
+      } finally {
+        setScanning(false);
+      }
+    } else {
+      const files = Array.from(e.dataTransfer.files);
+      setItems(files.map((f) => ({ file: f, folderPath: "" })));
+    }
   }
 
   return (
-    <Dialog open={open} onOpenChange={() => { onClose(); setFiles([]); }}>
-      <DialogContent>
+    <Dialog open={open} onOpenChange={() => { onClose(); reset(); }}>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>ファイルアップロード</DialogTitle>
-          <DialogDescription>すべてのファイル形式に対応しています</DialogDescription>
+          <DialogTitle>アップロード</DialogTitle>
+          <DialogDescription>ファイルを選択またはドラッグ&ドロップ（フォルダも可）</DialogDescription>
         </DialogHeader>
-        <Input type="file" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
-        {files.length > 0 && (
-          <div className="text-sm text-muted-foreground space-y-0.5">
-            {files.map((f, i) => (
-              <p key={i}>{f.name} ({formatBytes(f.size)})</p>
-            ))}
+
+        {/* Drop zone */}
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => !scanning && fileInputRef.current?.click()}
+          className={`
+            relative flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed
+            p-8 cursor-pointer transition-colors
+            ${dragOver
+              ? "border-primary bg-primary/5"
+              : "border-muted-foreground/25 hover:border-muted-foreground/50"
+            }
+          `}
+        >
+          {scanning ? (
+            <>
+              <Loader2 className="h-10 w-10 text-muted-foreground animate-spin" />
+              <p className="text-sm text-muted-foreground">フォルダを読み取り中...</p>
+            </>
+          ) : items.length === 0 ? (
+            <>
+              <Upload className="h-10 w-10 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                クリックしてファイルを選択
+              </p>
+              <p className="text-xs text-muted-foreground/70">
+                フォルダはドロップで対応
+              </p>
+            </>
+          ) : hasFolders ? (
+            <>
+              <FolderUp className="h-10 w-10 text-primary" />
+              <p className="text-sm font-medium">
+                {folderNames.length === 1 ? `${folderNames[0]}/` : `${folderNames.length} フォルダ`}
+              </p>
+              <p className="text-sm text-muted-foreground">{items.length} ファイル</p>
+            </>
+          ) : (
+            <>
+              <Upload className="h-10 w-10 text-primary" />
+              <div className="text-sm text-muted-foreground space-y-0.5 text-center">
+                {items.slice(0, MAX_SHOW_FILES).map((item, i) => (
+                  <p key={i}>{item.file.name} ({formatBytes(item.file.size)})</p>
+                ))}
+                {items.length > MAX_SHOW_FILES && (
+                  <p>その他 {items.length - MAX_SHOW_FILES} 件</p>
+                )}
+              </div>
+            </>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileInput}
+          />
+        </div>
+
+        {overLimit && (
+          <p className="text-sm text-destructive font-medium">
+            ファイル数が上限 ({MAX_UPLOAD_FILES}件) を超えています。分割してください。
+          </p>
+        )}
+
+        {items.length > 0 && !overLimit && (
+          <div className="flex justify-between items-center">
+            <button
+              onClick={(e) => { e.stopPropagation(); reset(); }}
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
+              クリア
+            </button>
+            <Button onClick={handleUpload}>
+              <Upload className="h-4 w-4 mr-2" />
+              アップロード{items.length > 1 ? ` (${items.length}件)` : ""}
+            </Button>
           </div>
         )}
-        <DialogFooter showCloseButton>
-          <Button onClick={handleUpload} disabled={files.length === 0}>
-            <Upload className="h-4 w-4 mr-2" />アップロード{files.length > 1 ? ` (${files.length}件)` : ""}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
