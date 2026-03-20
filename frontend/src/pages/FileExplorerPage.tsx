@@ -10,6 +10,7 @@ import { ShareLinkDialog } from "@/components/ShareLinkDialog";
 import { CreateTextDocumentDialog } from "@/components/CreateTextDocumentDialog";
 import { SidebarTagItem, DropTarget, TrashDropTarget, FolderTreeItem } from "@/components/FolderSidebarItems";
 import { Tooltip } from "@/components/ui/tooltip";
+import { DatePickerInput } from "@/components/DatePickerInput";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1219,19 +1220,15 @@ export function FileExplorerPage() {
             ))}
           </select>
           <div className="hidden md:flex items-center gap-1">
-            <input
-              type="date"
+            <DatePickerInput
               value={filterDateFrom}
-              onChange={(e) => setFilterDateFrom(e.target.value)}
-              className="h-8 rounded-md border bg-background px-2 text-xs"
+              onChange={setFilterDateFrom}
               title="更新日From"
             />
             <span className="text-xs text-muted-foreground">〜</span>
-            <input
-              type="date"
+            <DatePickerInput
               value={filterDateTo}
-              onChange={(e) => setFilterDateTo(e.target.value)}
-              className="h-8 rounded-md border bg-background px-2 text-xs"
+              onChange={setFilterDateTo}
               title="更新日To"
             />
           </div>

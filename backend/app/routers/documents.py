@@ -167,9 +167,9 @@ async def list_documents(
     elif unfiled:
         base = base.where(Document.folder_id.is_(None))
     if date_from:
-        base = base.where(Document.updated_at >= date_from)
+        base = base.where(Document.updated_at >= datetime.fromisoformat(date_from))
     if date_to:
-        base = base.where(Document.updated_at < date_to + "T23:59:59.999999")
+        base = base.where(Document.updated_at < datetime.fromisoformat(date_to + "T23:59:59.999999"))
     if created_by:
         base = base.where(Document.created_by_id == uuid.UUID(created_by))
     if tag:
