@@ -250,7 +250,7 @@ export function uploadWithProgress(
     onSuccess: () => {
       if (aborted) return;
       trackUploadEnd(file.name);
-      toast.loading(`${file.name}: 処理中...`, { id: toastId });
+      toast.loading(`${file.name}: 処理中...`, { id: toastId, action: undefined });
       onUploaded();
       _pollProcessingByTitle(file.name, toastId, onUploaded);
     },
@@ -309,20 +309,20 @@ async function _pollProcessingByTitle(
           try {
             const s = await getProcessingStatus(docId);
             if (s === "done") {
-              toast.success(`${filename}: 処理完了`, { id: toastId });
+              toast.success(`${filename}: 処理完了`, { id: toastId, action: undefined });
               onUploaded();
               return;
             }
             if (s === "error") {
-              toast.error(`${filename}: 処理エラー`, { id: toastId });
+              toast.error(`${filename}: 処理エラー`, { id: toastId, action: undefined });
               return;
             }
-            toast.loading(`${filename}: ${STATUS_LABELS[s] ?? s}`, { id: toastId });
+            toast.loading(`${filename}: ${STATUS_LABELS[s] ?? s}`, { id: toastId, action: undefined });
           } catch {
             // ignore poll errors
           }
         }
-        toast.error(`${filename}: タイムアウト`, { id: toastId });
+        toast.error(`${filename}: タイムアウト`, { id: toastId, action: undefined });
         return;
       }
     } catch {
@@ -331,7 +331,7 @@ async function _pollProcessingByTitle(
     await new Promise((r) => setTimeout(r, 1000));
   }
   // Couldn't find the document — show success anyway (upload itself succeeded)
-  toast.success(`${filename}: アップロード完了`, { id: toastId });
+  toast.success(`${filename}: アップロード完了`, { id: toastId, action: undefined });
   onUploaded();
 }
 
