@@ -166,13 +166,13 @@ function saveActiveUploads(entries: Record<string, ActiveUploadEntry>) {
   localStorage.setItem(ACTIVE_UPLOADS_KEY, JSON.stringify(entries));
 }
 
-function trackUploadStart(filename: string) {
+export function trackUploadStart(filename: string) {
   const entries = getActiveUploads();
   entries[filename] = { filename, startedAt: Date.now() };
   saveActiveUploads(entries);
 }
 
-function trackUploadEnd(filename: string) {
+export function trackUploadEnd(filename: string) {
   const entries = getActiveUploads();
   delete entries[filename];
   saveActiveUploads(entries);
