@@ -272,6 +272,8 @@ class Document(Base):
         DateTime(timezone=True), nullable=True, default=None
     )
 
+    current_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
     owner: Mapped["User"] = relationship(back_populates="documents", foreign_keys=[owner_id])
     folder: Mapped["Folder | None"] = relationship(back_populates="documents")
     created_by: Mapped["User | None"] = relationship(foreign_keys=[created_by_id])
@@ -461,6 +463,34 @@ class AuditLog(Base):
     target_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON or free text
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class DocumentVersion(Base):
+    __tablename__ = "document_versions"
+    __table_args__ = (
+        UniqueConstraint("document_id", "version_number", name="uq_docversion_doc_ver"),
+        Index("ix_document_versions_document_id", "document_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    file_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    change_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # upload, text_edit, overwrite
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

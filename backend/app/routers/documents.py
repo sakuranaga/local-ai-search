@@ -13,7 +13,7 @@ from sqlalchemy.orm import aliased
 from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import Chunk, Document, DocumentTag, File, Folder, Group, Tag, User, UserFavorite
+from app.models import Chunk, Document, DocumentTag, DocumentVersion, File, Folder, Group, Tag, User, UserFavorite
 from app.schemas.documents import (
     BulkActionRequest,
     CreateTextDocumentRequest,
@@ -366,6 +366,10 @@ async def create_text_document(
     )
     db.add(file_record)
 
+    await db.flush()
+    from app.services.versioning import create_initial_version
+    await create_initial_version(db, doc, current_user.id)
+
     await audit_log(db, user=current_user, action="document.create", target_type="document",
                     target_id=str(doc.id), target_name=doc.title, request=request)
 
@@ -554,6 +558,8 @@ async def purge_from_trash(
                 pass
         from app.services.preview_generator import delete_preview_images
         delete_preview_images(str(doc.id))
+        from app.services.versioning import delete_version_files
+        await delete_version_files(doc.id)
         await audit_log(db, user=current_user, action="document.purge", target_type="document",
                         target_id=str(doc.id), target_name=doc.title, request=request)
         await db.delete(doc)
@@ -584,6 +590,8 @@ async def empty_trash(
                 pass
         from app.services.preview_generator import delete_preview_images
         delete_preview_images(str(doc.id))
+        from app.services.versioning import delete_version_files
+        await delete_version_files(doc.id)
         await audit_log(db, user=current_user, action="document.purge", target_type="document",
                         target_id=str(doc.id), target_name=doc.title, request=request)
         await db.delete(doc)
@@ -945,6 +953,10 @@ async def update_document(
         doc.memo = body.memo
         is_content_change = True
     if body.content is not None:
+        # Version management: save old state, then new state
+        from app.services.versioning import create_versions_on_edit, save_new_version
+        new_ver = await create_versions_on_edit(db, doc, current_user.id)
+
         doc.content = body.content
         is_content_change = True
         # Re-chunk and re-embed
@@ -991,6 +1003,8 @@ async def update_document(
     if is_content_change:
         doc.updated_by_id = current_user.id
         doc.updated_at = func.now()
+        if body.content is not None:
+            await save_new_version(db, doc, new_ver, current_user.id, "text_edit")
 
     await db.flush()
     await db.refresh(doc)
@@ -1441,3 +1455,86 @@ async def reindex_document(
         created_at=doc.created_at,
         updated_at=doc.updated_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# Version management
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{document_id}/versions")
+async def list_versions(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all versions of a document."""
+    result = await db.execute(
+        select(Document).where(Document.id == document_id, Document.deleted_at.is_(None))
+    )
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if not await _check_doc_access(doc, current_user, need_write=False, db=db):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    CreatedByUser = aliased(User)
+    result = await db.execute(
+        select(
+            DocumentVersion.version_number,
+            DocumentVersion.title,
+            DocumentVersion.file_type,
+            DocumentVersion.file_size,
+            DocumentVersion.created_at,
+            DocumentVersion.change_type,
+            func.coalesce(func.nullif(CreatedByUser.display_name, ""), CreatedByUser.username).label("created_by_name"),
+        )
+        .outerjoin(CreatedByUser, DocumentVersion.created_by_id == CreatedByUser.id)
+        .where(DocumentVersion.document_id == document_id)
+        .order_by(DocumentVersion.version_number.desc())
+    )
+    rows = result.all()
+
+    return [
+        {
+            "version_number": row.version_number,
+            "title": row.title,
+            "file_type": row.file_type,
+            "file_size": row.file_size,
+            "change_type": row.change_type,
+            "created_by_name": row.created_by_name,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "is_current": row.version_number == doc.current_version,
+        }
+        for row in rows
+    ]
+
+
+@router.post("/{document_id}/versions/{version_number}/restore")
+async def restore_document_version(
+    document_id: uuid.UUID,
+    version_number: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Restore a document to a specific version."""
+    result = await db.execute(
+        select(Document).where(Document.id == document_id, Document.deleted_at.is_(None))
+    )
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Permission check: owner or admin
+    if not _is_admin(current_user) and doc.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the document owner or an admin can restore versions")
+
+    from app.services.versioning import restore_version
+
+    try:
+        await restore_version(db, doc, version_number)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return {"message": f"Document restored to version {version_number}"}

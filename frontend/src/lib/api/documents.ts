@@ -159,3 +159,26 @@ export async function addFavorite(docId: string): Promise<void> {
 export async function removeFavorite(docId: string): Promise<void> {
   return apiFetch(`/favorites/${docId}`, { method: "DELETE" });
 }
+
+// ---------------------------------------------------------------------------
+// Versions
+// ---------------------------------------------------------------------------
+
+export interface DocumentVersion {
+  version_number: number;
+  title: string;
+  file_type: string;
+  file_size: number | null;
+  change_type: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  is_current: boolean;
+}
+
+export async function getDocumentVersions(docId: string): Promise<DocumentVersion[]> {
+  return apiFetch(`/documents/${docId}/versions`);
+}
+
+export async function restoreDocumentVersion(docId: string, versionNumber: number): Promise<void> {
+  return apiFetch(`/documents/${docId}/versions/${versionNumber}/restore`, { method: "POST" });
+}

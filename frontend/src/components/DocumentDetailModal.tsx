@@ -28,6 +28,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Star,
+  History,
+  RotateCcw,
 } from "lucide-react";
 import {
   getDocument,
@@ -37,8 +39,11 @@ import {
   setDocumentPermissions,
   getGroups,
   getMe,
+  getDocumentVersions,
+  restoreDocumentVersion,
   type Document,
   type DocumentListItem,
+  type DocumentVersion,
   type Folder,
   type TagInfo,
   type Group,
@@ -80,7 +85,7 @@ export function DocumentDetailModal({
 }) {
   const popupRef = useRef<HTMLDivElement>(null);
   const [doc, setDoc] = useState<Document | null>(null);
-  const [tab, setTab] = useState<"view" | "edit" | "permissions" | "raw" | "share">("view");
+  const [tab, setTab] = useState<"view" | "edit" | "permissions" | "raw" | "share" | "versions">("view");
   const [loading, setLoading] = useState(false);
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [savingContent, setSavingContent] = useState(false);
@@ -177,7 +182,7 @@ export function DocumentDetailModal({
 
         {/* Tabs — hidden on mobile */}
         <div className="hidden md:flex gap-1 border-b">
-          {([...(showViewTab ? ["view" as const] : []), "edit" as const, "permissions" as const, ...(showRawTab ? ["raw" as const] : []), ...(shareEnabled && !item.share_prohibited ? ["share" as const] : [])] as const).map((t) => (
+          {([...(showViewTab ? ["view" as const] : []), "edit" as const, "permissions" as const, ...(showRawTab ? ["raw" as const] : []), "versions" as const, ...(shareEnabled && !item.share_prohibited ? ["share" as const] : [])] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -185,7 +190,7 @@ export function DocumentDetailModal({
                 tab === t ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              {{ view: "表示", edit: "編集", permissions: "権限", raw: "テキスト編集", share: "共有" }[t]}
+              {{ view: "表示", edit: "編集", permissions: "権限", raw: "テキスト編集", versions: "バージョン", share: "共有" }[t]}
             </button>
           ))}
           <div className="ml-auto flex items-center gap-1 pb-1">
@@ -234,6 +239,7 @@ export function DocumentDetailModal({
                   await deleteDocument(item.id);
                   toast.success("ゴミ箱に移動しました");
                   onUpdated();
+                  onClose();
                 } catch { toast.error("削除失敗"); }
               }}
             >
@@ -292,6 +298,16 @@ export function DocumentDetailModal({
 
           {tab === "permissions" && doc && (
             <PermissionsTab docId={item.id} doc={doc} />
+          )}
+
+          {tab === "versions" && doc && (
+            <VersionsTab
+              documentId={item.id}
+              onRestored={() => {
+                getDocument(item.id).then(setDoc).catch(() => {});
+                onUpdated();
+              }}
+            />
           )}
 
           {tab === "share" && (
@@ -557,6 +573,100 @@ function PermissionsTab({ docId, doc }: { docId: string; doc: Document }) {
       </p>
 
       <Button onClick={handleSave} disabled={saving || !canEdit}>権限を保存</Button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Versions Tab
+// ---------------------------------------------------------------------------
+
+function VersionsTab({ documentId, onRestored }: { documentId: string; onRestored: () => void }) {
+  const [versions, setVersions] = useState<DocumentVersion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [restoring, setRestoring] = useState<number | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    getDocumentVersions(documentId)
+      .then(setVersions)
+      .catch(() => toast.error("バージョン一覧の取得に失敗"))
+      .finally(() => setLoading(false));
+  }, [documentId]);
+
+  async function handleRestore(versionNumber: number) {
+    if (!confirm(`バージョン ${versionNumber} に復元しますか？`)) return;
+    setRestoring(versionNumber);
+    try {
+      await restoreDocumentVersion(documentId, versionNumber);
+      toast.success(`バージョン ${versionNumber} に復元しました`);
+      // Reload versions
+      const updated = await getDocumentVersions(documentId);
+      setVersions(updated);
+      onRestored();
+    } catch {
+      toast.error("復元に失敗しました");
+    } finally {
+      setRestoring(null);
+    }
+  }
+
+  if (loading) return <p className="text-sm text-muted-foreground p-4">読み込み中...</p>;
+
+  if (versions.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
+        <History className="h-8 w-8" />
+        <p className="text-sm">バージョン履歴はありません</p>
+        <p className="text-xs">ファイルの上書きやテキスト編集で自動的に作成されます</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1 p-2">
+      {versions.map((v) => (
+        <div
+          key={v.version_number}
+          className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm ${
+            v.is_current ? "bg-primary/5 border border-primary/20" : "hover:bg-muted"
+          }`}
+        >
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium">v{v.version_number}</span>
+              {v.is_current && (
+                <Badge variant="outline" className="text-xs px-1.5 py-0">現在</Badge>
+              )}
+              {v.change_type && (
+                <Badge variant="secondary" className="text-xs px-1.5 py-0">
+                  {{ upload: "アップロード", text_edit: "テキスト編集", overwrite: "ファイル上書き" }[v.change_type] ?? v.change_type}
+                </Badge>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {v.created_at && formatDateTime(v.created_at)}
+              {v.created_by_name && ` — ${v.created_by_name}`}
+              {v.file_size != null && ` — ${formatBytes(v.file_size)}`}
+            </div>
+          </div>
+          {!v.is_current && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={restoring !== null}
+              onClick={() => handleRestore(v.version_number)}
+            >
+              {restoring === v.version_number ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5 mr-1" />
+              )}
+              {restoring === v.version_number ? "" : "復元"}
+            </Button>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

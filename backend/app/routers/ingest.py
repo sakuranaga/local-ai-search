@@ -167,6 +167,10 @@ async def _ingest_single_file(
         doc = existing_doc
         created = False
 
+        # Version management: save old state before overwriting
+        from app.services.versioning import create_versions_on_edit, save_new_version
+        new_ver = await create_versions_on_edit(db, doc, user.id)
+
         # Remove old files from disk and DB
         old_files = await db.execute(select(File).where(File.document_id == doc.id))
         for old_f in old_files.scalars().all():
@@ -235,6 +239,13 @@ async def _ingest_single_file(
         file_size=file_size,
         mime_type=file.content_type,
     ))
+
+    await db.flush()
+    if created:
+        from app.services.versioning import create_initial_version
+        await create_initial_version(db, doc, user.id)
+    else:
+        await save_new_version(db, doc, new_ver, user.id, "overwrite")
 
     await audit_log(db, user=user, action="document.upload" if created else "document.overwrite",
                     target_type="document", target_id=str(doc.id), target_name=doc.title,
@@ -575,9 +586,13 @@ async def tus_hook(
                 )
             )
             existing_doc = existing_result.scalars().first()
+            tus_new_ver = None
 
             if existing_doc:
                 doc = existing_doc
+                # Version management: save old state before overwriting
+                from app.services.versioning import create_versions_on_edit, save_new_version
+                tus_new_ver = await create_versions_on_edit(db, doc, user.id)
                 # Remove old files
                 old_files = await db.execute(select(File).where(File.document_id == doc.id))
                 for old_f in old_files.scalars().all():
@@ -625,6 +640,14 @@ async def tus_hook(
                 file_size=file_size,
                 mime_type=filetype or None,
             ))
+
+            await db.flush()
+            if tus_new_ver is not None:
+                from app.services.versioning import save_new_version
+                await save_new_version(db, doc, tus_new_ver, user.id, "overwrite")
+            else:
+                from app.services.versioning import create_initial_version
+                await create_initial_version(db, doc, user.id)
 
             await audit_log(db, user=user, action="document.upload",
                             target_type="document", target_id=str(doc.id), target_name=filename,

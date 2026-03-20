@@ -60,6 +60,8 @@ async def init_db():
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS can_share BOOLEAN DEFAULT TRUE"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS can_download BOOLEAN DEFAULT TRUE"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS title_embedding vector(1024)"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS current_version INTEGER DEFAULT 1 NOT NULL"))
+        await conn.execute(text("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS change_type VARCHAR(20)"))
         logger.info("Document table migration columns verified")
 
     # Phase 0: Role simplification (Admin/User)
