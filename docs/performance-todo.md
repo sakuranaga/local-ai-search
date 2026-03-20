@@ -11,6 +11,9 @@
 | DB インデックス追加 (documents.updated_at, created_at, created_by_id) | 2026-03-20 |
 | DB インデックス追加 (document_tags.tag_id) | 2026-03-20 |
 | DB インデックス追加 (user_favorites.document_id) | 2026-03-20 |
+| count クエリ最適化 (不要なJOIN除外) | 2026-03-20 |
+| date_to フィルタ堅牢化 (timedelta使用) | 2026-03-20 |
+| お気に入りサブクエリ簡略化 | 2026-03-20 |
 
 ---
 
@@ -68,26 +71,9 @@
 
 ## バックエンド
 
-### 中 — count クエリの最適化
-
-**現状**: ページネーション用の count クエリが、本体クエリの全 JOIN をそのまま含む subquery をカウントしている。
-
-**改善案**: count 用のクエリから不要な JOIN（chunk_count, file_size, share_count の outerjoin）を除外する。基本の WHERE 条件だけでカウントすれば十分。
-
-### 中 — お気に入りサブクエリの簡略化
-
-**現状**: `select(UserFavorite.document_id).where(...).subquery()` を `select()` で再ラップしている。
-
-**改善案**: `.in_(select(UserFavorite.document_id).where(...))` に直接渡す（中間 `.subquery()` 不要）。
-
 ### 低 — 初期ロード API 統合
 
 **現状**: フロントエンド初期ロードで 6 本の API を並列呼び出し（folders, tags, trash, favorites, filter-options, share-enabled）。
 
 **改善案**: `/api/init` のような統合エンドポイントで 1 リクエストにまとめる。ただし現状並列呼び出しで体感速度は問題ない。
 
-### 低 — date_to フィルタの堅牢化
-
-**現状**: `date_to + "T23:59:59.999999"` という文字列連結で上限を作成。
-
-**改善案**: `datetime.fromisoformat(date_to) + timedelta(days=1)` で翌日 0:00 未満にする。
