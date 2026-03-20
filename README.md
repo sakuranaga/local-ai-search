@@ -62,6 +62,7 @@ LAN 内（非公開）              インターネット（公開）
 | 共有・ダウンロード制御 | ユーザー単位・ファイル単位で禁止フラグ設定可能 |
 | メール通知 | ログイン・追加・更新・削除をメールで通知（SMTP/SendGrid/Resend/SES対応） |
 | 監査ログ | 全操作記録、フィルタ、CSVエクスポート |
+| お気に入り | ユーザー別スター登録、サイドバーからクイックアクセス |
 | 完全ローカル | データはクラウドに送信されません |
 
 ## 主な機能
@@ -88,6 +89,7 @@ LAN 内（非公開）              インターネット（公開）
 - **外部共有リンク** — LAN内のファイルを外部の Share Server 経由で共有。パスワード保護、有効期限（最大30日）、期限切れ自動削除対応
 - **一括操作** — 複数選択でタグ編集、フォルダ移動、権限変更、削除、Zip ダウンロード
 - **ゴミ箱** — ソフトデリート + 復元 + 完全削除
+- **お気に入り** — スター登録でクイックアクセス。サイドバー・右クリックメニュー・モーダルから操作、ユーザーごとに独立
 - **キーボードショートカット** — Ctrl+A 全選択、Escape 解除、Delete ゴミ箱移動
 
 ### セキュリティ・権限
@@ -328,6 +330,9 @@ docker compose exec backend python -m pytest tests/ -v
 | POST | `/api/documents/bulk-action` | 一括操作 |
 | POST | `/api/documents/download-zip` | 複数ファイルZipダウンロード |
 | GET | `/api/documents/filter-options` | フィルタ選択肢（種別・登録者） |
+| GET | `/api/favorites` | お気に入り一覧 |
+| POST | `/api/favorites/{id}` | お気に入り追加 |
+| DELETE | `/api/favorites/{id}` | お気に入り解除 |
 | GET | `/api/folders` | フォルダ一覧 |
 | GET | `/api/tags` | タグ一覧 |
 | POST | `/api/ingest/tus-hook` | tus アップロード完了フック |
