@@ -1064,13 +1064,13 @@ export function FileExplorerPage() {
           <Button variant="ghost" size="icon" className="md:hidden -ml-1 mr-1 shrink-0 h-12 w-12" onClick={() => setSidebarOpen(true)}>
             <Menu className="h-8 w-8" strokeWidth={2.5} />
           </Button>
-          <h1 className="text-lg md:text-xl font-bold truncate">
-            {showTrash ? "ゴミ箱" : isSearching ? `検索結果: ${urlQ}` : folderBreadcrumb ? (
+          <h1 className="text-lg md:text-xl font-bold min-w-0 flex items-center overflow-hidden">
+            {showTrash ? "ゴミ箱" : isSearching ? <span className="truncate">{`検索結果: ${urlQ}`}</span> : folderBreadcrumb ? (
               folderBreadcrumb.map((seg, i) => (
-                <span key={seg.id}>
-                  {i > 0 && <span className="mx-1 text-muted-foreground font-normal">&gt;</span>}
+                <span key={seg.id} className={`flex items-center ${i === folderBreadcrumb.length - 1 ? "min-w-0 overflow-hidden" : "shrink-0"}`}>
+                  {i > 0 && <span className="mx-1 text-muted-foreground font-normal shrink-0">&gt;</span>}
                   <button
-                    className={i === folderBreadcrumb.length - 1 ? "" : "text-muted-foreground font-normal hover:text-foreground hover:underline"}
+                    className={`${i === folderBreadcrumb.length - 1 ? "truncate" : "text-muted-foreground font-normal hover:text-foreground hover:underline whitespace-nowrap"}`}
                     onClick={() => selectFolder(seg.id)}
                   >
                     {seg.name}
