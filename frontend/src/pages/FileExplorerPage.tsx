@@ -9,6 +9,7 @@ import { FolderPermissionsDialog } from "@/components/FolderPermissionsDialog";
 import { ShareLinkDialog } from "@/components/ShareLinkDialog";
 import { CreateTextDocumentDialog } from "@/components/CreateTextDocumentDialog";
 import { SidebarTagItem, DropTarget, TrashDropTarget, FolderTreeItem } from "@/components/FolderSidebarItems";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1020,7 +1021,7 @@ export function FileExplorerPage() {
                       ) : (
                         <SearchIcon className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                       )}
-                      <span className="truncate">{entry.query}</span>
+                      <Tooltip content={entry.query} onlyWhenTruncated><span className="truncate">{entry.query}</span></Tooltip>
                     </button>
                     <div className="hidden group-hover:flex items-center gap-0.5 mr-0.5">
                       <button
@@ -1338,10 +1339,12 @@ export function FileExplorerPage() {
                     }}
                   >
                     <TableCell className="pl-4 overflow-hidden max-w-0">
-                      <div className="font-medium text-sm truncate flex items-center gap-1.5">
-                        <FolderIcon className="h-4 w-4 text-primary flex-shrink-0" />
-                        {folder.name}
-                      </div>
+                      <Tooltip content={folder.name} onlyWhenTruncated>
+                        <div className="font-medium text-sm truncate flex items-center gap-1.5">
+                          <FolderIcon className="h-4 w-4 text-primary flex-shrink-0" />
+                          {folder.name}
+                        </div>
+                      </Tooltip>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs">フォルダ</Badge>
@@ -1385,7 +1388,7 @@ export function FileExplorerPage() {
                   >
                     <TableCell className="pl-4 overflow-hidden max-w-0">
                       <div className="font-medium text-sm truncate">
-                        {item.title}
+                        <Tooltip content={item.title}><span className="truncate">{item.title}</span></Tooltip>
                         {isSearching && (item as any).rrf_score != null && (
                           <span className={`ml-2 text-xs font-normal ${(item as any).rrf_score >= 0.5 ? "text-green-600" : "text-orange-500"}`}>{((item as any).rrf_score as number).toFixed(4)}</span>
                         )}
