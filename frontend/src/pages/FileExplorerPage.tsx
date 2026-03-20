@@ -68,6 +68,7 @@ import {
   bulkAction,
   getFolders,
   createFolder,
+  createFoldersBulk,
   updateFolder,
   deleteFolder,
   createTag,
@@ -101,9 +102,14 @@ import {
   checkInterruptedUploads,
   clearInterruptedUpload,
   TAG_COLORS,
+  hasDirectoryEntries,
+  traverseDataTransferItems,
+  type FileWithPath,
   type FolderNode,
   type SearchHistoryEntry,
 } from "@/lib/fileExplorerHelpers";
+
+const MAX_UPLOAD_FILES = 1000;
 
 // ---------------------------------------------------------------------------
 // Main Component
@@ -892,7 +898,7 @@ export function FileExplorerPage() {
 
   function handleFileDragEnter(e: React.DragEvent) {
     e.preventDefault();
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e) || uploadOpen) return;
     dragCounter.current++;
     if (dragCounter.current === 1) setFileDragOver(true);
   }
@@ -915,6 +921,10 @@ export function FileExplorerPage() {
   const uploadFolderId = activeFolderId && activeFolderId !== "unfiled" ? activeFolderId : null;
 
   async function startUploadWithCheck(files: globalThis.File[]) {
+    if (files.length > MAX_UPLOAD_FILES) {
+      toast.error(`ファイル数が上限 (${MAX_UPLOAD_FILES}件) を超えています (${files.length.toLocaleString()}件)。分割してください。`);
+      return;
+    }
     const dupTitles = await checkDuplicates(files.map((f) => f.name));
     const dupSet = new Set(dupTitles);
     const dups: globalThis.File[] = [];
@@ -944,11 +954,63 @@ export function FileExplorerPage() {
     e.preventDefault();
     dragCounter.current = 0;
     setFileDragOver(false);
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e) || uploadOpen) return;
+
+    // Check for directory entries (folder drop)
+    if (hasDirectoryEntries(e.dataTransfer)) {
+      handleFolderUpload(e.dataTransfer);
+      return;
+    }
 
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
     startUploadWithCheck(files);
+  }
+
+  async function handleFolderUpload(dataTransfer: DataTransfer) {
+    const toastId = toast.loading("フォルダを読み取り中...");
+    try {
+      const result = await traverseDataTransferItems(dataTransfer, MAX_UPLOAD_FILES);
+      if (result.truncated) {
+        toast.error(`ファイル数が上限 (${MAX_UPLOAD_FILES}件) を超えています。分割してください。`, { id: toastId });
+        return;
+      }
+      if (result.files.length === 0) {
+        toast.info("アップロード可能なファイルがありません", { id: toastId });
+        return;
+      }
+      toast.dismiss(toastId);
+      await handleFolderUploadEntries(result.files);
+    } catch (err) {
+      toast.error(`フォルダアップロード準備に失敗: ${err instanceof Error ? err.message : "不明なエラー"}`, { id: toastId });
+    }
+  }
+
+  async function handleFolderUploadEntries(entries: FileWithPath[]) {
+    const toastId = toast.loading("フォルダを作成中...");
+    try {
+      const folderPaths = [...new Set(entries.map((e) => e.folderPath).filter(Boolean))];
+
+      let pathToFolderId: Record<string, string> = {};
+      if (folderPaths.length > 0) {
+        toast.loading(`${folderPaths.length} フォルダを作成中...`, { id: toastId });
+        const result = await createFoldersBulk(folderPaths, uploadFolderId);
+        for (const { path, id } of result.folders) {
+          pathToFolderId[path] = id;
+        }
+        loadFolders();
+      }
+
+      const queueItems = entries.map((entry) => ({
+        file: entry.file,
+        folderId: entry.folderPath ? (pathToFolderId[entry.folderPath] ?? uploadFolderId) : uploadFolderId,
+      }));
+
+      toast.success(`${entries.length} ファイルをキューに追加`, { id: toastId });
+      queueManager.enqueue(queueItems);
+    } catch (err) {
+      toast.error(`フォルダアップロード準備に失敗: ${err instanceof Error ? err.message : "不明なエラー"}`, { id: toastId });
+    }
   }
 
   function handleOverwriteConfirm() {
@@ -997,12 +1059,12 @@ export function FileExplorerPage() {
         <div
           className="absolute inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center rounded-lg border-2 border-dashed border-primary m-4"
           onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }}
-          onDrop={handleFileDrop}
+          onDrop={(e) => { e.stopPropagation(); handleFileDrop(e); }}
         >
           <div className="text-center">
             <Upload className="h-12 w-12 text-primary mx-auto mb-3" />
-            <p className="text-lg font-medium">ファイルをドロップしてアップロード</p>
-            <p className="text-sm text-muted-foreground mt-1">すべてのファイル形式に対応しています</p>
+            <p className="text-lg font-medium">ファイル/フォルダをドロップしてアップロード</p>
+            <p className="text-sm text-muted-foreground mt-1">フォルダの場合は階層を自動作成します</p>
           </div>
         </div>
       )}
@@ -1943,7 +2005,15 @@ export function FileExplorerPage() {
       <UploadDialog
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
-        onSubmit={(files) => { setUploadOpen(false); startUploadWithCheck(files); }}
+        onSubmit={(entries) => {
+          setUploadOpen(false);
+          const hasFolders = entries.some((e) => e.folderPath !== "");
+          if (hasFolders) {
+            handleFolderUploadEntries(entries);
+          } else {
+            startUploadWithCheck(entries.map((e) => e.file));
+          }
+        }}
       />
 
       {/* Create Text Document Dialog */}

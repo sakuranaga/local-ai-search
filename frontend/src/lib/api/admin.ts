@@ -144,6 +144,16 @@ export async function deleteFolder(id: string): Promise<void> {
   return apiFetch(`/folders/${id}`, { method: "DELETE" });
 }
 
+export async function createFoldersBulk(
+  paths: string[],
+  parentId?: string | null,
+): Promise<{ folders: { path: string; id: string }[] }> {
+  return apiFetch("/folders/bulk", {
+    method: "POST",
+    body: JSON.stringify({ paths, parent_id: parentId || null }),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Tags
 // ---------------------------------------------------------------------------

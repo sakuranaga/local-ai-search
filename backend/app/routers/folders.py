@@ -261,6 +261,81 @@ async def create_folder(
     )
 
 
+class BulkFolderCreate(BaseModel):
+    paths: list[str]          # e.g. ["営業資料", "営業資料/見積書"]
+    parent_id: str | None = None
+
+
+@router.post("/bulk", status_code=status.HTTP_201_CREATED)
+async def create_folders_bulk(
+    body: BulkFolderCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create folder hierarchy from a list of path strings.
+
+    Each path is slash-separated (e.g. "営業資料/見積書").
+    Existing folders with the same name under the same parent are reused.
+    Returns a mapping of path → folder id.
+    """
+    root_parent: uuid.UUID | None = None
+    if body.parent_id:
+        root_parent = uuid.UUID(body.parent_id)
+        if not await db.get(Folder, root_parent):
+            raise HTTPException(status_code=404, detail="Parent folder not found")
+
+    # Sort by depth so parents are created before children
+    sorted_paths = sorted(set(body.paths), key=lambda p: p.count("/"))
+
+    # Cache: "path" → folder_id (includes pre-existing folders)
+    path_to_id: dict[str, str] = {}
+
+    for path in sorted_paths:
+        parts = [p.strip() for p in path.split("/") if p.strip()]
+        if not parts:
+            continue
+
+        current_parent = root_parent
+        accumulated = ""
+
+        for part in parts:
+            accumulated = f"{accumulated}/{part}" if accumulated else part
+
+            if accumulated in path_to_id:
+                current_parent = uuid.UUID(path_to_id[accumulated])
+                continue
+
+            # Check if folder already exists under current parent
+            existing = await db.execute(
+                select(Folder).where(
+                    Folder.name == part,
+                    Folder.parent_id == current_parent,
+                )
+            )
+            folder = existing.scalar_one_or_none()
+
+            if folder:
+                path_to_id[accumulated] = str(folder.id)
+                current_parent = folder.id
+            else:
+                folder = Folder(
+                    name=part,
+                    parent_id=current_parent,
+                    owner_id=current_user.id,
+                )
+                db.add(folder)
+                await db.flush()
+                await db.refresh(folder)
+                path_to_id[accumulated] = str(folder.id)
+                current_parent = folder.id
+
+    await db.commit()
+
+    return {
+        "folders": [{"path": p, "id": fid} for p, fid in path_to_id.items()],
+    }
+
+
 @router.patch("/{folder_id}", response_model=FolderResponse)
 async def update_folder(
     folder_id: uuid.UUID,

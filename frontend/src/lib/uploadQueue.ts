@@ -65,14 +65,24 @@ export class UploadQueueManager {
   // Public API
   // -----------------------------------------------------------------------
 
-  enqueue(files: File[], folderId?: string | null): void {
+  /** Enqueue files with a single shared folderId */
+  enqueue(files: File[], folderId?: string | null): void;
+  /** Enqueue files with per-file folderId */
+  enqueue(items: { file: File; folderId: string | null }[]): void;
+  enqueue(
+    filesOrItems: File[] | { file: File; folderId: string | null }[],
+    folderId?: string | null,
+  ): void {
     this.aborted = false;
-    for (const file of files) {
+    for (const entry of filesOrItems) {
+      const isFileObj = entry instanceof File;
+      const file = isFileObj ? entry : entry.file;
+      const folder = isFileObj ? (folderId ?? null) : entry.folderId;
       this.queue.push({
         id: crypto.randomUUID(),
         file,
         filename: file.name,
-        folderId: folderId ?? null,
+        folderId: folder,
         status: "queued",
         progress: 0,
         bytesUploaded: 0,
