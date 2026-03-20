@@ -468,4 +468,8 @@ async def delete_folder(
             .values(deleted_at=now, folder_id=None)
         )
 
-    await db.delete(folder)
+    # Delete all descendant folders (deepest first), then the target folder
+    for fid in reversed(all_folder_ids):
+        f = await db.get(Folder, fid)
+        if f:
+            await db.delete(f)
