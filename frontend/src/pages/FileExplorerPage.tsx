@@ -1666,7 +1666,7 @@ export function FileExplorerPage() {
         allTags={allTags}
         shareEnabled={shareEnabled}
         onClose={() => setDetailDoc(null)}
-        onUpdated={() => { setDetailDoc(null); load(true); loadFolders(); loadTags(); }}
+        onUpdated={() => { load(true); loadFolders(); loadTags(); }}
         onTagsChanged={loadTags}
         onPrev={(() => {
           if (!detailDoc) return undefined;
