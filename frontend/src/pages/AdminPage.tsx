@@ -59,8 +59,14 @@ import {
   deleteMailRecipient,
   sendTestMail,
   type MailRecipient,
+  getWebhooks,
+  createWebhook,
+  updateWebhook,
+  deleteWebhook,
+  sendTestWebhook,
+  type WebhookEndpoint,
 } from "@/lib/api";
-import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send } from "lucide-react";
+import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send, Webhook } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -1362,6 +1368,192 @@ function MailTab() {
   );
 }
 
+function WebhooksTab() {
+  const [endpoints, setEndpoints] = useState<WebhookEndpoint[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newUrl, setNewUrl] = useState("");
+  const [newFormat, setNewFormat] = useState("json");
+  const [newSecret, setNewSecret] = useState("");
+  const [testUrl, setTestUrl] = useState("");
+  const [testFormat, setTestFormat] = useState("json");
+  const [testSecret, setTestSecret] = useState("");
+  const [testSending, setTestSending] = useState(false);
+
+  const load = useCallback(() => {
+    getWebhooks().then(setEndpoints).catch(() => toast.error("Webhook一覧の取得に失敗"));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleAdd = async () => {
+    if (!newName.trim() || !newUrl.trim()) return;
+    try {
+      await createWebhook({ name: newName.trim(), url: newUrl.trim(), format: newFormat, secret: newSecret.trim() || null });
+      setNewName(""); setNewUrl(""); setNewFormat("json"); setNewSecret("");
+      setAddOpen(false);
+      load();
+    } catch { toast.error("追加に失敗しました"); }
+  };
+
+  const handleToggle = async (id: string, field: keyof Pick<WebhookEndpoint, "on_login" | "on_create" | "on_update" | "on_delete" | "enabled">, value: boolean) => {
+    try {
+      const updated = await updateWebhook(id, { [field]: value });
+      setEndpoints((prev) => prev.map((ep) => (ep.id === id ? updated : ep)));
+    } catch { toast.error("更新に失敗しました"); }
+  };
+
+  const handleDelete = async (id: string) => {
+    const ep = endpoints.find((e) => e.id === id);
+    if (!confirm(`${ep?.name ?? "このWebhook"} を削除しますか？`)) return;
+    try {
+      await deleteWebhook(id);
+      setEndpoints((prev) => prev.filter((e) => e.id !== id));
+    } catch { toast.error("削除に失敗しました"); }
+  };
+
+  const handleTest = async () => {
+    if (!testUrl.trim()) return;
+    setTestSending(true);
+    try {
+      const res = await sendTestWebhook(testUrl.trim(), testSecret.trim() || null, testFormat);
+      toast.success(res.message);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "送信に失敗しました");
+    } finally { setTestSending(false); }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Test */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2"><Webhook className="h-4 w-4" />テスト送信</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2 items-end flex-wrap">
+            <div className="flex-1 min-w-[200px] grid gap-1.5">
+              <Label>URL</Label>
+              <Input value={testUrl} onChange={(e) => setTestUrl(e.target.value)} placeholder="https://discord.com/api/webhooks/..." className="max-w-md" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>形式</Label>
+              <select value={testFormat} onChange={(e) => setTestFormat(e.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm w-32">
+                <option value="json">JSON</option>
+                <option value="discord">Discord</option>
+                <option value="slack">Slack</option>
+              </select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Secret（任意）</Label>
+              <Input type="password" value={testSecret} onChange={(e) => setTestSecret(e.target.value)} placeholder="HMAC署名キー" className="w-48" />
+            </div>
+            <Button variant="outline" onClick={handleTest} disabled={testSending || !testUrl.trim()}>
+              <Send className="h-4 w-4 mr-1" />{testSending ? "送信中..." : "テスト"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Endpoints */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2"><Webhook className="h-4 w-4" />エンドポイント</CardTitle>
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" />追加
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>名前</TableHead>
+                <TableHead>URL</TableHead>
+                <TableHead className="w-20">形式</TableHead>
+                <TableHead className="text-center w-16">有効</TableHead>
+                <TableHead className="text-center w-20">ログイン</TableHead>
+                <TableHead className="text-center w-16">新規</TableHead>
+                <TableHead className="text-center w-16">更新</TableHead>
+                <TableHead className="text-center w-16">削除</TableHead>
+                <TableHead className="w-12"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {endpoints.length === 0 && (
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Webhook が登録されていません</TableCell></TableRow>
+              )}
+              {endpoints.map((ep) => (
+                <TableRow key={ep.id}>
+                  <TableCell className="font-medium">{ep.name}</TableCell>
+                  <TableCell className="font-mono text-xs max-w-[300px] truncate">{ep.url}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="text-xs">{{ json: "JSON", discord: "Discord", slack: "Slack" }[ep.format] ?? ep.format}</Badge>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <input type="checkbox" checked={ep.enabled} onChange={(e) => handleToggle(ep.id, "enabled", e.target.checked)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <input type="checkbox" checked={ep.on_login} onChange={(e) => handleToggle(ep.id, "on_login", e.target.checked)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <input type="checkbox" checked={ep.on_create} onChange={(e) => handleToggle(ep.id, "on_create", e.target.checked)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <input type="checkbox" checked={ep.on_update} onChange={(e) => handleToggle(ep.id, "on_update", e.target.checked)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <input type="checkbox" checked={ep.on_delete} onChange={(e) => handleToggle(ep.id, "on_delete", e.target.checked)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(ep.id)} className="h-8 w-8 text-destructive hover:text-destructive">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Add dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Webhook を追加</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid gap-1.5">
+              <Label>名前</Label>
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Slack通知" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>URL</Label>
+              <Input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://discord.com/api/webhooks/..." />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>形式</Label>
+              <select value={newFormat} onChange={(e) => setNewFormat(e.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm">
+                <option value="json">JSON（汎用）</option>
+                <option value="discord">Discord</option>
+                <option value="slack">Slack</option>
+              </select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Secret（任意、HMAC-SHA256署名用）</Label>
+              <Input type="password" value={newSecret} onChange={(e) => setNewSecret(e.target.value)} placeholder="署名キー" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>キャンセル</Button>
+            <Button onClick={handleAdd} disabled={!newName.trim() || !newUrl.trim()}>追加</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 function AuditLogsTab() {
   const [items, setItems] = useState<AuditLogItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -1543,6 +1735,7 @@ export function AdminPage() {
           <TabsTrigger value="apikeys">APIキー</TabsTrigger>
           <TabsTrigger value="audit">監査ログ</TabsTrigger>
           <TabsTrigger value="mail">メール通知</TabsTrigger>
+          <TabsTrigger value="webhooks">Webhook</TabsTrigger>
         </TabsList>
         <TabsContent value="settings" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <SettingsTab />
@@ -1564,6 +1757,9 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="mail" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <MailTab />
+        </TabsContent>
+        <TabsContent value="webhooks" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
+          <WebhooksTab />
         </TabsContent>
       </Tabs>
     </div>

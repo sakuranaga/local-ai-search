@@ -69,7 +69,11 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
     await audit_log(db, user=user, action="login", request=request)
 
     from app.services.mail import notify_login
-    notify_login(user.display_name or user.username, request.client.host if request.client else None)
+    from app.services.webhook import webhook_login
+    _uname = user.display_name or user.username
+    _ip = request.client.host if request.client else None
+    notify_login(_uname, _ip)
+    webhook_login(_uname, _ip)
 
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 

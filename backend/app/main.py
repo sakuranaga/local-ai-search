@@ -62,6 +62,7 @@ async def init_db():
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS title_embedding vector(1024)"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS current_version INTEGER DEFAULT 1 NOT NULL"))
         await conn.execute(text("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS change_type VARCHAR(20)"))
+        await conn.execute(text("ALTER TABLE webhook_endpoints ADD COLUMN IF NOT EXISTS format VARCHAR(20) DEFAULT 'json' NOT NULL"))
         logger.info("Document table migration columns verified")
 
     # Phase 0: Role simplification (Admin/User)
@@ -187,6 +188,9 @@ app.include_router(ingest.router, prefix="/api")
 app.include_router(share.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
 app.include_router(mail.router, prefix="/api")
+
+from app.routers import webhooks
+app.include_router(webhooks.router, prefix="/api")
 
 from app.routers import favorites
 app.include_router(favorites.router, prefix="/api")

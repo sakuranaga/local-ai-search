@@ -255,11 +255,14 @@ async def _ingest_single_file(
     await db.refresh(doc)
 
     from app.services.mail import notify_create, notify_update
+    from app.services.webhook import webhook_create, webhook_update
     uname = user.display_name or user.username
     if created:
         notify_create(uname, [doc.title])
+        webhook_create(uname, [doc.title])
     else:
         notify_update(uname, [doc.title])
+        webhook_update(uname, [doc.title])
 
     # Background processing (detached from request lifecycle to free DB session)
     asyncio.create_task(
@@ -657,7 +660,9 @@ async def tus_hook(
             logger.info("tus upload complete: %s (%s), doc_id=%s", filename, file_type, doc.id)
 
             from app.services.mail import notify_create
+            from app.services.webhook import webhook_create
             notify_create(user.display_name or user.username, [filename])
+            webhook_create(user.display_name or user.username, [filename])
 
             # Virus scan
             from app.services.antivirus import scan_file
