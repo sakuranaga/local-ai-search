@@ -12,6 +12,7 @@ import {
   deleteTag,
   type TagInfo,
 } from "@/lib/api";
+import { Tooltip } from "@/components/ui/tooltip";
 import type { FolderNode } from "@/lib/fileExplorerHelpers";
 
 // ---------------------------------------------------------------------------
@@ -41,7 +42,7 @@ export function SidebarTagItem({
         className="flex items-center gap-1 flex-1 min-w-0 px-2 py-1"
       >
         <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color || "#6b7280" }} />
-        <span className="truncate">{tag.name}</span>
+        <Tooltip content={tag.name} onlyWhenTruncated><span className="truncate">{tag.name}</span></Tooltip>
         <span className="text-xs text-muted-foreground ml-auto">{tag.document_count ?? ""}</span>
       </button>
 
@@ -249,7 +250,9 @@ export function FolderTreeItem({
         </button>
         <button onClick={() => onSelect(node.id)} onDoubleClick={() => hasChildren && setExpanded(!expanded)} className="flex items-center gap-1 flex-1 truncate text-left">
           {isActive || dragOver ? <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" /> : <FolderIcon className="h-3.5 w-3.5 flex-shrink-0" />}
-          <span className="truncate">{node.name}</span>
+          <Tooltip content={node.name} onlyWhenTruncated>
+            <span className="truncate">{node.name}</span>
+          </Tooltip>
           {node.document_count > 0 && (
             <span className="text-xs text-muted-foreground ml-auto">{node.document_count}</span>
           )}
