@@ -13,7 +13,7 @@ from sqlalchemy.orm import aliased
 from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import Chunk, Document, DocumentTag, File, Folder, Group, Tag, User
+from app.models import Chunk, Document, DocumentTag, File, Folder, Group, Tag, User, UserFavorite
 from app.schemas.documents import (
     BulkActionRequest,
     CreateTextDocumentRequest,
@@ -68,6 +68,7 @@ async def list_documents(
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     created_by: str | None = Query(None),
+    favorites: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -180,6 +181,13 @@ async def list_documents(
             .subquery()
         )
         base = base.where(Document.id.in_(select(tag_sq.c.document_id)))
+    if favorites:
+        fav_sq = (
+            select(UserFavorite.document_id)
+            .where(UserFavorite.user_id == current_user.id)
+            .subquery()
+        )
+        base = base.where(Document.id.in_(select(fav_sq.c.document_id)))
 
     # Count total before pagination
     count_stmt = select(func.count()).select_from(base.subquery())

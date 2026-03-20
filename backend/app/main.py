@@ -186,6 +186,9 @@ app.include_router(share.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
 app.include_router(mail.router, prefix="/api")
 
+from app.routers import favorites
+app.include_router(favorites.router, prefix="/api")
+
 
 @app.get("/api/health")
 async def health():

@@ -420,6 +420,23 @@ class MailRecipient(Base):
     )
 
 
+class UserFavorite(Base):
+    __tablename__ = "user_favorites"
+    __table_args__ = (
+        Index("idx_user_favorites_user", "user_id", "created_at"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     __table_args__ = (

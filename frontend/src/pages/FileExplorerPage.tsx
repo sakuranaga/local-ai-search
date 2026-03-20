@@ -56,6 +56,7 @@ import {
   History,
   Pin,
   PinOff,
+  Star,
 } from "lucide-react";
 import {
   getDocuments,
@@ -76,6 +77,9 @@ import {
   emptyTrash,
   checkDuplicates,
   searchDocumentsList,
+  getFavorites,
+  addFavorite,
+  removeFavorite,
   type TrashItem,
   type DocumentListItem,
   type Folder,
@@ -140,6 +144,10 @@ export function FileExplorerPage() {
   const [focusedIdx, setFocusedIdx] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Favorites
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [showFavorites, setShowFavorites] = useState(false);
+
   // Folder state
   const [folders, setFolders] = useState<Folder[]>([]);
   const [allDocCount, setAllDocCount] = useState(0);
@@ -190,6 +198,7 @@ export function FileExplorerPage() {
     setActiveFolderId(id);
     setSidebarOpen(false);
     setShowTrash(false);
+    setShowFavorites(false);
     if (isSearching) {
       navigate("/", { replace: true });
     }
@@ -224,6 +233,38 @@ export function FileExplorerPage() {
       setTrashItems(await getTrash());
     } catch { /* ignore */ }
   }, []);
+
+  const loadFavs = useCallback(async () => {
+    try {
+      const ids = await getFavorites();
+      setFavoriteIds(new Set(ids));
+    } catch { /* ignore */ }
+  }, []);
+
+  async function toggleFavorite(docId: string) {
+    const isFav = favoriteIds.has(docId);
+    // Optimistic update
+    setFavoriteIds((prev) => {
+      const next = new Set(prev);
+      if (isFav) next.delete(docId); else next.add(docId);
+      return next;
+    });
+    if (isFav && showFavorites) {
+      setItems((prev) => prev.filter((item) => item.id !== docId));
+      setTotal((prev) => Math.max(0, prev - 1));
+    }
+    try {
+      if (isFav) await removeFavorite(docId); else await addFavorite(docId);
+    } catch {
+      // Revert
+      setFavoriteIds((prev) => {
+        const next = new Set(prev);
+        if (isFav) next.add(docId); else next.delete(docId);
+        return next;
+      });
+      toast.error("お気に入りの更新に失敗しました");
+    }
+  }
 
   // Generation counter to discard stale responses after filter/search changes
   const loadGenRef = useRef(0);
@@ -276,7 +317,9 @@ export function FileExplorerPage() {
           date_to: filterDateTo || undefined,
           created_by: filterCreatedBy || undefined,
         };
-        if (activeFolderId === "unfiled") {
+        if (showFavorites) {
+          params.favorites = true;
+        } else if (activeFolderId === "unfiled") {
           params.unfiled = true;
         } else if (activeFolderId) {
           params.folder_id = activeFolderId;
@@ -301,13 +344,13 @@ export function FileExplorerPage() {
       setLoading(false);
       loadingRef.current = false;
     }
-  }, [perPage, sortBy, sortDir, filterType, filterDateFrom, filterDateTo, filterCreatedBy, activeFolderId, activeTag, isSearching, urlQ]);
+  }, [perPage, sortBy, sortDir, filterType, filterDateFrom, filterDateTo, filterCreatedBy, activeFolderId, activeTag, isSearching, urlQ, showFavorites]);
 
   useEffect(() => { load(true); }, [load]);
   // Re-trigger search when URL timestamp changes (re-search same query)
   useEffect(() => { if (urlT) load(true); }, [urlT]);
   useEffect(() => {
-    loadFolders(); loadTags(); loadTrash(); getFilterOptions().then(setFilterOptions).catch(() => {}); getShareEnabled().then(setShareEnabled).catch(() => {});
+    loadFolders(); loadTags(); loadTrash(); loadFavs(); getFilterOptions().then(setFilterOptions).catch(() => {}); getShareEnabled().then(setShareEnabled).catch(() => {});
     // Check for uploads interrupted by page reload
     const interrupted = checkInterruptedUploads();
     for (const filename of interrupted) {
@@ -471,14 +514,14 @@ export function FileExplorerPage() {
 
   // Child folders to display in the file list (Google Drive style)
   const listFolders = useMemo(() => {
-    if (isSearching || showTrash || activeFolderId === "unfiled") return [];
+    if (isSearching || showTrash || showFavorites || activeFolderId === "unfiled") return [];
     if (activeFolderId === null) {
       // Root: show folders with no parent
       return folders.filter((f) => !f.parent_id).sort((a, b) => a.name.localeCompare(b.name));
     }
     // Inside a folder: show direct children
     return folders.filter((f) => f.parent_id === activeFolderId).sort((a, b) => a.name.localeCompare(b.name));
-  }, [folders, activeFolderId, isSearching, showTrash]);
+  }, [folders, activeFolderId, isSearching, showTrash, showFavorites]);
 
   function handleSort(col: string) {
     if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -638,6 +681,9 @@ export function FileExplorerPage() {
         } else {
           handleToggleFlag(item, "ai_knowledge");
         }
+        break;
+      case "toggle_favorite":
+        toggleFavorite(item.id);
         break;
       case "delete":
         setBulkActionOpen("delete");
@@ -947,7 +993,15 @@ export function FileExplorerPage() {
             </button>
           </div>
           <div className="space-y-0.5">
-            <DropTarget folderId={null} onDrop={handleDropOnFolder} onFolderDrop={handleDropFolderOnFolder} label="すべて" count={allDocCount} isActive={activeFolderId === null && !showTrash} onClick={() => selectFolder(null)} icon={<FolderIcon className="h-3.5 w-3.5" />} />
+            <button
+              onClick={() => { setShowFavorites(true); setShowTrash(false); setActiveFolderId(null); setSidebarOpen(false); if (isSearching) navigate("/", { replace: true }); }}
+              className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${showFavorites ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
+            >
+              <Star className={`h-3.5 w-3.5 ${showFavorites ? "fill-primary" : ""}`} />
+              <span className="truncate">お気に入り</span>
+              {favoriteIds.size > 0 && <span className="ml-auto text-xs text-muted-foreground">{favoriteIds.size}</span>}
+            </button>
+            <DropTarget folderId={null} onDrop={handleDropOnFolder} onFolderDrop={handleDropFolderOnFolder} label="すべて" count={allDocCount} isActive={activeFolderId === null && !showTrash && !showFavorites} onClick={() => selectFolder(null)} icon={<FolderIcon className="h-3.5 w-3.5" />} />
             <DropTarget folderId={null} onDrop={handleDropOnFolder} onFolderDrop={handleDropFolderOnFolder} label="未整理" count={unfiledCount} isActive={activeFolderId === "unfiled" && !showTrash} onClick={() => selectFolder("unfiled")} icon={<FileText className="h-3.5 w-3.5" />} />
             {folderTree.map((node) => (
               <FolderTreeItem
@@ -1067,7 +1121,7 @@ export function FileExplorerPage() {
             <Menu className="h-8 w-8" strokeWidth={2.5} />
           </Button>
           <h1 className="text-lg md:text-xl font-bold min-w-0 flex items-center overflow-hidden">
-            {showTrash ? "ゴミ箱" : isSearching ? <span className="truncate">{`検索結果: ${urlQ}`}</span> : folderBreadcrumb ? (
+            {showTrash ? "ゴミ箱" : isSearching ? <span className="truncate">{`検索結果: ${urlQ}`}</span> : showFavorites ? "お気に入り" : folderBreadcrumb ? (
               folderBreadcrumb.map((seg, i) => (
                 <span key={seg.id} className={`flex items-center ${i === folderBreadcrumb.length - 1 ? "min-w-0 overflow-hidden" : "shrink-0"}`}>
                   {i > 0 && <span className="mx-1 text-muted-foreground font-normal shrink-0">&gt;</span>}
@@ -1384,8 +1438,9 @@ export function FileExplorerPage() {
                     }}
                   >
                     <TableCell className="pl-4 overflow-hidden max-w-0">
-                      <div className="font-medium text-sm truncate">
+                      <div className="font-medium text-sm truncate flex items-center gap-1">
                         <Tooltip content={item.title}><span className="truncate">{item.title}</span></Tooltip>
+                        {favoriteIds.has(item.id) && <Star className="h-3 w-3 fill-muted-foreground text-muted-foreground flex-shrink-0" />}
                         {isSearching && (item as any).rrf_score != null && (
                           <span className={`ml-2 text-xs font-normal ${(item as any).rrf_score >= 0.5 ? "text-green-600" : "text-orange-500"}`}>{((item as any).rrf_score as number).toFixed(4)}</span>
                         )}
@@ -1468,6 +1523,7 @@ export function FileExplorerPage() {
             menu={contextMenu}
             selectedCount={selected.size}
             shareEnabled={shareEnabled}
+            isFavorited={favoriteIds.has(contextMenu.item.id)}
             onClose={() => setContextMenu(null)}
             onAction={contextAction}
           />
@@ -1541,6 +1597,8 @@ export function FileExplorerPage() {
             row?.scrollIntoView({ block: "nearest" });
           } : undefined;
         })()}
+        isFavorited={detailDoc ? favoriteIds.has(detailDoc.id) : false}
+        onToggleFavorite={detailDoc ? () => toggleFavorite(detailDoc.id) : undefined}
       />
 
       {/* Bulk action confirms */}

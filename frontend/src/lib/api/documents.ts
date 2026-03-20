@@ -18,6 +18,7 @@ export async function getDocuments(params: {
   date_from?: string;
   date_to?: string;
   created_by?: string;
+  favorites?: boolean;
 } = {}): Promise<DocumentListResponse> {
   const p = new URLSearchParams();
   if (params.page) p.set("page", String(params.page));
@@ -32,6 +33,7 @@ export async function getDocuments(params: {
   if (params.date_from) p.set("date_from", params.date_from);
   if (params.date_to) p.set("date_to", params.date_to);
   if (params.created_by) p.set("created_by", params.created_by);
+  if (params.favorites) p.set("favorites", "true");
   return apiFetch(`/documents?${p.toString()}`);
 }
 
@@ -140,4 +142,20 @@ export async function createTextDocument(data: {
 
 export async function emptyTrash(): Promise<{ purged: number }> {
   return apiFetch("/documents/trash/empty", { method: "POST" });
+}
+
+// ---------------------------------------------------------------------------
+// Favorites
+// ---------------------------------------------------------------------------
+
+export async function getFavorites(): Promise<string[]> {
+  return apiFetch("/favorites");
+}
+
+export async function addFavorite(docId: string): Promise<void> {
+  return apiFetch(`/favorites/${docId}`, { method: "POST" });
+}
+
+export async function removeFavorite(docId: string): Promise<void> {
+  return apiFetch(`/favorites/${docId}`, { method: "DELETE" });
 }

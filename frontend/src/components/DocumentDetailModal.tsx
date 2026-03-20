@@ -27,6 +27,7 @@ import {
   Plus,
   ChevronLeft,
   ChevronRight,
+  Star,
 } from "lucide-react";
 import {
   getDocument,
@@ -62,6 +63,8 @@ export function DocumentDetailModal({
   onTagsChanged,
   onPrev,
   onNext,
+  isFavorited,
+  onToggleFavorite,
 }: {
   item: DocumentListItem | null;
   folders: Folder[];
@@ -72,6 +75,8 @@ export function DocumentDetailModal({
   onTagsChanged: () => void;
   onPrev?: () => void;
   onNext?: () => void;
+  isFavorited?: boolean;
+  onToggleFavorite?: () => void;
 }) {
   const popupRef = useRef<HTMLDivElement>(null);
   const [doc, setDoc] = useState<Document | null>(null);
@@ -132,8 +137,13 @@ export function DocumentDetailModal({
           ? "md:!max-w-6xl md:!w-[95vw] md:!h-auto md:!max-h-[95vh]"
           : "md:!max-w-5xl md:!w-[95vw] md:!h-[85vh] md:!max-h-[85vh]"
       }`}>
-        {/* Prev / Next navigation */}
+        {/* Favorite + Prev / Next navigation */}
         <div className="absolute top-2 right-10 flex items-center gap-0.5">
+          {onToggleFavorite && (
+            <Button variant="ghost" size="icon-sm" onClick={onToggleFavorite} title={isFavorited ? "お気に入り解除" : "お気に入り追加"} tabIndex={-1} className="!ring-0 !outline-none">
+              <Star className={`h-4 w-4 ${isFavorited ? "fill-yellow-400 text-yellow-400" : ""}`} />
+            </Button>
+          )}
           <Button variant="ghost" size="icon-sm" disabled={!onPrev} onClick={onPrev} title="前のファイル (←)" tabIndex={-1} className="!ring-0 !outline-none">
             <ChevronLeft />
           </Button>
