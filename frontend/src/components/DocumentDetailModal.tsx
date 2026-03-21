@@ -190,7 +190,7 @@ export function DocumentDetailModal({
                 tab === t ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              {{ view: "表示", edit: "編集", permissions: "権限", raw: "テキスト編集", versions: "バージョン", share: "共有" }[t]}
+              {{ view: "表示", edit: "編集", permissions: "権限", raw: "検索テキスト", versions: "バージョン", share: "共有" }[t]}
             </button>
           ))}
           <div className="ml-auto flex items-center gap-1 pb-1">
@@ -270,7 +270,7 @@ export function DocumentDetailModal({
             <div className="h-full flex flex-col">
               <div className="flex items-center gap-2 px-1 py-1.5">
                 <span className="text-xs text-muted-foreground">
-                  {contentDirty ? "変更あり（未保存）" : "テキストを編集できます — テキストは検索・AI専用で元ファイルは変更されません"}
+                  {contentDirty ? "変更あり（未保存）" : "検索・AIが参照するテキストです — 元ファイルは変更されません"}
                 </span>
                 <div className="ml-auto flex items-center gap-2">
                   {contentDirty && (
