@@ -215,6 +215,20 @@ async def _update_search_index(db: AsyncSession, doc: Document, markdown: str, u
 
     # Update content
     doc.content = markdown
+
+    # Write back to .md file on disk (notes created as .md only)
+    if doc.file_type == "md" and doc.source_path:
+        try:
+            Path(doc.source_path).write_text(markdown, encoding="utf-8")
+            # Update file size
+            file_result = await db.execute(
+                select(File).where(File.document_id == doc.id)
+            )
+            file_rec = file_result.scalars().first()
+            if file_rec:
+                file_rec.file_size = len(markdown.encode("utf-8"))
+        except OSError:
+            pass
     doc.updated_by_id = user_id
     doc.updated_at = datetime.now(timezone.utc)
 
@@ -551,6 +565,8 @@ async def convert_to_note(
         raise HTTPException(404, "ドキュメントが見つかりません")
     if doc.is_note:
         raise HTTPException(400, "既にノートです")
+    if doc.file_type != "md":
+        raise HTTPException(400, "Markdownファイルのみノートに変換できます")
 
     # Validate parent
     parent_id = None
