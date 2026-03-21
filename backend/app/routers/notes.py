@@ -33,6 +33,7 @@ class NoteUpdateRequest(BaseModel):
 class NoteMoveRequest(BaseModel):
     parent_note_id: str | None = None  # None = top-level
     note_order: int | None = None
+    position: int | None = None  # Insert before this index among siblings (0-based)
 
 
 class NoteToNoteRequest(BaseModel):
@@ -422,17 +423,22 @@ async def move_note(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Move note in the tree (change parent and/or order)."""
+    """Move note in the tree (change parent and/or order).
+
+    When `position` is given, reindex all siblings under the target parent
+    so that the moved note lands at the specified index (0-based).
+    """
     doc = await db.get(Document, note_id)
     if not doc or not doc.is_note or doc.deleted_at:
         raise HTTPException(404, "ノートが見つかりません")
 
+    # Resolve target parent
+    new_parent_id = doc.parent_note_id  # default: unchanged
     if body.parent_note_id is not None:
         if body.parent_note_id == "":
-            doc.parent_note_id = None
+            new_parent_id = None
         else:
             new_parent_id = uuid.UUID(body.parent_note_id)
-            # Prevent circular reference
             if new_parent_id == note_id:
                 raise HTTPException(400, "自分自身を親にはできません")
             parent = await db.get(Document, new_parent_id)
@@ -445,9 +451,34 @@ async def move_note(
                     raise HTTPException(400, "循環参照になります")
                 check_doc = await db.get(Document, check_id)
                 check_id = check_doc.parent_note_id if check_doc else None
-            doc.parent_note_id = new_parent_id
 
-    if body.note_order is not None:
+    doc.parent_note_id = new_parent_id
+
+    if body.position is not None:
+        # Fetch all siblings under target parent (excluding the moved note)
+        sibling_q = (
+            select(Document)
+            .where(Document.is_note.is_(True))
+            .where(Document.deleted_at.is_(None))
+            .where(Document.id != note_id)
+        )
+        if new_parent_id is None:
+            sibling_q = sibling_q.where(Document.parent_note_id.is_(None))
+        else:
+            sibling_q = sibling_q.where(Document.parent_note_id == new_parent_id)
+        sibling_q = sibling_q.order_by(Document.note_order, Document.title)
+
+        result = await db.execute(sibling_q)
+        siblings = list(result.scalars().all())
+
+        # Insert at position
+        pos = max(0, min(body.position, len(siblings)))
+        siblings.insert(pos, doc)
+
+        # Reindex all
+        for idx, sib in enumerate(siblings):
+            sib.note_order = idx
+    elif body.note_order is not None:
         doc.note_order = body.note_order
 
     await db.commit()
