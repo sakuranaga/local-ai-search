@@ -92,7 +92,7 @@ export function DocumentDetailModal({
   const contentDirty = editedContent !== null && editedContent !== doc?.content;
 
   const showViewTab = item ? (isPreviewable(item.file_type) || hasExtractedContent(item.file_type)) : true;
-  const showRawTab = item ? hasExtractedContent(item.file_type) : true;
+  const showRawTab = item ? (hasExtractedContent(item.file_type) && !item.is_note) : true;
 
   useEffect(() => {
     if (!item) { setDoc(null); setTab("view"); setEditedContent(null); return; }

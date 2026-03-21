@@ -11,6 +11,8 @@ import {
   Trash2,
   Link,
   Star,
+  FileText,
+  FolderOutput,
 } from "lucide-react";
 import type { DocumentListItem } from "@/lib/api";
 
@@ -112,6 +114,17 @@ export function DocumentContextMenu({
           <button className={btn} onClick={() => onAction("toggle_favorite")}>
             <Star className={`h-4 w-4 ${isFavorited ? "fill-current" : ""}`} />{isFavorited ? "お気に入り解除" : "お気に入り追加"}
           </button>
+        )}
+        {!isMulti && (
+          menu.item.is_note ? (
+            <button className={btn} onClick={() => onAction("remove_note")}>
+              <FolderOutput className="h-4 w-4" />ノート解除
+            </button>
+          ) : (
+            <button className={btn} onClick={() => onAction("convert_to_note")}>
+              <FileText className="h-4 w-4" />ノートに追加
+            </button>
+          )
         )}
         <div className={sep} />
         <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10" onClick={() => onAction("delete")}>
