@@ -232,7 +232,7 @@ async def _update_search_index(db: AsyncSession, doc: Document, markdown: str, u
                 embedding=emb,
             ))
 
-    await save_new_version(db, doc, new_ver, user_id, "text_edit")
+    await save_new_version(db, doc, new_ver, user_id, "note_edit")
 
 
 # ── CRUD ─────────────────────────────────────────────────────────────
