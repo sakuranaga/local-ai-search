@@ -6,6 +6,7 @@ import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { updateNote } from "@/lib/api/notes";
 import { Save, Loader2, Wifi, WifiOff } from "lucide-react";
+import { useTheme } from "next-themes";
 import "@blocknote/shadcn/style.css";
 
 interface NoteEditorProps {
@@ -131,6 +132,7 @@ function NoteEditorInner({
   needsPopulate,
   collaborative,
 }: InnerProps) {
+  const { resolvedTheme } = useTheme();
   const [saving, setSaving] = useState(false);
   const [editTitle, setEditTitle] = useState(title);
   const editorRef = useRef<BlockNoteEditor | null>(null);
@@ -283,7 +285,7 @@ function NoteEditorInner({
         <BlockNoteView
           editor={editor}
           onChange={() => { if (!initializingRef.current) setDirty(true); }}
-          theme="light"
+          theme={resolvedTheme === "dark" ? "dark" : "light"}
         />
       </div>
     </div>
