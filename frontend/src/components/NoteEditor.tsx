@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { BlockNoteEditor } from "@blocknote/core";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
@@ -41,13 +41,17 @@ export default function NoteEditor(props: NoteEditorProps) {
   const providerRef = useRef<WebsocketProvider | null>(null);
 
   const { noteId, userName = "User", userColor = "#3b82f6" } = props;
+  const userNameRef = useRef(userName);
+  const userColorRef = useRef(userColor);
+  userNameRef.current = userName;
+  userColorRef.current = userColor;
 
   useEffect(() => {
     const doc = new Y.Doc();
     const provider = new WebsocketProvider(getWsUrl(), `note:${noteId}`, doc);
     provider.awareness.setLocalStateField("user", {
-      name: userName,
-      color: userColor,
+      name: userNameRef.current,
+      color: userColorRef.current,
     });
     ydocRef.current = doc;
     providerRef.current = provider;
@@ -85,7 +89,7 @@ export default function NoteEditor(props: NoteEditorProps) {
       provider.destroy();
       doc.destroy();
     };
-  }, [noteId, userName, userColor]);
+  }, [noteId]);
 
   if (mode === "connecting") {
     return (
@@ -106,6 +110,61 @@ export default function NoteEditor(props: NoteEditorProps) {
     />
   );
 }
+
+// ---------------------------------------------------------------------------
+// Isolated title input — memo'd to prevent re-renders during IME composition
+// ---------------------------------------------------------------------------
+
+const TitleInput = memo(function TitleInput({
+  defaultValue,
+  onBlurRef,
+  placeholder,
+}: {
+  defaultValue: string;
+  onBlurRef: React.RefObject<((value: string) => void) | null>;
+  placeholder: string;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const composingRef = useRef(false);
+
+  // Sync value from outside when not focused (e.g. after save updates title prop)
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    if (document.activeElement === input) return;
+    if (input.value !== defaultValue) {
+      input.value = defaultValue;
+    }
+  }, [defaultValue]);
+
+  return (
+    <input
+      ref={inputRef}
+      className="flex-1 text-lg font-semibold bg-transparent outline-none"
+      defaultValue={defaultValue}
+      onCompositionStart={(e) => {
+        composingRef.current = true;
+        e.stopPropagation();
+      }}
+      onCompositionEnd={(e) => {
+        composingRef.current = false;
+        e.stopPropagation();
+      }}
+      onCompositionUpdate={(e) => e.stopPropagation()}
+      onBlur={(e) => onBlurRef.current?.(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        if (composingRef.current || e.nativeEvent.isComposing || e.keyCode === 229) {
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      placeholder={placeholder}
+    />
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Inner editor: creates BlockNote with resolved mode (collab or local)
@@ -134,8 +193,8 @@ function NoteEditorInner({
 }: InnerProps) {
   const { resolvedTheme } = useTheme();
   const [saving, setSaving] = useState(false);
-  const [editTitle, setEditTitle] = useState(title);
   const editorRef = useRef<BlockNoteEditor | null>(null);
+  const titleRef = useRef(title);
 
   const parsedInitial =
     initialContent && Array.isArray(initialContent) && initialContent.length > 0
@@ -198,30 +257,30 @@ function NoteEditorInner({
     try {
       const blocks = editorRef.current.document;
       await updateNote(noteId, {
-        title: editTitle,
+        title: titleRef.current,
         note_content: blocks,
       });
       setDirty(false);
-      onTitleChange?.(editTitle);
+      onTitleChange?.(titleRef.current);
       onSaved?.();
     } catch {
       // ignore
     } finally {
       setSaving(false);
     }
-  }, [noteId, editTitle, onTitleChange, onSaved]);
+  }, [noteId, onTitleChange, onSaved]);
 
-  // Save title on blur
-  const handleTitleBlur = useCallback(async () => {
-    if (editTitle !== title) {
-      try {
-        await updateNote(noteId, { title: editTitle });
-        onTitleChange?.(editTitle);
-      } catch {
-        // ignore
-      }
+  // Save title on blur (called from TitleInput via ref to avoid re-renders)
+  const titleBlurRef = useRef<((value: string) => void) | null>(null);
+  titleBlurRef.current = (value: string) => {
+    titleRef.current = value;
+    if (value !== title) {
+      setDirty(true);
+      updateNote(noteId, { title: value })
+        .then(() => onTitleChange?.(value))
+        .catch(() => {});
     }
-  }, [noteId, editTitle, title, onTitleChange]);
+  };
 
   // Ctrl+S to save
   useEffect(() => {
@@ -250,17 +309,9 @@ function NoteEditorInner({
     <div className="flex flex-col h-full">
       {/* Title bar */}
       <div className="flex items-center gap-2 px-4 py-2 border-b">
-        <input
-          className="flex-1 text-lg font-semibold bg-transparent outline-none"
-          value={editTitle}
-          onChange={(e) => setEditTitle(e.target.value)}
-          onBlur={handleTitleBlur}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              (e.target as HTMLInputElement).blur();
-            }
-          }}
+        <TitleInput
+          defaultValue={title}
+          onBlurRef={titleBlurRef}
           placeholder="無題のノート"
         />
         {collaborative ? (
@@ -280,8 +331,13 @@ function NoteEditorInner({
         </button>
       </div>
 
-      {/* Editor */}
-      <div className="flex-1 overflow-auto">
+      {/* Editor — isolate composition events to prevent ProseMirror from interfering with title input IME */}
+      <div
+        className="flex-1 overflow-auto"
+        onCompositionStart={(e) => e.stopPropagation()}
+        onCompositionEnd={(e) => e.stopPropagation()}
+        onCompositionUpdate={(e) => e.stopPropagation()}
+      >
         <BlockNoteView
           editor={editor}
           onChange={() => { if (!initializingRef.current) setDirty(true); }}
