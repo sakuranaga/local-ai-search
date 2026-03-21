@@ -223,12 +223,6 @@ export function FileExplorerPage() {
   const [noteCtxMenu, setNoteCtxMenu] = useState<NoteContextMenuState | null>(null);
   const noteDirtyRef = useRef(false);
 
-  // Yjs WebSocket URL — derive from current page location
-  const yjsWsUrl = useMemo(() => {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${window.location.host}/yjs`;
-  }, []);
-
   const confirmDiscardNote = useCallback(() => {
     if (!noteDirtyRef.current) return true;
     return window.confirm("ノートに未保存の変更があります。破棄しますか？");

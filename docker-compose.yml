@@ -86,10 +86,13 @@ services:
     image: node:20-alpine
     restart: unless-stopped
     working_dir: /app
-    command: sh -c "npx y-websocket"
+    command: sh -c "npx y-websocket@2"
     environment:
       HOST: 0.0.0.0
       PORT: "1234"
+      YPERSISTENCE: /data/yjs-leveldb
+    volumes:
+      - yjs_data:/data/yjs-leveldb
     expose:
       - "1234"
 
@@ -110,3 +113,4 @@ volumes:
   las_db:
   las_redis:
   clamav_data:
+  yjs_data:
