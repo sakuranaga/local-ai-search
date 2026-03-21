@@ -23,7 +23,7 @@ export async function updateNote(id: string, data: { title?: string; note_conten
   });
 }
 
-export async function moveNote(id: string, data: { parent_note_id?: string | null; note_order?: number }): Promise<void> {
+export async function moveNote(id: string, data: { parent_note_id?: string | null; note_order?: number; position?: number }): Promise<void> {
   return apiFetch(`/notes/${id}/move`, {
     method: "PATCH",
     body: JSON.stringify(data),

@@ -94,6 +94,7 @@ import {
   getNoteTree,
   getNote,
   createNote,
+  moveNote,
   removeNote,
   deleteNoteWithFile,
   convertToNote,
@@ -461,6 +462,15 @@ export function FileExplorerPage() {
       toast.error("削除に失敗しました");
     }
   }, [activeNoteId, loadNotes, load, loadTrash]);
+
+  const handleMoveNote = useCallback(async (noteId: string, parentNoteId: string | null, position: number) => {
+    try {
+      await moveNote(noteId, { parent_note_id: parentNoteId ?? "", position });
+      await loadNotes();
+    } catch {
+      toast.error("移動に失敗しました");
+    }
+  }, [loadNotes]);
 
   const handleConvertToNote = useCallback(async (docId: string) => {
     try {
@@ -1265,6 +1275,7 @@ export function FileExplorerPage() {
           onSelect={handleSelectNote}
           onCreateNote={handleCreateNote}
           onContextMenu={setNoteCtxMenu}
+          onMoveNote={handleMoveNote}
         />
 
         {/* Search History */}
