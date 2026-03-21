@@ -6,3 +6,4 @@ export * from "./search";
 export * from "./documents";
 export * from "./admin";
 export * from "./share";
+export * from "./notes";

@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -273,6 +274,14 @@ class Document(Base):
     )
 
     current_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    # Note feature
+    is_note: Mapped[bool] = mapped_column(Boolean, default=False)
+    note_content = mapped_column(JSON, nullable=True)  # BlockNote JSON blocks
+    parent_note_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+    note_order: Mapped[int] = mapped_column(Integer, default=0)
 
     owner: Mapped["User"] = relationship(back_populates="documents", foreign_keys=[owner_id])
     folder: Mapped["Folder | None"] = relationship(back_populates="documents")

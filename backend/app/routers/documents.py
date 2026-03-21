@@ -133,6 +133,7 @@ async def list_documents(
             Document.share_prohibited,
             Document.download_prohibited,
             Document.scan_status,
+            Document.is_note,
             Document.summary,
             Document.memo,
             Document.folder_id,
@@ -398,6 +399,7 @@ async def create_text_document(
         ai_knowledge=doc.ai_knowledge,
         chunk_count=0,
         memo=doc.memo,
+        is_note=doc.is_note,
         created_by_name=current_user.username,
         updated_by_name=current_user.username,
         created_at=doc.created_at,
@@ -1066,6 +1068,7 @@ async def update_document(
         folder_id=str(doc.folder_id) if doc.folder_id else None,
         folder_name=folder_name,
         tags=tags_map.get(doc.id, []),
+        is_note=doc.is_note,
         created_by_name=None,
         updated_by_name=current_user.username,
         created_at=doc.created_at,
@@ -1096,6 +1099,16 @@ async def delete_document(
         raise HTTPException(status_code=403, detail="Access denied")
 
     doc.deleted_at = datetime.now(timezone.utc)
+
+    # If this is a note with children, move children to top-level
+    if doc.is_note:
+        from sqlalchemy import update as sa_update
+        await db.execute(
+            sa_update(Document)
+            .where(Document.parent_note_id == doc.id)
+            .where(Document.is_note.is_(True))
+            .values(parent_note_id=None)
+        )
 
     await audit_log(db, user=current_user, action="document.delete", target_type="document",
                     target_id=str(doc.id), target_name=doc.title, request=request)
@@ -1457,6 +1470,7 @@ async def reindex_document(
         ai_knowledge=doc.ai_knowledge,
         chunk_count=len(chunks_text),
         memo=doc.memo,
+        is_note=doc.is_note,
         created_by_name=None,
         updated_by_name=current_user.username,
         created_at=doc.created_at,

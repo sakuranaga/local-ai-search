@@ -38,6 +38,7 @@ class DocumentListItem(BaseModel):
     updated_by_name: str | None
     scan_status: str = "pending"
     share_count: int = 0
+    is_note: bool = False
     created_at: datetime
     updated_at: datetime
 

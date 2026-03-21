@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ChatPanel } from "@/components/ChatPanel";
@@ -9,6 +9,8 @@ import { FolderPermissionsDialog } from "@/components/FolderPermissionsDialog";
 import { ShareLinkDialog } from "@/components/ShareLinkDialog";
 import { CreateTextDocumentDialog } from "@/components/CreateTextDocumentDialog";
 import { SidebarTagItem, DropTarget, TrashDropTarget, FolderTreeItem } from "@/components/FolderSidebarItems";
+import NoteSidebarItems, { type NoteContextMenuState } from "@/components/NoteSidebarItems";
+const NoteEditor = lazy(() => import("@/components/NoteEditor"));
 import { Tooltip } from "@/components/ui/tooltip";
 import { DatePickerInput } from "@/components/DatePickerInput";
 import { UploadProgressPanel } from "@/components/UploadProgressPanel";
@@ -35,6 +37,7 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import {
+  BookOpenText,
   ChevronLeft,
   ArrowUpDown,
   ArrowUp,
@@ -88,6 +91,15 @@ import {
   type Folder,
   type TagInfo,
   type FilterOptions,
+  getNoteTree,
+  getNote,
+  createNote,
+  removeNote,
+  deleteNoteWithFile,
+  convertToNote,
+  getMe,
+  type NoteTreeItem,
+  type NoteDetail,
 } from "@/lib/api";
 import {
   formatDate,
@@ -201,16 +213,41 @@ export function FileExplorerPage() {
   const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
   const [trashSelected, setTrashSelected] = useState<Set<string>>(new Set());
 
+  // Notes
+  const [noteTree, setNoteTree] = useState<NoteTreeItem[]>([]);
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  const [activeNote, setActiveNote] = useState<NoteDetail | null>(null);
+  const [meUser, setMeUser] = useState<{ display_name: string; username: string } | null>(null);
+  const [noteDeleteTarget, setNoteDeleteTarget] = useState<{ noteId: string; title: string } | null>(null);
+  const [noteDeleteMode, setNoteDeleteMode] = useState<"remove" | "delete">("remove");
+  const [noteCtxMenu, setNoteCtxMenu] = useState<NoteContextMenuState | null>(null);
+  const noteDirtyRef = useRef(false);
+
+  // Yjs WebSocket URL — derive from current page location
+  const yjsWsUrl = useMemo(() => {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${window.location.host}/yjs`;
+  }, []);
+
+  const confirmDiscardNote = useCallback(() => {
+    if (!noteDirtyRef.current) return true;
+    return window.confirm("ノートに未保存の変更があります。破棄しますか？");
+  }, []);
+
   // Selecting a folder/tag while searching should clear the search query
   const selectFolder = useCallback((id: string | null) => {
+    if (!confirmDiscardNote()) return;
+    noteDirtyRef.current = false;
     setActiveFolderId(id);
     setSidebarOpen(false);
     setShowTrash(false);
     setShowFavorites(false);
+    setActiveNoteId(null);
+    setActiveNote(null);
     if (isSearching) {
       navigate("/", { replace: true });
     }
-  }, [isSearching, navigate]);
+  }, [isSearching, navigate, confirmDiscardNote]);
 
   // File drop upload
   const [fileDragOver, setFileDragOver] = useState(false);
@@ -254,6 +291,12 @@ export function FileExplorerPage() {
     try {
       const ids = await getFavorites();
       setFavoriteIds(new Set(ids));
+    } catch { /* ignore */ }
+  }, []);
+
+  const loadNotes = useCallback(async () => {
+    try {
+      setNoteTree(await getNoteTree());
     } catch { /* ignore */ }
   }, []);
 
@@ -363,11 +406,84 @@ export function FileExplorerPage() {
   }, [perPage, sortBy, sortDir, filterType, filterDateFrom, filterDateTo, filterCreatedBy, activeFolderId, activeTag, isSearching, urlQ, showFavorites]);
 
   reloadRef.current = () => { load(true); loadFolders(); };
+
+  // Note handlers (must be after `load` definition to avoid TDZ)
+  const handleSelectNote = useCallback(async (noteId: string) => {
+    if (!confirmDiscardNote()) return;
+    setActiveNote(null);
+    setActiveNoteId(noteId);
+    setShowTrash(false);
+    setShowFavorites(false);
+    setSidebarOpen(false);
+    try {
+      const detail = await getNote(noteId);
+      setActiveNoteId(detail.id);
+      setActiveNote(detail);
+    } catch {
+      toast.error("ノートの読み込みに失敗しました");
+      setActiveNoteId(null);
+      setActiveNote(null);
+    }
+  }, [confirmDiscardNote]);
+
+  const handleCreateNote = useCallback(async (parentId?: string | null) => {
+    try {
+      const note = await createNote(parentId);
+      await loadNotes();
+      handleSelectNote(note.id);
+      toast.success("ノートを作成しました");
+    } catch {
+      toast.error("ノート作成に失敗しました");
+    }
+  }, [loadNotes, handleSelectNote]);
+
+  const handleRemoveNote = useCallback(async (noteId: string, _title: string) => {
+    try {
+      await removeNote(noteId);
+      if (activeNoteId === noteId) {
+        setActiveNoteId(null);
+        setActiveNote(null);
+      }
+      await loadNotes();
+      load(true);
+      toast.success("ノートを解除しました");
+    } catch {
+      toast.error("ノート解除に失敗しました");
+    }
+  }, [activeNoteId, loadNotes, load]);
+
+  const handleDeleteNoteWithFile = useCallback(async (noteId: string, _title: string) => {
+    try {
+      await deleteNoteWithFile(noteId);
+      if (activeNoteId === noteId) {
+        setActiveNoteId(null);
+        setActiveNote(null);
+      }
+      await loadNotes();
+      load(true);
+      loadTrash();
+      toast.success("ノートとファイルを削除しました");
+    } catch {
+      toast.error("削除に失敗しました");
+    }
+  }, [activeNoteId, loadNotes, load, loadTrash]);
+
+  const handleConvertToNote = useCallback(async (docId: string) => {
+    try {
+      await convertToNote(docId);
+      await loadNotes();
+      load(true);
+      toast.success("ノートに変換しました");
+    } catch {
+      toast.error("ノート変換に失敗しました");
+    }
+  }, [loadNotes, load]);
+
   useEffect(() => { load(true); }, [load]);
   // Re-trigger search when URL timestamp changes (re-search same query)
   useEffect(() => { if (urlT) load(true); }, [urlT]);
   useEffect(() => {
-    loadFolders(); loadTags(); loadTrash(); loadFavs(); getFilterOptions().then(setFilterOptions).catch(() => {}); getShareEnabled().then(setShareEnabled).catch(() => {});
+    loadFolders(); loadTags(); loadTrash(); loadFavs(); loadNotes(); getMe().then(setMeUser).catch(() => {}); getFilterOptions().then(setFilterOptions).catch(() => {}); getShareEnabled().then(setShareEnabled).catch(() => {});
     // Check for uploads interrupted by page reload
     const interrupted = checkInterruptedUploads();
     for (const filename of interrupted) {
@@ -707,6 +823,12 @@ export function FileExplorerPage() {
         break;
       case "toggle_favorite":
         toggleFavorite(item.id);
+        break;
+      case "convert_to_note":
+        handleConvertToNote(item.id);
+        break;
+      case "remove_note":
+        handleRemoveNote(item.id, item.title);
         break;
       case "delete":
         setBulkActionOpen("delete");
@@ -1140,6 +1262,17 @@ export function FileExplorerPage() {
           </div>
         </div>
 
+        <Separator />
+
+        {/* Notes */}
+        <NoteSidebarItems
+          notes={noteTree}
+          activeNoteId={activeNoteId}
+          onSelect={handleSelectNote}
+          onCreateNote={handleCreateNote}
+          onContextMenu={setNoteCtxMenu}
+        />
+
         {/* Search History */}
         {searchHistory.length > 0 && (
           <>
@@ -1210,6 +1343,37 @@ export function FileExplorerPage() {
 
       {/* Main content */}
       <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-hidden px-0.5 pb-0.5">
+        {/* Note editor view */}
+        {activeNoteId && activeNote ? (
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div className="flex items-center gap-2 mb-2">
+              <Button variant="ghost" size="icon" className="md:hidden -ml-1 mr-1 shrink-0 h-12 w-12" onClick={() => setSidebarOpen(true)}>
+                <Menu className="h-8 w-8" strokeWidth={2.5} />
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { if (!confirmDiscardNote()) return; noteDirtyRef.current = false; setActiveNoteId(null); setActiveNote(null); }}>
+                <ChevronLeft className="h-4 w-4 mr-1" />ドキュメント一覧
+              </Button>
+            </div>
+            <Card className="flex-1 min-h-0 overflow-hidden">
+              <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">読み込み中...</div>}>
+                <NoteEditor
+                  key={activeNoteId}
+                  noteId={activeNoteId}
+                  title={activeNote.title}
+                  initialContent={activeNote.note_content}
+                  userName={meUser?.display_name || meUser?.username || "User"}
+                  onTitleChange={(newTitle) => {
+                    setActiveNote((prev) => prev ? { ...prev, title: newTitle } : prev);
+                    loadNotes();
+                  }}
+                  onSaved={() => loadNotes()}
+                  onDirtyChange={(d) => { noteDirtyRef.current = d; }}
+                />
+              </Suspense>
+            </Card>
+          </div>
+        ) : (
+        <>
         {/* Header */}
         <div className="flex items-center justify-between">
           <Button variant="ghost" size="icon" className="md:hidden -ml-1 mr-1 shrink-0 h-12 w-12" onClick={() => setSidebarOpen(true)}>
@@ -1535,6 +1699,7 @@ export function FileExplorerPage() {
                     <TableCell className="pl-4 overflow-hidden max-w-0">
                       <div className="font-medium text-sm truncate flex items-center gap-1">
                         <Tooltip content={item.title}><span className="truncate">{item.title}</span></Tooltip>
+                        {item.is_note && <BookOpenText className="h-3 w-3 text-primary flex-shrink-0" title="ノート" />}
                         {favoriteIds.has(item.id) && <Star className="h-3 w-3 fill-muted-foreground text-muted-foreground flex-shrink-0" />}
                         {isSearching && (item as any).rrf_score != null && (
                           <span className={`ml-2 text-xs font-normal ${(item as any).rrf_score >= 0.5 ? "text-green-600" : "text-orange-500"}`}>{((item as any).rrf_score as number).toFixed(4)}</span>
@@ -1624,6 +1789,8 @@ export function FileExplorerPage() {
           />
         )}
 
+        </>
+        )}
         </>
         )}
       </div>
@@ -1938,6 +2105,31 @@ export function FileExplorerPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Note context menu */}
+      {noteCtxMenu && (
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setNoteCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setNoteCtxMenu(null); }} />
+          <div
+            className="fixed z-50 min-w-[160px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 animate-in fade-in-0 zoom-in-95"
+            style={{ left: noteCtxMenu.x, top: noteCtxMenu.y }}
+          >
+            <button
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+              onClick={() => { handleCreateNote(noteCtxMenu.noteId); setNoteCtxMenu(null); }}
+            >
+              <Plus className="h-4 w-4" />サブノート作成
+            </button>
+            <div className="-mx-1 my-1 h-px bg-border" />
+            <button
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+              onClick={() => { setNoteDeleteTarget({ noteId: noteCtxMenu.noteId, title: noteCtxMenu.title }); setNoteCtxMenu(null); }}
+            >
+              <Trash2 className="h-4 w-4" />削除
+            </button>
+          </div>
+        </>
+      )}
+
       {/* Folder context menu */}
       {folderCtx && (
         <>
@@ -2024,6 +2216,52 @@ export function FileExplorerPage() {
         currentFolderId={uploadFolderId}
         onCreated={() => { setCreateTextOpen(false); load(true); }}
       />
+
+      {/* Note Delete Dialog */}
+      <Dialog open={!!noteDeleteTarget} onOpenChange={(open) => { if (!open) setNoteDeleteTarget(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>ノートを削除</DialogTitle>
+            <DialogDescription>
+              「{noteDeleteTarget?.title}」のノートを削除します。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${noteDeleteMode === "remove" ? "border-primary bg-primary/5" : "hover:bg-muted"}`}>
+              <input type="radio" name="noteDeleteMode" checked={noteDeleteMode === "remove"} onChange={() => setNoteDeleteMode("remove")} className="mt-0.5" />
+              <div>
+                <div className="text-sm font-medium">ノートのみ削除</div>
+                <div className="text-xs text-muted-foreground">ファイルは残ります</div>
+              </div>
+            </label>
+            <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${noteDeleteMode === "delete" ? "border-destructive bg-destructive/5" : "hover:bg-muted"}`}>
+              <input type="radio" name="noteDeleteMode" checked={noteDeleteMode === "delete"} onChange={() => setNoteDeleteMode("delete")} className="mt-0.5" />
+              <div>
+                <div className="text-sm font-medium">ファイルごと削除</div>
+                <div className="text-xs text-muted-foreground">ゴミ箱に移動します</div>
+              </div>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNoteDeleteTarget(null)}>キャンセル</Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!noteDeleteTarget) return;
+                const { noteId, title } = noteDeleteTarget;
+                setNoteDeleteTarget(null);
+                if (noteDeleteMode === "remove") {
+                  handleRemoveNote(noteId, title);
+                } else {
+                  handleDeleteNoteWithFile(noteId, title);
+                }
+              }}
+            >
+              削除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Upload Progress Panel (3+ files) */}
       {queueState && (

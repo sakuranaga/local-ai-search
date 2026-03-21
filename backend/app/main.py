@@ -63,6 +63,13 @@ async def init_db():
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS current_version INTEGER DEFAULT 1 NOT NULL"))
         await conn.execute(text("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS change_type VARCHAR(20)"))
         await conn.execute(text("ALTER TABLE webhook_endpoints ADD COLUMN IF NOT EXISTS format VARCHAR(20) DEFAULT 'json' NOT NULL"))
+        # Note feature columns
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_note BOOLEAN DEFAULT FALSE"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS note_content JSONB"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS parent_note_id UUID REFERENCES documents(id) ON DELETE SET NULL"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS note_order INTEGER DEFAULT 0"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_parent_note_id ON documents(parent_note_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_is_note ON documents(is_note) WHERE is_note = TRUE"))
         logger.info("Document table migration columns verified")
 
     # Phase 0: Role simplification (Admin/User)
@@ -194,6 +201,9 @@ app.include_router(webhooks.router, prefix="/api")
 
 from app.routers import favorites
 app.include_router(favorites.router, prefix="/api")
+
+from app.routers import notes
+app.include_router(notes.router, prefix="/api")
 
 
 @app.get("/api/health")

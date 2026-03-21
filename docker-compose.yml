@@ -82,12 +82,24 @@ services:
     depends_on:
       - backend
 
+  y-websocket:
+    image: node:20-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npx y-websocket"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "1234"
+    expose:
+      - "1234"
+
   nginx:
     image: nginx:alpine
     restart: unless-stopped
     depends_on:
       - backend
       - tusd
+      - y-websocket
     ports:
       - "3002:80"
     volumes:

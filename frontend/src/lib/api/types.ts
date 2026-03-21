@@ -72,6 +72,7 @@ export interface Document {
   tags: TagInfo[];
   created_by_name: string | null;
   updated_by_name: string | null;
+  is_note: boolean;
   created_at: string;
   updated_at: string;
   chunks: Array<{
@@ -114,6 +115,32 @@ export interface DocumentListItem {
   tags: TagInfo[];
   created_by_name: string | null;
   updated_by_name: string | null;
+  is_note: boolean;
+  scan_status: string;
+  share_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteTreeItem {
+  id: string;
+  title: string;
+  parent_note_id: string | null;
+  note_order: number;
+  file_type: string;
+  updated_at: string;
+  children: NoteTreeItem[];
+}
+
+export interface NoteDetail {
+  id: string;
+  title: string;
+  note_content: unknown;
+  content: string;
+  parent_note_id: string | null;
+  note_order: number;
+  file_type: string;
+  is_note: boolean;
   created_at: string;
   updated_at: string;
 }
