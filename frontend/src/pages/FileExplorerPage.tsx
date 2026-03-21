@@ -1074,7 +1074,7 @@ export function FileExplorerPage() {
       )}
       {/* Sidebar */}
       <div className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-background border-r p-4 flex flex-col gap-4 overflow-y-auto
+        fixed inset-y-0 left-0 z-50 w-64 bg-background border-r p-4 flex flex-col gap-4 overflow-y-auto scrollbar-hide
         transform transition-transform duration-200 ease-in-out
         md:static md:w-56 md:z-auto md:border-r-0 md:transform-none md:transition-none md:p-0
         ${sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
