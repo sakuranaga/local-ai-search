@@ -640,7 +640,7 @@ function VersionsTab({ documentId, onRestored }: { documentId: string; onRestore
               )}
               {v.change_type && (
                 <Badge variant="secondary" className="text-xs px-1.5 py-0">
-                  {{ upload: "アップロード", text_edit: "テキスト編集", overwrite: "ファイル上書き" }[v.change_type] ?? v.change_type}
+                  {{ upload: "アップロード", text_edit: "検索テキスト編集", note_edit: "ノート編集", overwrite: "ファイル上書き" }[v.change_type] ?? v.change_type}
                 </Badge>
               )}
             </div>
