@@ -392,6 +392,14 @@ async def update_note(
 
     if body.title is not None:
         doc.title = body.title
+        # Sync filename: keep original extension, update base name
+        file_result = await db.execute(
+            select(File).where(File.document_id == doc.id)
+        )
+        file_rec = file_result.scalars().first()
+        if file_rec:
+            ext = Path(file_rec.filename).suffix or ".md"
+            file_rec.filename = f"{body.title}{ext}"
         changed = True
 
     if body.note_content is not None:
