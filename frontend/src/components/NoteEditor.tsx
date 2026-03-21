@@ -118,10 +118,12 @@ export default function NoteEditor(props: NoteEditorProps) {
 const TitleInput = memo(function TitleInput({
   defaultValue,
   onBlurRef,
+  onInputRef,
   placeholder,
 }: {
   defaultValue: string;
   onBlurRef: React.RefObject<((value: string) => void) | null>;
+  onInputRef: React.RefObject<((value: string) => void) | null>;
   placeholder: string;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -151,6 +153,7 @@ const TitleInput = memo(function TitleInput({
         e.stopPropagation();
       }}
       onCompositionUpdate={(e) => e.stopPropagation()}
+      onInput={(e) => onInputRef.current?.((e.target as HTMLInputElement).value)}
       onBlur={(e) => onBlurRef.current?.(e.currentTarget.value)}
       onKeyDown={(e) => {
         if (composingRef.current || e.nativeEvent.isComposing || e.keyCode === 229) {
@@ -270,16 +273,19 @@ function NoteEditorInner({
     }
   }, [noteId, onTitleChange, onSaved]);
 
-  // Save title on blur (called from TitleInput via ref to avoid re-renders)
-  const titleBlurRef = useRef<((value: string) => void) | null>(null);
-  titleBlurRef.current = (value: string) => {
+  // Track title changes in real-time (via ref to avoid re-rendering TitleInput)
+  const titleInputRef = useRef<((value: string) => void) | null>(null);
+  titleInputRef.current = (value: string) => {
     titleRef.current = value;
     if (value !== title) {
       setDirty(true);
-      updateNote(noteId, { title: value })
-        .then(() => onTitleChange?.(value))
-        .catch(() => {});
     }
+  };
+
+  // Also sync on blur
+  const titleBlurRef = useRef<((value: string) => void) | null>(null);
+  titleBlurRef.current = (value: string) => {
+    titleRef.current = value;
   };
 
   // Ctrl+S to save
@@ -312,6 +318,7 @@ function NoteEditorInner({
         <TitleInput
           defaultValue={title}
           onBlurRef={titleBlurRef}
+          onInputRef={titleInputRef}
           placeholder="無題のノート"
         />
         {collaborative ? (
