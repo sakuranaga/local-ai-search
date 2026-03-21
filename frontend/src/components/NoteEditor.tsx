@@ -5,7 +5,7 @@ import { BlockNoteView } from "@blocknote/shadcn";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { updateNote } from "@/lib/api/notes";
-import { Save, Loader2, Wifi, WifiOff } from "lucide-react";
+import { Save, Loader2, WifiOff } from "lucide-react";
 import { useTheme } from "next-themes";
 import "@blocknote/shadcn/style.css";
 
@@ -321,9 +321,7 @@ function NoteEditorInner({
           onInputRef={titleInputRef}
           placeholder="無題のノート"
         />
-        {collaborative ? (
-          <Wifi className="w-4 h-4 text-green-500 flex-shrink-0" title="共同編集: 接続中" />
-        ) : (
+        {!collaborative && (
           <WifiOff className="w-4 h-4 text-muted-foreground flex-shrink-0" title="オフラインモード" />
         )}
         <button
