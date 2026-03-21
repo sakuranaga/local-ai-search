@@ -76,7 +76,7 @@ export function DocumentDetailModal({
   allTags: TagInfo[];
   shareEnabled?: boolean;
   onClose: () => void;
-  onUpdated: () => void;
+  onUpdated: (updated?: DocumentListItem) => void;
   onTagsChanged: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -335,7 +335,7 @@ function EditTab({
   item: DocumentListItem;
   folders: Folder[];
   allTags: TagInfo[];
-  onSaved: () => void;
+  onSaved: (updated: DocumentListItem) => void;
   onTagsChanged: () => void;
 }) {
   const [title, setTitle] = useState(doc.title);
@@ -378,7 +378,7 @@ function EditTab({
   async function handleSave() {
     setSaving(true);
     try {
-      await updateDocument(item.id, {
+      const updated = await updateDocument(item.id, {
         title,
         summary,
         memo,
@@ -388,7 +388,7 @@ function EditTab({
         tag_ids: docTags.map((t) => t.id),
       });
       toast.success("保存しました");
-      onSaved();
+      onSaved({ ...item, title: updated.title, summary: updated.summary ?? "", folder_id: updated.folder_id ?? null, is_note: updated.is_note });
       onTagsChanged();
     } catch { toast.error("保存失敗"); }
     finally { setSaving(false); }
