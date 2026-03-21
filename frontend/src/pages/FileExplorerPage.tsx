@@ -1348,7 +1348,7 @@ export function FileExplorerPage() {
                 <ChevronLeft className="h-4 w-4 mr-1" />ドキュメント一覧
               </Button>
             </div>
-            <Card className="flex-1 min-h-0 overflow-hidden">
+            <Card className="flex-1 min-h-0 overflow-hidden !py-0 !gap-0">
               <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">読み込み中...</div>}>
                 <NoteEditor
                   key={activeNoteId}
@@ -1360,7 +1360,7 @@ export function FileExplorerPage() {
                     setActiveNote((prev) => prev ? { ...prev, title: newTitle } : prev);
                     loadNotes();
                   }}
-                  onSaved={() => loadNotes()}
+                  onSaved={() => { loadNotes(); load(true); }}
                   onDirtyChange={(d) => { noteDirtyRef.current = d; }}
                 />
               </Suspense>
