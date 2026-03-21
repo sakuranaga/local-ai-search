@@ -66,6 +66,7 @@ LAN 内（非公開）              インターネット（公開）
 | フォルダアップロード | ドラッグ&ドロップでフォルダ階層を自動作成 |
 | アップロードキュー | 大量ファイルを同時3件制限で順次アップロード、進捗パネル表示 |
 | バージョン管理 | アップロード時にv1自動作成、編集・上書きで自動バージョン追加、任意バージョンへ復元 |
+| ノート (Wiki) | BlockNote WYSIWYG エディタ、ツリー構造、ドラッグ&ドロップ並べ替え、Yjs リアルタイム共同編集 |
 | 完全ローカル | データはクラウドに送信されません |
 
 ## 主な機能
@@ -96,6 +97,7 @@ LAN 内（非公開）              インターネット（公開）
 - **ゴミ箱** — ソフトデリート + 復元 + 完全削除
 - **お気に入り** — スター登録でクイックアクセス。サイドバー・右クリックメニュー・モーダルから操作、ユーザーごとに独立
 - **バージョン管理** — アップロード時にv1自動作成。テキスト編集・ファイル上書き時に自動バージョン追加。変更種別（アップロード/テキスト編集/ファイル上書き）・変更者・日時を記録。任意のバージョンへ復元可能
+- **ノート (Wiki)** — BlockNote WYSIWYG エディタでリッチテキスト編集。ツリー構造でノートを階層管理。ドラッグ&ドロップで並べ替え・親子関係変更。Yjs WebSocket によるリアルタイム共同編集（接続不可時はローカルモードにフォールバック）
 - **キーボードショートカット** — Ctrl+A 全選択、Escape 解除、Delete ゴミ箱移動
 
 ### セキュリティ・権限
@@ -112,6 +114,21 @@ LAN 内（非公開）              インターネット（公開）
 - **メール通知** — ログイン・ファイル追加・更新・削除をメールで通知。SMTP / SendGrid / Resend / AWS SES 対応。通知先ごとにイベント選択可能。バルク操作は自動集約して1通に
 - **監査ログ** — ログイン・アップロード・削除・復元等の全操作を記録。ユーザー・操作種別・日時でフィルタ、CSVエクスポート
 - **システム設定** — LLM/Embedding接続先、検索パラメータ等をUIから変更
+
+## ファイル設計思想
+
+LAS は**ファイルサーバー**であり、元ファイルは不可侵が原則。変更はアップロードによる上書きのみ。
+
+```
+元ファイル(disk) → テキスト抽出 → content(DB) → チャンク → 検索インデックス
+```
+
+- **メタデータ**（メモ、要約、権限、タグ）は DB に保持し、元ファイルを壊さない
+- **検索テキスト**（`content`）は OCR 誤認識の補正等のために手動編集可能。編集しても元ファイルには影響しない
+- **例外: `.md` ファイルのみ**、content = ファイル内容そのものであるため、検索テキスト編集・ノート編集時に元ファイルへ書き戻す
+- **ノート化できるのは `.md` ファイルのみ**。新規ノート作成時も `.md` ファイルが生成される
+
+詳細は [docs/file-content-design.md](docs/file-content-design.md) を参照。
 
 ## アーキテクチャ
 
@@ -162,6 +179,8 @@ LAN 内（非公開）              インターネット（公開）
 | Document Preview | LibreOffice headless + PyMuPDF — PPTX/DOCX/DOC/RTF → PDF → PNG 変換 |
 | OCR | Surya OCR — GPU対応（ROCm/CUDA）、画像・スキャンPDFのテキスト抽出 |
 | Text Editor | OverType (91KB、依存ゼロの WYSIWYG マークダウンエディタ) |
+| Note Editor | BlockNote (ProseMirror ベース WYSIWYG ブロックエディタ) |
+| Collaboration | Yjs + y-websocket (CRDT リアルタイム共同編集、LevelDB 永続化) |
 | Video Player | video.js v10 (@videojs/react) — リッチな動画プレイヤー |
 | LLM | llama.cpp (OpenAI 互換 API) |
 | Embedding | llama.cpp (OpenAI 互換 API) |
@@ -244,6 +263,7 @@ docker compose up -d
 | backend | FastAPI アプリケーション | 内部 8000 |
 | tusd | tus アップロードサーバー | 内部 8080 |
 | clamav | ClamAV ウイルススキャン | 内部 3310 |
+| y-websocket | Yjs WebSocket サーバー（共同編集） | 内部 1234 |
 | nginx | リバースプロキシ + SPA 配信 | **3002** |
 | ocr-server | Surya OCR（ホスト直接起動） | 8090 |
 
@@ -355,6 +375,14 @@ docker compose exec backend python -m pytest tests/ -v
 | DELETE | `/api/admin/mail/recipients/{id}` | メール通知先削除 (admin) |
 | POST | `/api/admin/mail/test` | テストメール送信 (admin) |
 | GET | `/api/admin/audit-logs` | 監査ログ一覧 (admin) |
+| GET | `/api/notes` | ノートツリー取得 |
+| POST | `/api/notes` | ノート新規作成 |
+| GET | `/api/notes/{id}` | ノート詳細取得 |
+| PATCH | `/api/notes/{id}` | ノート更新（タイトル・内容） |
+| PATCH | `/api/notes/{id}/move` | ノート移動・並べ替え |
+| POST | `/api/notes/from-document/{id}` | 既存 .md ファイルをノート化 |
+| POST | `/api/notes/{id}/remove` | ノート解除（ファイルは残る） |
+| POST | `/api/notes/{id}/delete-with-file` | ノートとファイルを削除 |
 | GET | `/api/admin/audit-logs/export` | 監査ログCSVエクスポート (admin) |
 
 ### API キーによる外部連携
@@ -380,6 +408,8 @@ curl -X PATCH https://your-server/tusd/<upload-id> \
 - [共有リンク設計](docs/share-links.md) — Share Server アーキテクチャ, API 仕様
 - [汎用ファイルアップロード設計](docs/universal-file-upload.md) — tus, ClamAV, 全ファイルタイプ対応
 - [将来機能ロードマップ](docs/future-features.md) — バージョン管理, AI自動整理, ストレージクォータ, S3連携
+- [ファイルとコンテンツの設計思想](docs/file-content-design.md) — 元ファイル不可侵の原則, .md 特別扱いの経緯
+- [ノート機能設計](docs/design-notes.md) — ノート機能の設計, Yjs 共同編集
 - [リファクタリング](REFACTOR.md) — 権限モデル調査結果, 残タスク
 
 ## Share Server

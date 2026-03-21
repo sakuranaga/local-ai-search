@@ -969,6 +969,20 @@ async def update_document(
 
         doc.content = body.content
         is_content_change = True
+
+        # .md files: write back to source file on disk
+        if doc.file_type == "md" and doc.source_path:
+            try:
+                Path(doc.source_path).write_text(body.content, encoding="utf-8")
+                file_result = await db.execute(
+                    select(File).where(File.document_id == doc.id)
+                )
+                file_rec = file_result.scalars().first()
+                if file_rec:
+                    file_rec.file_size = len(body.content.encode("utf-8"))
+            except OSError:
+                pass
+
         # Re-chunk and re-embed
         await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
         chunks_text = chunk_text(body.content)
