@@ -47,9 +47,9 @@ function NoteTreeNode({
         className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 transition-colors ${
           isActive ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"
         }`}
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        style={depth > 0 ? { paddingLeft: `${depth * 16 + 8}px` } : undefined}
       >
-        {hasChildren ? (
+        {hasChildren && (
           <span
             className="flex-shrink-0 cursor-pointer"
             onClick={(e) => {
@@ -63,8 +63,6 @@ function NoteTreeNode({
               <ChevronRight className="h-3.5 w-3.5" />
             )}
           </span>
-        ) : (
-          <span className="w-3.5 flex-shrink-0" />
         )}
         <BookOpenText className="h-3.5 w-3.5 flex-shrink-0" />
         <Tooltip content={node.title} onlyWhenTruncated>
