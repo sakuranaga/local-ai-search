@@ -197,23 +197,12 @@ export function DocumentDetailModal({
             {item.source_path && !item.download_prohibited && (
               <Button
                 variant="outline" size="sm"
-                onClick={async () => {
-                  try {
-                    const token = localStorage.getItem("las_token");
-                    const res = await fetch(`/api/documents/${item.id}/download`, {
-                      headers: token ? { Authorization: `Bearer ${token}` } : {},
-                    });
-                    if (!res.ok) throw new Error("Download failed");
-                    const blob = await res.blob();
-                    const disposition = res.headers.get("content-disposition");
-                    const filenameMatch = disposition?.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
-                    const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : item.title;
-                    const a = document.createElement("a");
-                    a.href = URL.createObjectURL(blob);
-                    a.download = filename;
-                    a.click();
-                    URL.revokeObjectURL(a.href);
-                  } catch { toast.error("ダウンロード失敗"); }
+                onClick={() => {
+                  const token = localStorage.getItem("las_token");
+                  const params = token ? `?token=${encodeURIComponent(token)}` : "";
+                  const a = document.createElement("a");
+                  a.href = `/api/documents/${item.id}/download${params}`;
+                  a.click();
                 }}
               >
                 <Download className="h-3.5 w-3.5 mr-1" />ダウンロード
