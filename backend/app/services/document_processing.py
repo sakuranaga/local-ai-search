@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 _TYPE_MAP = {
     "md": "md",
     "markdown": "md",
-    "txt": "md",
+    "txt": "txt",
     "pdf": "pdf",
     "docx": "docx",
     "doc": "docx",
@@ -50,7 +50,7 @@ _TYPE_MAP = {
 
 # Tier 1: file types that support text extraction → chunk → embed → summarize
 EXTRACTABLE_TYPES = {
-    "md", "pdf", "docx", "xlsx", "csv", "html", "pptx", "rtf",
+    "md", "txt", "pdf", "docx", "xlsx", "csv", "html", "pptx", "rtf",
     "png", "jpg", "gif", "bmp", "tiff", "webp",
 }
 
