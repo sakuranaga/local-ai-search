@@ -48,3 +48,33 @@ export async function convertToNote(documentId: string, parentNoteId?: string | 
 export async function exportNoteMd(id: string): Promise<{ markdown: string; title: string }> {
   return apiFetch(`/notes/${id}/export-md`, { method: "POST" });
 }
+
+// Admin
+export interface AdminNoteItem {
+  id: string;
+  title: string;
+  parent_note_id: string | null;
+  note_order: number;
+  file_type: string;
+  note_readonly: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function adminToggleNoteReadonly(noteId: string, noteReadonly: boolean): Promise<{ id: string; note_readonly: boolean }> {
+  return apiFetch(`/notes/admin/${noteId}/readonly`, {
+    method: "PATCH",
+    body: JSON.stringify({ note_readonly: noteReadonly }),
+  });
+}
+
+export async function adminListNotes(): Promise<AdminNoteItem[]> {
+  return apiFetch("/notes/admin/list");
+}
+
+export async function adminBulkDeleteNotes(noteIds: string[]): Promise<{ deleted: number }> {
+  return apiFetch("/notes/admin/bulk-delete", {
+    method: "POST",
+    body: JSON.stringify({ note_ids: noteIds }),
+  });
+}

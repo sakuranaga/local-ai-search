@@ -70,6 +70,7 @@ async def init_db():
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS note_order INTEGER DEFAULT 0"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_parent_note_id ON documents(parent_note_id)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_is_note ON documents(is_note) WHERE is_note = TRUE"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS note_readonly BOOLEAN DEFAULT FALSE"))
         logger.info("Document table migration columns verified")
 
     # Phase 0: Role simplification (Admin/User)

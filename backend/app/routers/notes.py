@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, require_permission
 from app.models import Chunk, Document, File, User
 from app.services.document_processing import chunk_text, get_embeddings
 from app.services.versioning import create_initial_version, create_versions_on_edit, save_new_version
@@ -46,6 +46,7 @@ class NoteTreeItem(BaseModel):
     parent_note_id: str | None
     note_order: int
     file_type: str
+    note_readonly: bool = False
     updated_at: datetime
     children: list["NoteTreeItem"] = []
 
@@ -60,6 +61,7 @@ class NoteDetail(BaseModel):
     note_order: int
     file_type: str
     is_note: bool
+    note_readonly: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -334,6 +336,7 @@ async def list_notes(
             Document.parent_note_id,
             Document.note_order,
             Document.file_type,
+            Document.note_readonly,
             Document.updated_at,
         )
         .where(Document.is_note.is_(True))
@@ -351,6 +354,7 @@ async def list_notes(
             "parent_note_id": str(row.parent_note_id) if row.parent_note_id else None,
             "note_order": row.note_order,
             "file_type": row.file_type,
+            "note_readonly": row.note_readonly or False,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
             "children": [],
         }
@@ -386,6 +390,7 @@ async def get_note(
         "note_order": doc.note_order,
         "file_type": doc.file_type,
         "is_note": doc.is_note,
+        "note_readonly": doc.note_readonly or False,
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
         "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
     }
@@ -616,3 +621,91 @@ async def export_note_md(
 
     markdown = _blocknote_to_markdown(doc.note_content)
     return {"markdown": markdown, "title": doc.title}
+
+
+# ── Admin ─────────────────────────────────────────────────────────────
+
+class BulkNoteDeleteRequest(BaseModel):
+    note_ids: list[str]
+
+
+@router.get("/admin/list")
+async def admin_list_notes(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("admin")),
+):
+    """List all notes (flat, for admin management)."""
+    result = await db.execute(
+        select(
+            Document.id,
+            Document.title,
+            Document.parent_note_id,
+            Document.note_order,
+            Document.file_type,
+            Document.note_readonly,
+            Document.created_at,
+            Document.updated_at,
+        )
+        .where(Document.is_note.is_(True))
+        .where(Document.deleted_at.is_(None))
+        .order_by(Document.updated_at.desc())
+    )
+    rows = result.all()
+    return [
+        {
+            "id": str(r.id),
+            "title": r.title,
+            "parent_note_id": str(r.parent_note_id) if r.parent_note_id else None,
+            "note_order": r.note_order,
+            "file_type": r.file_type,
+            "note_readonly": r.note_readonly or False,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        }
+        for r in rows
+    ]
+
+
+class NoteReadonlyToggle(BaseModel):
+    note_readonly: bool
+
+
+@router.patch("/admin/{note_id}/readonly")
+async def admin_toggle_readonly(
+    note_id: uuid.UUID,
+    body: NoteReadonlyToggle,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("admin")),
+):
+    """Toggle note_readonly flag (admin only)."""
+    doc = await db.get(Document, note_id)
+    if not doc or not doc.is_note or doc.deleted_at:
+        raise HTTPException(404, "ノートが見つかりません")
+    doc.note_readonly = body.note_readonly
+    await db.commit()
+    return {"id": str(doc.id), "note_readonly": doc.note_readonly}
+
+
+@router.post("/admin/bulk-delete")
+async def admin_bulk_delete_notes(
+    body: BulkNoteDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("admin")),
+):
+    """Bulk soft-delete notes (admin only)."""
+    now = datetime.now(timezone.utc)
+    deleted = 0
+    for nid in body.note_ids:
+        doc = await db.get(Document, uuid.UUID(nid))
+        if doc and doc.is_note and not doc.deleted_at:
+            # Move children to top-level
+            await db.execute(
+                update(Document)
+                .where(Document.parent_note_id == doc.id)
+                .where(Document.is_note.is_(True))
+                .values(parent_note_id=None)
+            )
+            doc.deleted_at = now
+            deleted += 1
+    await db.commit()
+    return {"deleted": deleted}

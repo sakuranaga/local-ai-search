@@ -282,6 +282,7 @@ class Document(Base):
         UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
     )
     note_order: Mapped[int] = mapped_column(Integer, default=0)
+    note_readonly: Mapped[bool] = mapped_column(Boolean, default=False)
 
     owner: Mapped["User"] = relationship(back_populates="documents", foreign_keys=[owner_id])
     folder: Mapped["Folder | None"] = relationship(back_populates="documents")

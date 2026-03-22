@@ -122,6 +122,8 @@ import {
   type SearchHistoryEntry,
 } from "@/lib/fileExplorerHelpers";
 
+const NoteReadonlyView = lazy(() => import("@/components/NoteReadonlyView"));
+
 const MAX_UPLOAD_FILES = 1000;
 
 // ---------------------------------------------------------------------------
@@ -222,6 +224,7 @@ export function FileExplorerPage() {
   const [noteDeleteTarget, setNoteDeleteTarget] = useState<{ noteId: string; title: string } | null>(null);
   const [noteDeleteMode, setNoteDeleteMode] = useState<"remove" | "delete">("remove");
   const [noteCtxMenu, setNoteCtxMenu] = useState<NoteContextMenuState | null>(null);
+  const notesReadonly = activeNote?.note_readonly ?? false;
   const noteDirtyRef = useRef(false);
 
   const confirmDiscardNote = useCallback(() => {
@@ -1360,21 +1363,35 @@ export function FileExplorerPage() {
               </Button>
             </div>
             <Card className="flex-1 min-h-0 overflow-hidden !py-0 !gap-0">
-              <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">読み込み中...</div>}>
-                <NoteEditor
-                  key={activeNoteId}
-                  noteId={activeNoteId}
-                  title={activeNote.title}
-                  initialContent={activeNote.note_content}
-                  userName={meUser?.display_name || meUser?.username || "User"}
-                  onTitleChange={(newTitle) => {
-                    setActiveNote((prev) => prev ? { ...prev, title: newTitle } : prev);
-                    loadNotes();
-                  }}
-                  onSaved={() => { loadNotes(); load(true); }}
-                  onDirtyChange={(d) => { noteDirtyRef.current = d; }}
-                />
-              </Suspense>
+              {notesReadonly ? (
+                <div className="flex flex-col h-full">
+                  <div className="flex items-center gap-2 px-4 py-2 border-b">
+                    <h2 className="text-lg font-semibold">{activeNote.title}</h2>
+                    <Badge variant="secondary" className="ml-auto text-xs">読み取り専用</Badge>
+                  </div>
+                  <div className="flex-1 overflow-auto">
+                    <Suspense fallback={<div className="flex items-center justify-center h-32 text-muted-foreground">読み込み中...</div>}>
+                      <NoteReadonlyView initialContent={activeNote.note_content} />
+                    </Suspense>
+                  </div>
+                </div>
+              ) : (
+                <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">読み込み中...</div>}>
+                  <NoteEditor
+                    key={activeNoteId}
+                    noteId={activeNoteId}
+                    title={activeNote.title}
+                    initialContent={activeNote.note_content}
+                    userName={meUser?.display_name || meUser?.username || "User"}
+                    onTitleChange={(newTitle) => {
+                      setActiveNote((prev) => prev ? { ...prev, title: newTitle } : prev);
+                      loadNotes();
+                    }}
+                    onSaved={() => { loadNotes(); load(true); }}
+                    onDirtyChange={(d) => { noteDirtyRef.current = d; }}
+                  />
+                </Suspense>
+              )}
             </Card>
           </div>
         ) : (
