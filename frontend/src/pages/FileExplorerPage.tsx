@@ -65,6 +65,7 @@ import {
 } from "lucide-react";
 import {
   getDocuments,
+  getDocument,
   getFilterOptions,
   getShareEnabled,
   updateDocument,
@@ -229,7 +230,7 @@ export function FileExplorerPage() {
 
   const confirmDiscardNote = useCallback(() => {
     if (!noteDirtyRef.current) return true;
-    return window.confirm("ノートに未保存の変更があります。破棄しますか？");
+    return window.confirm("ノートにDBへ未保存の変更があります。保存せずに閉じますか？\n（編集内容は次回開いた時に復元されます）");
   }, []);
 
   // Selecting a folder/tag while searching should clear the search query
@@ -511,6 +512,22 @@ export function FileExplorerPage() {
       setQueueState(state.items.length > 0 ? state : null);
     });
   }, [queueManager]);
+  // Handle @mention clicks — navigate to note or open file modal
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { documentId, isNote } = (e as CustomEvent).detail as { documentId: string; isNote: boolean };
+      if (isNote) {
+        handleSelectNote(documentId);
+      } else {
+        getDocument(documentId).then((doc) => {
+          setDetailDoc(doc as unknown as DocumentListItem);
+        }).catch(() => toast.error("ドキュメントが見つかりません"));
+      }
+    };
+    window.addEventListener("doc-mention-click", handler);
+    return () => window.removeEventListener("doc-mention-click", handler);
+  }, [handleSelectNote]);
+
   // Reset when search query changes & record search history
   useEffect(() => {
     if (urlQ) setSearchHistory(addSearchHistory(urlQ));

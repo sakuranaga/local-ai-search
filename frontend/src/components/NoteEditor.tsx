@@ -1,13 +1,14 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { BlockNoteEditor } from "@blocknote/core";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { updateNote } from "@/lib/api/notes";
-import { Save, Loader2, WifiOff } from "lucide-react";
+import { docMentionSchema, DocMentionMenu } from "@/components/DocMention";
+import { Save, Loader2, WifiOff, RefreshCw } from "lucide-react";
 import { useTheme } from "next-themes";
 import "@blocknote/shadcn/style.css";
+import NoteReadonlyView from "@/components/NoteReadonlyView";
 
 interface NoteEditorProps {
   noteId: string;
@@ -37,6 +38,7 @@ function getWsUrl() {
 export default function NoteEditor(props: NoteEditorProps) {
   const [mode, setMode] = useState<ConnMode>("connecting");
   const [needsPopulate, setNeedsPopulate] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
 
@@ -89,7 +91,7 @@ export default function NoteEditor(props: NoteEditorProps) {
       provider.destroy();
       doc.destroy();
     };
-  }, [noteId]);
+  }, [noteId, retryCount]);
 
   if (mode === "connecting") {
     return (
@@ -100,13 +102,34 @@ export default function NoteEditor(props: NoteEditorProps) {
     );
   }
 
+  if (mode === "local") {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center gap-2 px-4 py-2 border-b">
+          <h2 className="flex-1 text-lg font-semibold">{props.title}</h2>
+          <WifiOff className="w-4 h-4 text-destructive flex-shrink-0" />
+          <span className="text-xs text-destructive">同期サーバーに接続できません（読み取り専用）</span>
+          <button
+            onClick={() => { setMode("connecting"); setRetryCount((c) => c + 1); }}
+            className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-muted text-muted-foreground hover:bg-muted/80"
+          >
+            <RefreshCw className="w-3 h-3" />再接続
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto">
+          <NoteReadonlyView initialContent={props.initialContent} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <NoteEditorInner
       {...props}
-      ydoc={mode === "collaborative" ? ydocRef.current : null}
-      provider={mode === "collaborative" ? providerRef.current : null}
+      ydoc={ydocRef.current}
+      provider={providerRef.current}
       needsPopulate={needsPopulate}
-      collaborative={mode === "collaborative"}
+      collaborative
     />
   );
 }
@@ -196,7 +219,7 @@ function NoteEditorInner({
 }: InnerProps) {
   const { resolvedTheme } = useTheme();
   const [saving, setSaving] = useState(false);
-  const editorRef = useRef<BlockNoteEditor | null>(null);
+  const editorRef = useRef<InstanceType<typeof docMentionSchema.BlockNoteEditor> | null>(null);
   const titleRef = useRef(title);
 
   const parsedInitial =
@@ -204,9 +227,10 @@ function NoteEditorInner({
       ? (initialContent as never)
       : undefined;
 
-  // Create BlockNote editor
+  // Create BlockNote editor with docMention schema
   const editor = useCreateBlockNote(
     {
+      schema: docMentionSchema,
       ...(ydoc && provider
         ? {
             collaboration: {
@@ -226,6 +250,8 @@ function NoteEditorInner({
 
   // Suppress onChange during initialization (Yjs sync + replaceBlocks)
   const initializingRef = useRef(true);
+  // Snapshot of DB content for dirty comparison
+  const savedContentRef = useRef<string>(JSON.stringify(initialContent ?? []));
 
   // Populate empty Yjs doc from DB content
   useEffect(() => {
@@ -236,12 +262,19 @@ function NoteEditorInner({
         } catch {
           // ignore if editor not ready
         }
-        // Allow a tick for onChange to fire from replaceBlocks, then clear flag
         setTimeout(() => { initializingRef.current = false; }, 100);
       });
     } else {
-      // No populate needed — still wait for initial Yjs sync onChange
-      setTimeout(() => { initializingRef.current = false; }, 500);
+      // Yjs has existing content — check if it differs from DB
+      setTimeout(() => {
+        initializingRef.current = false;
+        if (collaborative) {
+          const yjsContent = JSON.stringify(editor.document);
+          if (yjsContent !== savedContentRef.current) {
+            setDirty(true);
+          }
+        }
+      }, 500);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsPopulate]);
@@ -263,6 +296,7 @@ function NoteEditorInner({
         title: titleRef.current,
         note_content: blocks,
       });
+      savedContentRef.current = JSON.stringify(blocks);
       setDirty(false);
       onTitleChange?.(titleRef.current);
       onSaved?.();
@@ -321,9 +355,6 @@ function NoteEditorInner({
           onInputRef={titleInputRef}
           placeholder="無題のノート"
         />
-        {!collaborative && (
-          <WifiOff className="w-4 h-4 text-muted-foreground flex-shrink-0" title="オフラインモード" />
-        )}
         <button
           onClick={handleSave}
           disabled={saving}
@@ -347,7 +378,9 @@ function NoteEditorInner({
           editor={editor}
           onChange={() => { if (!initializingRef.current) setDirty(true); }}
           theme={resolvedTheme === "dark" ? "dark" : "light"}
-        />
+        >
+          <DocMentionMenu editor={editor} />
+        </BlockNoteView>
       </div>
     </div>
   );
