@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,7 +69,7 @@ import {
   adminToggleNoteReadonly,
   type AdminNoteItem,
 } from "@/lib/api";
-import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send, Webhook, BookOpenText } from "lucide-react";
+import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send, Webhook, BookOpenText, Shield, ScrollText, UsersRound } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -1845,50 +1844,63 @@ function NotesTab() {
 // Admin Page
 // ---------------------------------------------------------------------------
 
+const ADMIN_SECTIONS = [
+  { key: "settings", label: "設定", icon: Settings },
+  { key: "users", label: "ユーザー", icon: Users },
+  { key: "groups", label: "グループ", icon: UsersRound },
+  { key: "roles", label: "ロール", icon: Shield },
+  { key: "apikeys", label: "APIキー", icon: Key },
+  { key: "audit", label: "監査ログ", icon: ScrollText },
+  { key: "mail", label: "メール通知", icon: Mail },
+  { key: "notes", label: "ノート", icon: BookOpenText },
+  { key: "webhooks", label: "Webhook", icon: Webhook },
+] as const;
+
+type SectionKey = (typeof ADMIN_SECTIONS)[number]["key"];
+
+const SECTION_COMPONENTS: Record<SectionKey, React.FC> = {
+  settings: SettingsTab,
+  users: UsersTab,
+  groups: GroupsTab,
+  roles: RolesTab,
+  apikeys: ApiKeysTab,
+  audit: AuditLogsTab,
+  mail: MailTab,
+  notes: NotesTab,
+  webhooks: WebhooksTab,
+};
+
 export function AdminPage() {
+  const [active, setActive] = useState<SectionKey>("settings");
+  const ActiveComponent = SECTION_COMPONENTS[active];
+
   return (
-    <div className="max-w-4xl mx-auto p-4 h-full flex flex-col overflow-hidden">
-      <h1 className="text-xl font-bold mb-4 shrink-0">管理</h1>
-      <Tabs defaultValue="settings" className="flex-1 min-h-0 flex flex-col">
-        <TabsList>
-          <TabsTrigger value="settings">設定</TabsTrigger>
-          <TabsTrigger value="users">ユーザー管理</TabsTrigger>
-          <TabsTrigger value="groups">グループ管理</TabsTrigger>
-          <TabsTrigger value="roles">ロール管理</TabsTrigger>
-          <TabsTrigger value="apikeys">APIキー</TabsTrigger>
-          <TabsTrigger value="audit">監査ログ</TabsTrigger>
-          <TabsTrigger value="mail">メール通知</TabsTrigger>
-          <TabsTrigger value="notes">ノート</TabsTrigger>
-          <TabsTrigger value="webhooks">Webhook</TabsTrigger>
-        </TabsList>
-        <TabsContent value="settings" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
-          <SettingsTab />
-        </TabsContent>
-        <TabsContent value="users" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
-          <UsersTab />
-        </TabsContent>
-        <TabsContent value="groups" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
-          <GroupsTab />
-        </TabsContent>
-        <TabsContent value="roles" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
-          <RolesTab />
-        </TabsContent>
-        <TabsContent value="apikeys" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
-          <ApiKeysTab />
-        </TabsContent>
-        <TabsContent value="audit" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
-          <AuditLogsTab />
-        </TabsContent>
-        <TabsContent value="mail" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
-          <MailTab />
-        </TabsContent>
-        <TabsContent value="notes" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
-          <NotesTab />
-        </TabsContent>
-        <TabsContent value="webhooks" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
-          <WebhooksTab />
-        </TabsContent>
-      </Tabs>
+    <div className="h-full flex overflow-hidden">
+      {/* Sidebar */}
+      <nav className="w-48 shrink-0 border-r bg-muted/30 flex flex-col">
+        <h1 className="text-lg font-bold px-4 py-3 border-b">管理</h1>
+        <div className="flex-1 overflow-y-auto py-1">
+          {ADMIN_SECTIONS.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setActive(key)}
+              className={`w-full flex items-center gap-2 px-4 py-2 text-sm text-left transition-colors ${
+                active === key
+                  ? "bg-accent text-accent-foreground font-medium"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              {label}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {/* Content */}
+      <main className="flex-1 min-w-0 overflow-y-auto p-6">
+        <ActiveComponent />
+      </main>
     </div>
   );
 }
