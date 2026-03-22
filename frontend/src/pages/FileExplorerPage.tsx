@@ -175,7 +175,7 @@ export function FileExplorerPage() {
   // Folder state
   const [folders, setFolders] = useState<Folder[]>([]);
   const [allDocCount, setAllDocCount] = useState(0);
-  const [activeFolderId, setActiveFolderId] = useState<string | null>(null); // null = all, "unfiled" = no folder
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(() => localStorage.getItem("explorer_folder")); // null = all, "unfiled" = no folder
   const [dragOverFolderRowId, setDragOverFolderRowId] = useState<string | null>(null);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -183,13 +183,32 @@ export function FileExplorerPage() {
 
   // Tag state
   const [allTags, setAllTags] = useState<TagInfo[]>([]);
-  const [activeTags, setActiveTags] = useState<string[]>([]);
+  const [activeTags, setActiveTags] = useState<string[]>(() => {
+    try { const v = localStorage.getItem("explorer_tags"); return v ? JSON.parse(v) : []; } catch { return []; }
+  });
   const [newTagOpen, setNewTagOpen] = useState(false);
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState(TAG_COLORS[0]);
   const [editingTag, setEditingTag] = useState<TagInfo | null>(null);
   const [editTagName, setEditTagName] = useState("");
   const [editTagColor, setEditTagColor] = useState("");
+
+  // Persist sidebar state to localStorage
+  useEffect(() => {
+    if (activeFolderId) {
+      localStorage.setItem("explorer_folder", activeFolderId);
+    } else {
+      localStorage.removeItem("explorer_folder");
+    }
+  }, [activeFolderId]);
+
+  useEffect(() => {
+    if (activeTags.length > 0) {
+      localStorage.setItem("explorer_tags", JSON.stringify(activeTags));
+    } else {
+      localStorage.removeItem("explorer_tags");
+    }
+  }, [activeTags]);
 
   // Dialogs
   const [detailDoc, setDetailDoc] = useState<DocumentListItem | null>(null);

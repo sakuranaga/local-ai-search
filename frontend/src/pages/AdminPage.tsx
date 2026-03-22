@@ -2088,7 +2088,10 @@ const SECTION_COMPONENTS: Record<SectionKey, React.FC> = {
 };
 
 export function AdminPage() {
-  const [active, setActive] = useState<SectionKey>("settings");
+  const [active, setActive] = useState<SectionKey>(() => {
+    const saved = localStorage.getItem("admin_section");
+    return ADMIN_SECTIONS.some((s) => s.key === saved) ? (saved as SectionKey) : "settings";
+  });
   const ActiveComponent = SECTION_COMPONENTS[active];
 
   return (
@@ -2100,7 +2103,7 @@ export function AdminPage() {
           {ADMIN_SECTIONS.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
-              onClick={() => setActive(key)}
+              onClick={() => { setActive(key); localStorage.setItem("admin_section", key); }}
               className={`w-full flex items-center gap-2 px-4 py-2 text-sm text-left transition-colors ${
                 active === key
                   ? "bg-accent text-accent-foreground font-medium"
