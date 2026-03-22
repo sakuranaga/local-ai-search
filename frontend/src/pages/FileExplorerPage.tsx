@@ -238,6 +238,7 @@ export function FileExplorerPage() {
     if (!confirmDiscardNote()) return;
     noteDirtyRef.current = false;
     setActiveFolderId(id);
+    setActiveTags([]);
     setSidebarOpen(false);
     setShowTrash(false);
     setShowFavorites(false);
@@ -529,8 +530,18 @@ export function FileExplorerPage() {
 
   // Reset when search query changes & record search history
   useEffect(() => {
-    if (urlQ) setSearchHistory(addSearchHistory(urlQ));
-  }, [urlQ]);
+    if (urlQ) {
+      setSearchHistory(addSearchHistory(urlQ));
+      setActiveTags([]);
+      // Close note when search is triggered (e.g. from NavBar or search history)
+      if (activeNoteId) {
+        if (!confirmDiscardNote()) return;
+        noteDirtyRef.current = false;
+        setActiveNoteId(null);
+        setActiveNote(null);
+      }
+    }
+  }, [urlQ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync header padding with scrollbar width
   useEffect(() => {
@@ -1274,7 +1285,11 @@ export function FileExplorerPage() {
                 tag={tag}
                 isActive={activeTags.includes(tag.name)}
                 onSelect={() => {
+                  if (!confirmDiscardNote()) return;
+                  noteDirtyRef.current = false;
                   setActiveTags((prev) => prev.includes(tag.name) ? prev.filter((t) => t !== tag.name) : [...prev, tag.name]);
+                  setActiveNoteId(null);
+                  setActiveNote(null);
                   setShowTrash(false);
                   setShowFavorites(false);
                   setSidebarOpen(false);
