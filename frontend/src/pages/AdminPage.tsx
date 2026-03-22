@@ -69,7 +69,7 @@ import {
   adminToggleNoteReadonly,
   type AdminNoteItem,
 } from "@/lib/api";
-import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send, Webhook, BookOpenText, Shield, ScrollText, UsersRound } from "lucide-react";
+import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send, Webhook, BookOpenText, Shield, ScrollText, UsersRound, Share2 } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -469,10 +469,6 @@ const SETTING_GROUPS: Record<string, { label: string; keys: string[] }> = {
     label: "取り込み設定",
     keys: ["chunk_size", "chunk_overlap"],
   },
-  share: {
-    label: "共有リンク (Share Server)",
-    keys: ["share_server_url", "share_server_api_key", "share_enabled"],
-  },
   security: {
     label: "セキュリティ（アップロードデフォルト）",
     keys: ["default_share_prohibited", "default_download_prohibited"],
@@ -503,27 +499,6 @@ function SettingsTab() {
 
   function handleChange(key: string, value: string) {
     setEdited((prev) => ({ ...prev, [key]: value }));
-  }
-
-  async function checkShareConnection(): Promise<boolean> {
-    try {
-      const { testShareConnection } = await import("@/lib/api");
-      const result = await testShareConnection();
-      if (result.ok) {
-        await updateSetting("share_enabled", "true");
-        toast.success("Share Server 接続OK — 共有機能を有効にしました");
-        load();
-        return true;
-      } else {
-        await updateSetting("share_enabled", "false");
-        toast.error(`Share Server 接続失敗: ${result.error}`);
-        load();
-        return false;
-      }
-    } catch {
-      toast.error("Share Server 接続テストに失敗しました");
-      return false;
-    }
   }
 
   async function handleSave(key: string) {
@@ -577,43 +552,6 @@ function SettingsTab() {
               const setting = settings.find((s) => s.key === key);
               const isEdited = key in edited;
 
-              // share_enabled はトグルスイッチ + 接続テスト連動
-              if (key === "share_enabled") {
-                const isOn = getValue(key) === "true";
-                return (
-                  <div key={key} className="flex items-center gap-3 pt-2 border-t">
-                    <div className="min-w-[180px]">
-                      <label className="text-sm font-medium">共有機能</label>
-                      <p className="text-xs text-muted-foreground">接続テスト成功で有効化</p>
-                    </div>
-                    <button
-                      onClick={async () => {
-                        if (!isOn) {
-                          // ON にする → 接続テスト必須
-                          const ok = await checkShareConnection();
-                          if (!ok) return;
-                          await updateSetting("share_enabled", "true");
-                          toast.success("共有機能を有効にしました");
-                        } else {
-                          await updateSetting("share_enabled", "false");
-                          toast.success("共有機能を無効にしました");
-                        }
-                        load();
-                      }}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isOn ? "bg-primary" : "bg-muted"}`}
-                    >
-                      <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${isOn ? "translate-x-6" : "translate-x-1"}`} />
-                    </button>
-                    <span className={`text-sm ${isOn ? "text-primary font-medium" : "text-muted-foreground"}`}>
-                      {isOn ? "有効" : "無効"}
-                    </span>
-                    <Button variant="outline" size="sm" onClick={checkShareConnection} className="ml-auto">
-                      接続テスト
-                    </Button>
-                  </div>
-                );
-              }
-
               return (
                 <div key={key} className="flex items-center gap-2">
                   <div className="min-w-[180px]">
@@ -652,6 +590,149 @@ function SettingsTab() {
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Share Tab
+// ---------------------------------------------------------------------------
+
+const SHARE_KEYS = ["share_server_url", "share_server_api_key", "share_enabled"];
+
+function ShareTab() {
+  const [settings, setSettings] = useState<SystemSetting[]>([]);
+  const [edited, setEdited] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    getSettings()
+      .then((s) => {
+        setSettings(s.filter((st) => SHARE_KEYS.includes(st.key)));
+        setEdited({});
+      })
+      .catch(() => toast.error("設定の取得に失敗"));
+  }, []);
+
+  useEffect(load, [load]);
+
+  function getValue(key: string): string {
+    if (key in edited) return edited[key];
+    const s = settings.find((s) => s.key === key);
+    return s?.value ?? "";
+  }
+
+  function handleChange(key: string, value: string) {
+    setEdited((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function checkShareConnection(): Promise<boolean> {
+    try {
+      const { testShareConnection } = await import("@/lib/api");
+      const result = await testShareConnection();
+      if (result.ok) {
+        await updateSetting("share_enabled", "true");
+        toast.success("Share Server 接続OK — 共有機能を有効にしました");
+        load();
+        return true;
+      } else {
+        await updateSetting("share_enabled", "false");
+        toast.error(`Share Server 接続失敗: ${result.error}`);
+        load();
+        return false;
+      }
+    } catch {
+      toast.error("Share Server 接続テストに失敗しました");
+      return false;
+    }
+  }
+
+  async function handleSaveAll() {
+    const keys = Object.keys(edited);
+    if (keys.length === 0) return;
+    setSaving("all");
+    try {
+      for (const key of keys) {
+        await updateSetting(key, edited[key]);
+      }
+      toast.success("保存しました");
+      setEdited({});
+      load();
+    } catch {
+      toast.error("保存に失敗しました");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  const isOn = getValue("share_enabled") === "true";
+  const hasEdits = Object.keys(edited).length > 0;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Share2 className="h-4 w-4" />
+          共有リンク (Share Server)
+        </CardTitle>
+        <Button variant="outline" size="sm" onClick={checkShareConnection}>
+          接続テスト
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {SHARE_KEYS.filter((k) => k !== "share_enabled").map((key) => {
+          const setting = settings.find((s) => s.key === key);
+          return (
+            <div key={key} className="flex items-center gap-2">
+              <div className="min-w-[180px]">
+                <label className="text-sm font-medium">{key}</label>
+                {setting?.description && (
+                  <p className="text-xs text-muted-foreground">{setting.description}</p>
+                )}
+              </div>
+              <Input
+                type={setting?.secret ? "password" : "text"}
+                placeholder={setting?.placeholder ?? ""}
+                value={getValue(key)}
+                onChange={(e) => handleChange(key, e.target.value)}
+                className={`flex-1 ${key in edited ? "border-orange-400" : ""}`}
+              />
+            </div>
+          );
+        })}
+        <div className="flex items-center gap-3 pt-2 border-t">
+          <div className="min-w-[180px]">
+            <label className="text-sm font-medium">共有機能</label>
+            <p className="text-xs text-muted-foreground">接続テスト成功で有効化</p>
+          </div>
+          <button
+            onClick={async () => {
+              if (!isOn) {
+                const ok = await checkShareConnection();
+                if (!ok) return;
+                await updateSetting("share_enabled", "true");
+                toast.success("共有機能を有効にしました");
+              } else {
+                await updateSetting("share_enabled", "false");
+                toast.success("共有機能を無効にしました");
+              }
+              load();
+            }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isOn ? "bg-primary" : "bg-muted"}`}
+          >
+            <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${isOn ? "translate-x-6" : "translate-x-1"}`} />
+          </button>
+          <span className={`text-sm ${isOn ? "text-primary font-medium" : "text-muted-foreground"}`}>
+            {isOn ? "有効" : "無効"}
+          </span>
+        </div>
+        <div className="flex justify-end pt-2 border-t">
+          <Button onClick={handleSaveAll} disabled={!hasEdits || saving === "all"}>
+            <Save className="h-4 w-4 mr-2" />
+            保存
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1849,6 +1930,7 @@ const ADMIN_SECTIONS = [
   { key: "users", label: "ユーザー", icon: Users },
   { key: "groups", label: "グループ", icon: UsersRound },
   { key: "roles", label: "ロール", icon: Shield },
+  { key: "share", label: "共有リンク", icon: Share2 },
   { key: "apikeys", label: "APIキー", icon: Key },
   { key: "audit", label: "監査ログ", icon: ScrollText },
   { key: "mail", label: "メール通知", icon: Mail },
@@ -1863,6 +1945,7 @@ const SECTION_COMPONENTS: Record<SectionKey, React.FC> = {
   users: UsersTab,
   groups: GroupsTab,
   roles: RolesTab,
+  share: ShareTab,
   apikeys: ApiKeysTab,
   audit: AuditLogsTab,
   mail: MailTab,
