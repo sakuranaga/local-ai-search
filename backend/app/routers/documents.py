@@ -64,7 +64,7 @@ async def list_documents(
     q: str | None = Query(None),
     folder_id: str | None = Query(None),
     unfiled: bool = Query(False),
-    tag: str | None = Query(None),
+    tags: str | None = Query(None, description="Comma-separated tag names (AND filter)"),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     created_by: str | None = Query(None),
@@ -174,14 +174,16 @@ async def list_documents(
         base = base.where(Document.updated_at < datetime.fromisoformat(date_to) + timedelta(days=1))
     if created_by:
         base = base.where(Document.created_by_id == uuid.UUID(created_by))
-    if tag:
-        tag_sq = (
-            select(DocumentTag.document_id)
-            .join(Tag, DocumentTag.tag_id == Tag.id)
-            .where(Tag.name == tag)
-            .subquery()
-        )
-        base = base.where(Document.id.in_(select(tag_sq.c.document_id)))
+    if tags:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        for tag_name in tag_list:
+            tag_sq = (
+                select(DocumentTag.document_id)
+                .join(Tag, DocumentTag.tag_id == Tag.id)
+                .where(Tag.name == tag_name)
+                .subquery()
+            )
+            base = base.where(Document.id.in_(select(tag_sq.c.document_id)))
     if favorites:
         fav_sq = (
             select(UserFavorite.document_id)
@@ -206,10 +208,11 @@ async def list_documents(
         count_q = count_q.where(Document.updated_at < datetime.fromisoformat(date_to) + timedelta(days=1))
     if created_by:
         count_q = count_q.where(Document.created_by_id == uuid.UUID(created_by))
-    if tag:
-        count_q = count_q.where(Document.id.in_(
-            select(DocumentTag.document_id).join(Tag, DocumentTag.tag_id == Tag.id).where(Tag.name == tag)
-        ))
+    if tags:
+        for tag_name in [t.strip() for t in tags.split(",") if t.strip()]:
+            count_q = count_q.where(Document.id.in_(
+                select(DocumentTag.document_id).join(Tag, DocumentTag.tag_id == Tag.id).where(Tag.name == tag_name)
+            ))
     if favorites:
         count_q = count_q.where(Document.id.in_(
             select(UserFavorite.document_id).where(UserFavorite.user_id == current_user.id)

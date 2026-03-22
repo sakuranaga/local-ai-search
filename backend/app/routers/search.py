@@ -60,7 +60,7 @@ async def search_documents_list(
     per_page: int = Query(30, ge=1, le=100),
     folder_id: str | None = Query(None),
     unfiled: bool = Query(False),
-    tag: str | None = Query(None),
+    tags: str | None = Query(None, description="Comma-separated tag names (AND filter)"),
     file_type: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -72,7 +72,7 @@ async def search_documents_list(
     results, total = await merged_search(
         db, q, limit=per_page, offset=offset,
         require_searchable=True, user=current_user,
-        folder_id=folder_id, unfiled=unfiled, tag=tag, file_type=file_type,
+        folder_id=folder_id, unfiled=unfiled, tags=tags, file_type=file_type,
     )
 
     doc_ids_ordered = [uuid.UUID(r["document_id"]) for r in results]

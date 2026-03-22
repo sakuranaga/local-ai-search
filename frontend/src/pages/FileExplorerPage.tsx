@@ -183,7 +183,7 @@ export function FileExplorerPage() {
 
   // Tag state
   const [allTags, setAllTags] = useState<TagInfo[]>([]);
-  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [activeTags, setActiveTags] = useState<string[]>([]);
   const [newTagOpen, setNewTagOpen] = useState(false);
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState(TAG_COLORS[0]);
@@ -350,13 +350,12 @@ export function FileExplorerPage() {
           per_page: perPage,
           file_type: filterType || undefined,
         };
-        if (activeFolderId === "unfiled") {
+        if (activeTags.length > 0) {
+          searchParams.tags = activeTags;
+        } else if (activeFolderId === "unfiled") {
           searchParams.unfiled = true;
         } else if (activeFolderId) {
           searchParams.folder_id = activeFolderId;
-        }
-        if (activeTag) {
-          searchParams.tag = activeTag;
         }
         const data = await searchDocumentsList(searchParams);
         if (gen !== loadGenRef.current) return; // stale
@@ -375,7 +374,9 @@ export function FileExplorerPage() {
           date_to: filterDateTo || undefined,
           created_by: filterCreatedBy || undefined,
         };
-        if (showFavorites) {
+        if (activeTags.length > 0) {
+          params.tags = activeTags;
+        } else if (showFavorites) {
           params.favorites = true;
         } else if (activeFolderId === "unfiled") {
           params.unfiled = true;
@@ -384,9 +385,6 @@ export function FileExplorerPage() {
         } else {
           // "All" view: show only unfiled files (folders shown separately)
           params.unfiled = true;
-        }
-        if (activeTag) {
-          params.tag = activeTag;
         }
         const data = await getDocuments(params);
         if (gen !== loadGenRef.current) return; // stale
@@ -402,7 +400,7 @@ export function FileExplorerPage() {
       setLoading(false);
       loadingRef.current = false;
     }
-  }, [perPage, sortBy, sortDir, filterType, filterDateFrom, filterDateTo, filterCreatedBy, activeFolderId, activeTag, isSearching, urlQ, showFavorites]);
+  }, [perPage, sortBy, sortDir, filterType, filterDateFrom, filterDateTo, filterCreatedBy, activeFolderId, activeTags, isSearching, urlQ, showFavorites]);
 
   reloadRef.current = () => { load(true); loadFolders(); };
 
@@ -678,14 +676,14 @@ export function FileExplorerPage() {
 
   // Child folders to display in the file list (Google Drive style)
   const listFolders = useMemo(() => {
-    if (isSearching || showTrash || showFavorites || activeFolderId === "unfiled") return [];
+    if (isSearching || showTrash || showFavorites || activeTags.length > 0 || activeFolderId === "unfiled") return [];
     if (activeFolderId === null) {
       // Root: show folders with no parent
       return folders.filter((f) => !f.parent_id).sort((a, b) => a.name.localeCompare(b.name));
     }
     // Inside a folder: show direct children
     return folders.filter((f) => f.parent_id === activeFolderId).sort((a, b) => a.name.localeCompare(b.name));
-  }, [folders, activeFolderId, isSearching, showTrash, showFavorites]);
+  }, [folders, activeFolderId, isSearching, showTrash, showFavorites, activeTags]);
 
   function handleSort(col: string) {
     if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -1274,11 +1272,17 @@ export function FileExplorerPage() {
               <SidebarTagItem
                 key={tag.id}
                 tag={tag}
-                isActive={activeTag === tag.name}
-                onSelect={() => { setActiveTag(activeTag === tag.name ? null : tag.name); setShowTrash(false); setSidebarOpen(false); if (isSearching) navigate("/", { replace: true }); }}
+                isActive={activeTags.includes(tag.name)}
+                onSelect={() => {
+                  setActiveTags((prev) => prev.includes(tag.name) ? prev.filter((t) => t !== tag.name) : [...prev, tag.name]);
+                  setShowTrash(false);
+                  setShowFavorites(false);
+                  setSidebarOpen(false);
+                  if (isSearching) navigate("/", { replace: true });
+                }}
                 onDeleted={() => {
                   setAllTags((prev) => prev.filter((t) => t.id !== tag.id));
-                  if (activeTag === tag.name) setActiveTag(null);
+                  setActiveTags((prev) => prev.filter((t) => t !== tag.name));
                   load(true);
                 }}
                 onEdit={(t) => { setEditingTag(t); setEditTagName(t.name); setEditTagColor(t.color || "#6b7280"); }}
@@ -1430,7 +1434,20 @@ export function FileExplorerPage() {
             <Menu className="h-8 w-8" strokeWidth={2.5} />
           </Button>
           <h1 className="text-lg md:text-xl font-bold min-w-0 flex items-center overflow-hidden">
-            {showTrash ? "ゴミ箱" : isSearching ? <span className="truncate">{`検索結果: ${urlQ}`}</span> : showFavorites ? "お気に入り" : folderBreadcrumb ? (
+            {showTrash ? "ゴミ箱" : isSearching ? <span className="truncate">{`検索結果: ${urlQ}`}</span> : showFavorites ? "お気に入り" : activeTags.length > 0 ? (
+              <span className="flex items-center gap-1.5">
+                <span className="text-muted-foreground font-normal">タグ:</span>
+                {activeTags.map((t) => {
+                  const tagInfo = allTags.find((at) => at.name === t);
+                  return (
+                    <span key={t} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-sm">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: tagInfo?.color || "#6b7280" }} />
+                      {t}
+                    </span>
+                  );
+                })}
+              </span>
+            ) : folderBreadcrumb ? (
               folderBreadcrumb.map((seg, i) => (
                 <span key={seg.id} className={`flex items-center ${i === folderBreadcrumb.length - 1 ? "min-w-0 overflow-hidden" : "shrink-0"}`}>
                   {i > 0 && <span className="mx-1 text-muted-foreground font-normal shrink-0">&gt;</span>}
@@ -2075,7 +2092,7 @@ export function FileExplorerPage() {
                   updateTag(editingTag.id, { name: editTagName.trim(), color: editTagColor })
                     .then((updated) => {
                       setAllTags((prev) => prev.map((t) => t.id === updated.id ? { ...t, ...updated } : t));
-                      if (activeTag === editingTag!.name) setActiveTag(updated.name);
+                      setActiveTags((prev) => prev.map((t) => t === editingTag!.name ? updated.name : t));
                       setEditingTag(null);
                       load(true);
                       toast.success("タグを更新しました");
@@ -2113,7 +2130,7 @@ export function FileExplorerPage() {
                 updateTag(editingTag.id, { name: editTagName.trim(), color: editTagColor })
                   .then((updated) => {
                     setAllTags((prev) => prev.map((t) => t.id === updated.id ? { ...t, ...updated } : t));
-                    if (activeTag === editingTag!.name) setActiveTag(updated.name);
+                    setActiveTags((prev) => prev.map((t) => t === editingTag!.name ? updated.name : t));
                     setEditingTag(null);
                     load(true);
                     toast.success("タグを更新しました");

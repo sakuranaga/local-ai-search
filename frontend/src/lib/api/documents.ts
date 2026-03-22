@@ -14,7 +14,7 @@ export async function getDocuments(params: {
   q?: string;
   folder_id?: string;
   unfiled?: boolean;
-  tag?: string;
+  tags?: string[];
   date_from?: string;
   date_to?: string;
   created_by?: string;
@@ -29,7 +29,7 @@ export async function getDocuments(params: {
   if (params.q) p.set("q", params.q);
   if (params.folder_id) p.set("folder_id", params.folder_id);
   if (params.unfiled) p.set("unfiled", "true");
-  if (params.tag) p.set("tag", params.tag);
+  if (params.tags?.length) p.set("tags", params.tags.join(","));
   if (params.date_from) p.set("date_from", params.date_from);
   if (params.date_to) p.set("date_to", params.date_to);
   if (params.created_by) p.set("created_by", params.created_by);
