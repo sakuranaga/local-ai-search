@@ -29,7 +29,7 @@ async def fulltext_search(
     require_searchable: bool = False, require_ai_knowledge: bool = False,
     user: User | None = None,
     folder_id: str | None = None, unfiled: bool = False,
-    tag: str | None = None, file_type: str | None = None,
+    tags: str | None = None, file_type: str | None = None,
 ) -> list[dict]:
     """Full-text search using SQL LIKE with pg_bigm GIN index acceleration."""
     words = tokenize_query(query)
@@ -77,15 +77,16 @@ async def fulltext_search(
         stmt = stmt.where(Document.folder_id.is_(None))
     if file_type:
         stmt = stmt.where(Document.file_type == file_type)
-    if tag:
+    if tags:
         from app.models import DocumentTag, Tag
-        tag_sq = (
-            select(DocumentTag.document_id)
-            .join(Tag, DocumentTag.tag_id == Tag.id)
-            .where(Tag.name == tag)
-            .subquery()
-        )
-        stmt = stmt.where(Document.id.in_(select(tag_sq.c.document_id)))
+        for tag_name in [t.strip() for t in tags.split(",") if t.strip()]:
+            tag_sq = (
+                select(DocumentTag.document_id)
+                .join(Tag, DocumentTag.tag_id == Tag.id)
+                .where(Tag.name == tag_name)
+                .subquery()
+            )
+            stmt = stmt.where(Document.id.in_(select(tag_sq.c.document_id)))
     stmt = stmt.order_by(match_count.desc()).limit(limit)
 
     result = await db.execute(stmt)
@@ -115,7 +116,7 @@ async def vector_search(
     require_searchable: bool = False, require_ai_knowledge: bool = False,
     user: User | None = None,
     folder_id: str | None = None, unfiled: bool = False,
-    tag: str | None = None, file_type: str | None = None,
+    tags: str | None = None, file_type: str | None = None,
 ) -> list[dict]:
     """Semantic search using pgvector cosine distance (<=>)."""
     query_embedding = await get_embedding(query)
@@ -155,15 +156,16 @@ async def vector_search(
         stmt = stmt.where(Document.folder_id.is_(None))
     if file_type:
         stmt = stmt.where(Document.file_type == file_type)
-    if tag:
+    if tags:
         from app.models import DocumentTag, Tag
-        tag_sq = (
-            select(DocumentTag.document_id)
-            .join(Tag, DocumentTag.tag_id == Tag.id)
-            .where(Tag.name == tag)
-            .subquery()
-        )
-        stmt = stmt.where(Document.id.in_(select(tag_sq.c.document_id)))
+        for tag_name in [t.strip() for t in tags.split(",") if t.strip()]:
+            tag_sq = (
+                select(DocumentTag.document_id)
+                .join(Tag, DocumentTag.tag_id == Tag.id)
+                .where(Tag.name == tag_name)
+                .subquery()
+            )
+            stmt = stmt.where(Document.id.in_(select(tag_sq.c.document_id)))
     stmt = stmt.order_by(distance).limit(limit)
 
     result = await db.execute(stmt)
@@ -198,7 +200,7 @@ async def _metadata_signals(
     require_ai_knowledge: bool = False,
     folder_id: str | None = None,
     unfiled: bool = False,
-    tag: str | None = None,
+    tags: str | None = None,
     file_type: str | None = None,
     limit: int = 200,
 ) -> dict[str, list[str]]:
@@ -221,14 +223,15 @@ async def _metadata_signals(
         base_filters.append(Document.folder_id.is_(None))
     if file_type:
         base_filters.append(Document.file_type == file_type)
-    if tag:
-        tag_sq = (
-            select(DocumentTag.document_id)
-            .join(Tag, DocumentTag.tag_id == Tag.id)
-            .where(Tag.name == tag)
-            .subquery()
-        )
-        base_filters.append(Document.id.in_(select(tag_sq.c.document_id)))
+    if tags:
+        for tag_name in [t.strip() for t in tags.split(",") if t.strip()]:
+            tag_sq = (
+                select(DocumentTag.document_id)
+                .join(Tag, DocumentTag.tag_id == Tag.id)
+                .where(Tag.name == tag_name)
+                .subquery()
+            )
+            base_filters.append(Document.id.in_(select(tag_sq.c.document_id)))
 
     results: dict[str, list[str]] = {}
     # Track per-document max match_count across all metadata signals
@@ -370,7 +373,7 @@ async def merged_search(
     require_ai_knowledge: bool = False,
     user: User | None = None,
     folder_id: str | None = None, unfiled: bool = False,
-    tag: str | None = None, file_type: str | None = None,
+    tags: str | None = None, file_type: str | None = None,
 ) -> tuple[list[dict], int]:
     """Unified multi-signal search with weighted RRF and freshness decay.
 
@@ -380,7 +383,7 @@ async def merged_search(
     """
     import asyncio
 
-    filter_kwargs = dict(folder_id=folder_id, unfiled=unfiled, tag=tag, file_type=file_type)
+    filter_kwargs = dict(folder_id=folder_id, unfiled=unfiled, tags=tags, file_type=file_type)
     common_kwargs = dict(
         require_searchable=require_searchable,
         require_ai_knowledge=require_ai_knowledge,
@@ -426,14 +429,15 @@ async def merged_search(
                 stmt = stmt.where(Document.folder_id.is_(None))
             if file_type:
                 stmt = stmt.where(Document.file_type == file_type)
-            if tag:
-                tag_sq = (
-                    select(DocumentTag.document_id)
-                    .join(Tag, DocumentTag.tag_id == Tag.id)
-                    .where(Tag.name == tag)
-                    .subquery()
-                )
-                stmt = stmt.where(Document.id.in_(select(tag_sq.c.document_id)))
+            if tags:
+                for tag_name in [t.strip() for t in tags.split(",") if t.strip()]:
+                    tag_sq = (
+                        select(DocumentTag.document_id)
+                        .join(Tag, DocumentTag.tag_id == Tag.id)
+                        .where(Tag.name == tag_name)
+                        .subquery()
+                    )
+                    stmt = stmt.where(Document.id.in_(select(tag_sq.c.document_id)))
             stmt = stmt.order_by(distance).limit(max_candidates)
             rows = (await s.execute(stmt)).all()
             return [

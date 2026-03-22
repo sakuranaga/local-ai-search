@@ -14,7 +14,7 @@ export async function searchDocumentsList(params: {
   per_page?: number;
   folder_id?: string;
   unfiled?: boolean;
-  tag?: string;
+  tags?: string[];
   file_type?: string;
 }): Promise<DocumentSearchResponse> {
   const p = new URLSearchParams();
@@ -23,7 +23,7 @@ export async function searchDocumentsList(params: {
   if (params.per_page) p.set("per_page", String(params.per_page));
   if (params.folder_id) p.set("folder_id", params.folder_id);
   if (params.unfiled) p.set("unfiled", "true");
-  if (params.tag) p.set("tag", params.tag);
+  if (params.tags?.length) p.set("tags", params.tags.join(","));
   if (params.file_type) p.set("file_type", params.file_type);
   return apiFetch(`/search/documents?${p.toString()}`);
 }
