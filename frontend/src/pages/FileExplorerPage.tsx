@@ -409,6 +409,7 @@ export function FileExplorerPage() {
   // Note handlers (must be after `load` definition to avoid TDZ)
   const handleSelectNote = useCallback(async (noteId: string) => {
     if (!confirmDiscardNote()) return;
+    noteDirtyRef.current = false;
     setActiveNote(null);
     setActiveNoteId(noteId);
     setShowTrash(false);
@@ -1382,10 +1383,17 @@ export function FileExplorerPage() {
             <Card className="flex-1 min-h-0 overflow-hidden !py-0 !gap-0">
               {notesReadonly ? (
                 <div className="flex flex-col h-full">
-                  <div className="flex items-center gap-2 px-4 py-2 border-b">
+                  <div className="flex items-center gap-2 px-4 py-2">
                     <h2 className="text-lg font-semibold">{activeNote.title}</h2>
                     <Badge variant="secondary" className="ml-auto text-xs">読み取り専用</Badge>
                   </div>
+                  {activeNote.updated_at && (
+                    <div className="flex items-center gap-3 px-4 py-1 text-xs text-muted-foreground border-b">
+                      <span>更新: {new Date(activeNote.updated_at).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                      {activeNote.updated_by_name && <span>by {activeNote.updated_by_name}</span>}
+                      {activeNote.current_version != null && <span>v{activeNote.current_version}</span>}
+                    </div>
+                  )}
                   <div className="flex-1 overflow-auto">
                     <Suspense fallback={<div className="flex items-center justify-center h-32 text-muted-foreground">読み込み中...</div>}>
                       <NoteReadonlyView initialContent={activeNote.note_content} />
@@ -1400,6 +1408,9 @@ export function FileExplorerPage() {
                     title={activeNote.title}
                     initialContent={activeNote.note_content}
                     userName={meUser?.display_name || meUser?.username || "User"}
+                    updatedAt={activeNote.updated_at}
+                    updatedByName={activeNote.updated_by_name}
+                    currentVersion={activeNote.current_version}
                     onTitleChange={(newTitle) => {
                       setActiveNote((prev) => prev ? { ...prev, title: newTitle } : prev);
                       loadNotes();
