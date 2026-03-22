@@ -2031,7 +2031,7 @@ export function FileExplorerPage() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && renameValue.trim() && renameTarget) {
                 updateDocument(renameTarget.id, { title: renameValue.trim() })
-                  .then(() => { setRenameTarget(null); setItems((prev) => prev.map((i) => i.id === renameTarget!.id ? { ...i, title: renameValue.trim() } : i)); toast.success("名前を変更しました"); })
+                  .then(() => { setRenameTarget(null); setItems((prev) => prev.map((i) => i.id === renameTarget!.id ? { ...i, title: renameValue.trim() } : i)); if (renameTarget!.is_note) loadNotes(); toast.success("名前を変更しました"); })
                   .catch(() => toast.error("名前変更に失敗"));
               }
             }}
@@ -2044,7 +2044,7 @@ export function FileExplorerPage() {
               onClick={() => {
                 if (!renameTarget) return;
                 updateDocument(renameTarget.id, { title: renameValue.trim() })
-                  .then(() => { setRenameTarget(null); setItems((prev) => prev.map((i) => i.id === renameTarget!.id ? { ...i, title: renameValue.trim() } : i)); toast.success("名前を変更しました"); })
+                  .then(() => { setRenameTarget(null); setItems((prev) => prev.map((i) => i.id === renameTarget!.id ? { ...i, title: renameValue.trim() } : i)); if (renameTarget!.is_note) loadNotes(); toast.success("名前を変更しました"); })
                   .catch(() => toast.error("名前変更に失敗"));
               }}
             >
