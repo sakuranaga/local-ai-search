@@ -351,13 +351,6 @@ export function FileExplorerPage() {
           per_page: perPage,
           file_type: filterType || undefined,
         };
-        if (activeTags.length > 0) {
-          searchParams.tags = activeTags;
-        } else if (activeFolderId === "unfiled") {
-          searchParams.unfiled = true;
-        } else if (activeFolderId) {
-          searchParams.folder_id = activeFolderId;
-        }
         const data = await searchDocumentsList(searchParams);
         if (gen !== loadGenRef.current) return; // stale
         setItems((prev) => currentPage === 1 ? data.items : [...prev, ...data.items]);
