@@ -69,7 +69,7 @@ import {
   adminToggleNoteReadonly,
   type AdminNoteItem,
 } from "@/lib/api";
-import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send, Webhook, BookOpenText, Shield, ScrollText, UsersRound, Share2 } from "lucide-react";
+import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send, Webhook, BookOpenText, Shield, ScrollText, UsersRound, Share2, Upload, Bot } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -469,10 +469,6 @@ const SETTING_GROUPS: Record<string, { label: string; keys: string[] }> = {
     label: "取り込み設定",
     keys: ["chunk_size", "chunk_overlap"],
   },
-  security: {
-    label: "セキュリティ（アップロードデフォルト）",
-    keys: ["default_share_prohibited", "default_download_prohibited"],
-  },
 };
 
 function SettingsTab() {
@@ -733,6 +729,142 @@ function ShareTab() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Upload Tab
+// ---------------------------------------------------------------------------
+
+const UPLOAD_KEYS = ["default_share_prohibited", "default_download_prohibited"];
+
+function UploadTab() {
+  const [settings, setSettings] = useState<SystemSetting[]>([]);
+  const [edited, setEdited] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+  const [maxFileSize, setMaxFileSize] = useState("50");
+  const [maxTotalSize, setMaxTotalSize] = useState("500");
+
+  const load = useCallback(() => {
+    getSettings()
+      .then((s) => {
+        setSettings(s.filter((st) => UPLOAD_KEYS.includes(st.key)));
+        setEdited({});
+      })
+      .catch(() => toast.error("設定の取得に失敗"));
+  }, []);
+
+  useEffect(load, [load]);
+
+  function getValue(key: string): string {
+    if (key in edited) return edited[key];
+    const s = settings.find((s) => s.key === key);
+    return s?.value ?? "";
+  }
+
+  function handleChange(key: string, value: string) {
+    setEdited((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSaveAll() {
+    const keys = Object.keys(edited);
+    if (keys.length === 0) return;
+    setSaving("all");
+    try {
+      for (const key of keys) {
+        await updateSetting(key, edited[key]);
+      }
+      toast.success("保存しました");
+      setEdited({});
+      load();
+    } catch {
+      toast.error("保存に失敗しました");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  const hasEdits = Object.keys(edited).length > 0;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Upload className="h-4 w-4" />
+            アップロード制限
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="min-w-[200px]">
+              <label className="text-sm font-medium">最大ファイルサイズ</label>
+              <p className="text-xs text-muted-foreground">1ファイルあたりの上限</p>
+            </div>
+            <Input
+              type="number"
+              value={maxFileSize}
+              onChange={(e) => setMaxFileSize(e.target.value)}
+              className="w-32"
+              disabled
+            />
+            <span className="text-sm text-muted-foreground">MB</span>
+            <Badge variant="outline" className="ml-2 text-xs">未実装</Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="min-w-[200px]">
+              <label className="text-sm font-medium">最大アップロードサイズ</label>
+              <p className="text-xs text-muted-foreground">1回のアップロード合計上限</p>
+            </div>
+            <Input
+              type="number"
+              value={maxTotalSize}
+              onChange={(e) => setMaxTotalSize(e.target.value)}
+              className="w-32"
+              disabled
+            />
+            <span className="text-sm text-muted-foreground">MB</span>
+            <Badge variant="outline" className="ml-2 text-xs">未実装</Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            アップロードデフォルト
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {UPLOAD_KEYS.map((key) => {
+            const setting = settings.find((s) => s.key === key);
+            return (
+              <div key={key} className="flex items-center gap-2">
+                <div className="min-w-[200px]">
+                  <label className="text-sm font-medium">{key}</label>
+                  {setting?.description && (
+                    <p className="text-xs text-muted-foreground">{setting.description}</p>
+                  )}
+                </div>
+                <Input
+                  placeholder={setting?.placeholder ?? ""}
+                  value={getValue(key)}
+                  onChange={(e) => handleChange(key, e.target.value)}
+                  className={`flex-1 ${key in edited ? "border-orange-400" : ""}`}
+                />
+              </div>
+            );
+          })}
+          <div className="flex justify-end pt-2 border-t">
+            <Button onClick={handleSaveAll} disabled={!hasEdits || saving === "all"}>
+              <Save className="h-4 w-4 mr-2" />
+              保存
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -1926,10 +2058,11 @@ function NotesTab() {
 // ---------------------------------------------------------------------------
 
 const ADMIN_SECTIONS = [
-  { key: "settings", label: "設定", icon: Settings },
+  { key: "settings", label: "LLM設定", icon: Bot },
   { key: "users", label: "ユーザー", icon: Users },
   { key: "groups", label: "グループ", icon: UsersRound },
   { key: "roles", label: "ロール", icon: Shield },
+  { key: "upload", label: "アップロード", icon: Upload },
   { key: "share", label: "共有リンク", icon: Share2 },
   { key: "apikeys", label: "APIキー", icon: Key },
   { key: "audit", label: "監査ログ", icon: ScrollText },
@@ -1945,6 +2078,7 @@ const SECTION_COMPONENTS: Record<SectionKey, React.FC> = {
   users: UsersTab,
   groups: GroupsTab,
   roles: RolesTab,
+  upload: UploadTab,
   share: ShareTab,
   apikeys: ApiKeysTab,
   audit: AuditLogsTab,
