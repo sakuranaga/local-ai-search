@@ -1380,7 +1380,16 @@ export function FileExplorerPage() {
         <TrashDropTarget
           isActive={showTrash}
           count={trashItems.length}
-          onClick={() => { setShowTrash(true); loadTrash(); setSidebarOpen(false); }}
+          onClick={() => {
+            if (!confirmDiscardNote()) return;
+            noteDirtyRef.current = false;
+            setShowTrash(true);
+            setActiveTags([]);
+            setActiveNoteId(null);
+            setActiveNote(null);
+            loadTrash();
+            setSidebarOpen(false);
+          }}
           onDrop={handleDropOnTrash}
         />
         </div>
