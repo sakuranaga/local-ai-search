@@ -65,8 +65,12 @@ import {
   deleteWebhook,
   sendTestWebhook,
   type WebhookEndpoint,
+  adminListNotes,
+  adminBulkDeleteNotes,
+  adminToggleNoteReadonly,
+  type AdminNoteItem,
 } from "@/lib/api";
-import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send, Webhook } from "lucide-react";
+import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send, Webhook, BookOpenText } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -1719,6 +1723,125 @@ function AuditLogsTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Notes Management Tab
+// ---------------------------------------------------------------------------
+
+function NotesTab() {
+  const [notes, setNotes] = useState<AdminNoteItem[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setNotes(await adminListNotes());
+    } catch {
+      toast.error("ノート一覧の取得に失敗しました");
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selected.size === notes.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(notes.map((n) => n.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selected.size === 0) return;
+    if (!window.confirm(`${selected.size}件のノートをゴミ箱に移動しますか？`)) return;
+    setDeleting(true);
+    try {
+      const result = await adminBulkDeleteNotes(Array.from(selected));
+      toast.success(`${result.deleted}件のノートを削除しました`);
+      setSelected(new Set());
+      await load();
+    } catch {
+      toast.error("削除に失敗しました");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const fmt = (iso: string) => {
+    if (!iso) return "-";
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="flex items-center gap-2">
+          <BookOpenText className="h-5 w-5" />ノート管理
+        </CardTitle>
+        {selected.size > 0 && (
+          <Button variant="destructive" size="sm" onClick={handleBulkDelete} disabled={deleting}>
+            <Trash2 className="h-4 w-4 mr-1" />{selected.size}件削除
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent>
+        {notes.length === 0 ? (
+          <p className="text-sm text-muted-foreground">ノートはありません</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-8">
+                  <input type="checkbox" checked={selected.size === notes.length && notes.length > 0} onChange={toggleAll} />
+                </TableHead>
+                <TableHead>タイトル</TableHead>
+                <TableHead>種別</TableHead>
+                <TableHead>読み取り専用</TableHead>
+                <TableHead>作成日時</TableHead>
+                <TableHead>更新日時</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {notes.map((note) => (
+                <TableRow key={note.id}>
+                  <TableCell>
+                    <input type="checkbox" checked={selected.has(note.id)} onChange={() => toggleSelect(note.id)} />
+                  </TableCell>
+                  <TableCell className="font-medium">{note.title}</TableCell>
+                  <TableCell><Badge variant="secondary">{note.file_type}</Badge></TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={note.note_readonly}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          await adminToggleNoteReadonly(note.id, checked);
+                          setNotes((prev) => prev.map((n) => n.id === note.id ? { ...n, note_readonly: checked } : n));
+                        } catch {
+                          toast.error("読み取り専用の切り替えに失敗しました");
+                        }
+                      }}
+                    />
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-xs">{fmt(note.created_at)}</TableCell>
+                  <TableCell className="text-muted-foreground text-xs">{fmt(note.updated_at)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Admin Page
 // ---------------------------------------------------------------------------
 
@@ -1735,6 +1858,7 @@ export function AdminPage() {
           <TabsTrigger value="apikeys">APIキー</TabsTrigger>
           <TabsTrigger value="audit">監査ログ</TabsTrigger>
           <TabsTrigger value="mail">メール通知</TabsTrigger>
+          <TabsTrigger value="notes">ノート</TabsTrigger>
           <TabsTrigger value="webhooks">Webhook</TabsTrigger>
         </TabsList>
         <TabsContent value="settings" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
@@ -1757,6 +1881,9 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="mail" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <MailTab />
+        </TabsContent>
+        <TabsContent value="notes" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
+          <NotesTab />
         </TabsContent>
         <TabsContent value="webhooks" className="mt-4 flex-1 min-h-0 overflow-y-auto p-px">
           <WebhooksTab />

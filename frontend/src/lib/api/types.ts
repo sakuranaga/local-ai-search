@@ -128,6 +128,7 @@ export interface NoteTreeItem {
   parent_note_id: string | null;
   note_order: number;
   file_type: string;
+  note_readonly: boolean;
   updated_at: string;
   children: NoteTreeItem[];
 }
@@ -141,6 +142,7 @@ export interface NoteDetail {
   note_order: number;
   file_type: string;
   is_note: boolean;
+  note_readonly: boolean;
   created_at: string;
   updated_at: string;
 }

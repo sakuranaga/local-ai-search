@@ -36,7 +36,7 @@ interface NoteTreeItemProps {
   activeNoteId: string | null;
   depth?: number;
   onSelect: (noteId: string) => void;
-  onContextMenu: (state: NoteContextMenuState) => void;
+  onContextMenu?: (state: NoteContextMenuState) => void;
   draggedId: string | null;
   dropIndicator: DropIndicator | null;
   onDragStart: (noteId: string) => void;
@@ -108,11 +108,11 @@ function NoteTreeNode({
           onDragOver={handleDragOver}
           onDrop={handleDrop}
           onClick={() => onSelect(node.id)}
-          onContextMenu={(e) => {
+          onContextMenu={onContextMenu ? (e) => {
             e.preventDefault();
             e.stopPropagation();
             onContextMenu({ x: e.clientX, y: e.clientY, noteId: node.id, title: node.title });
-          }}
+          } : undefined}
           className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 transition-colors ${
             isDragged
               ? "opacity-40"
@@ -172,8 +172,8 @@ interface NoteSidebarProps {
   notes: NoteTreeItem[];
   activeNoteId: string | null;
   onSelect: (noteId: string) => void;
-  onCreateNote: (parentId?: string | null) => void;
-  onContextMenu: (state: NoteContextMenuState) => void;
+  onCreateNote?: (parentId?: string | null) => void;
+  onContextMenu?: (state: NoteContextMenuState) => void;
   onMoveNote?: (noteId: string, parentNoteId: string | null, position: number) => void;
 }
 
@@ -260,13 +260,15 @@ export default function NoteSidebarItems({
     <div>
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-semibold text-muted-foreground">ノート</h3>
-        <button
-          onClick={() => onCreateNote(null)}
-          className="p-0.5 hover:bg-muted rounded"
-          title="新規ノート"
-        >
-          <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-        </button>
+        {onCreateNote && (
+          <button
+            onClick={() => onCreateNote(null)}
+            className="p-0.5 hover:bg-muted rounded"
+            title="新規ノート"
+          >
+            <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+        )}
       </div>
       <div className="space-y-0.5">
         {notes.map((node) => (
