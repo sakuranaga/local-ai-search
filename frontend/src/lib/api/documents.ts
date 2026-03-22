@@ -50,6 +50,13 @@ export async function getDocument(id: string): Promise<Document> {
   return apiFetch(`/documents/${id}`);
 }
 
+export async function resolveTitles(ids: string[]): Promise<Record<string, { title: string; is_note: boolean; file_type: string; deleted: boolean }>> {
+  return apiFetch("/documents/resolve-titles", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
 export async function checkDuplicates(titles: string[]): Promise<string[]> {
   const data = await apiFetch<{ duplicates: string[] }>("/documents/check-duplicates", {
     method: "POST",

@@ -408,6 +408,43 @@ async def create_text_document(
 
 
 # ---------------------------------------------------------------------------
+# Resolve document titles by IDs (for @mention display)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/resolve-titles")
+async def resolve_titles(
+    ids: list[str] = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Resolve document UUIDs to titles. Returns {id: {title, is_note, file_type}} map."""
+    if not ids or len(ids) > 100:
+        return {}
+    uuids = []
+    for raw in ids:
+        try:
+            uuids.append(uuid.UUID(raw))
+        except ValueError:
+            continue
+    if not uuids:
+        return {}
+    result = await db.execute(
+        select(Document.id, Document.title, Document.is_note, Document.file_type, Document.deleted_at)
+        .where(Document.id.in_(uuids))
+    )
+    return {
+        str(r.id): {
+            "title": r.title,
+            "is_note": r.is_note,
+            "file_type": r.file_type,
+            "deleted": r.deleted_at is not None,
+        }
+        for r in result.all()
+    }
+
+
+# ---------------------------------------------------------------------------
 # Filter options (for frontend dropdowns)
 # ---------------------------------------------------------------------------
 

@@ -1,6 +1,7 @@
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import { useTheme } from "next-themes";
+import { docMentionSchema } from "@/components/DocMention";
 import "@blocknote/shadcn/style.css";
 
 interface NoteReadonlyViewProps {
@@ -16,6 +17,7 @@ export default function NoteReadonlyView({ initialContent }: NoteReadonlyViewPro
       : undefined;
 
   const editor = useCreateBlockNote({
+    schema: docMentionSchema,
     initialContent: parsedInitial,
   });
 
