@@ -381,6 +381,13 @@ async def get_note(
     if not doc or not doc.is_note or doc.deleted_at:
         raise HTTPException(404, "ノートが見つかりません")
 
+    # Resolve updated_by name
+    updated_by_name = None
+    if doc.updated_by_id:
+        ub = await db.get(User, doc.updated_by_id)
+        if ub:
+            updated_by_name = ub.display_name or ub.username
+
     return {
         "id": str(doc.id),
         "title": doc.title,
@@ -391,6 +398,8 @@ async def get_note(
         "file_type": doc.file_type,
         "is_note": doc.is_note,
         "note_readonly": doc.note_readonly or False,
+        "current_version": doc.current_version,
+        "updated_by_name": updated_by_name,
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
         "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
     }

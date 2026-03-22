@@ -16,6 +16,9 @@ interface NoteEditorProps {
   initialContent: unknown;
   userName?: string;
   userColor?: string;
+  updatedAt?: string;
+  updatedByName?: string | null;
+  currentVersion?: number;
   onTitleChange?: (title: string) => void;
   onSaved?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -209,6 +212,9 @@ function NoteEditorInner({
   initialContent,
   userName = "User",
   userColor = "#3b82f6",
+  updatedAt,
+  updatedByName,
+  currentVersion,
   onTitleChange,
   onSaved,
   onDirtyChange,
@@ -250,8 +256,6 @@ function NoteEditorInner({
 
   // Suppress onChange during initialization (Yjs sync + replaceBlocks)
   const initializingRef = useRef(true);
-  // Snapshot of DB content for dirty comparison
-  const savedContentRef = useRef<string>(JSON.stringify(initialContent ?? []));
 
   // Populate empty Yjs doc from DB content
   useEffect(() => {
@@ -265,16 +269,8 @@ function NoteEditorInner({
         setTimeout(() => { initializingRef.current = false; }, 100);
       });
     } else {
-      // Yjs has existing content — check if it differs from DB
-      setTimeout(() => {
-        initializingRef.current = false;
-        if (collaborative) {
-          const yjsContent = JSON.stringify(editor.document);
-          if (yjsContent !== savedContentRef.current) {
-            setDirty(true);
-          }
-        }
-      }, 500);
+      // No populate needed — still wait for initial Yjs sync onChange
+      setTimeout(() => { initializingRef.current = false; }, 500);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsPopulate]);
@@ -296,7 +292,6 @@ function NoteEditorInner({
         title: titleRef.current,
         note_content: blocks,
       });
-      savedContentRef.current = JSON.stringify(blocks);
       setDirty(false);
       onTitleChange?.(titleRef.current);
       onSaved?.();
@@ -348,7 +343,7 @@ function NoteEditorInner({
   return (
     <div className="flex flex-col h-full">
       {/* Title bar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b">
+      <div className="flex items-center gap-2 px-4 py-2">
         <TitleInput
           defaultValue={title}
           onBlurRef={titleBlurRef}
@@ -366,6 +361,15 @@ function NoteEditorInner({
           {dirty ? "保存" : "保存済み"}
         </button>
       </div>
+
+      {/* Metadata */}
+      {updatedAt && (
+        <div className="flex items-center gap-3 px-4 py-1 text-xs text-muted-foreground border-b">
+          <span>更新: {new Date(updatedAt).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+          {updatedByName && <span>by {updatedByName}</span>}
+          {currentVersion != null && <span>v{currentVersion}</span>}
+        </div>
+      )}
 
       {/* Editor — isolate composition events to prevent ProseMirror from interfering with title input IME */}
       <div

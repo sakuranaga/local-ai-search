@@ -143,6 +143,8 @@ export interface NoteDetail {
   file_type: string;
   is_note: boolean;
   note_readonly: boolean;
+  current_version: number;
+  updated_by_name: string | null;
   created_at: string;
   updated_at: string;
 }
