@@ -592,6 +592,16 @@ async def tus_hook(
             tus_new_ver = None
 
             if existing_doc:
+                # API key overwrite permission check
+                if api_key and not api_key.allow_overwrite:
+                    # Clean up uploaded file
+                    try:
+                        Path(file_path).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    logger.warning("tus overwrite denied for API key %s: %s", api_key.name, filename)
+                    return JSONResponse(content={"ok": False, "detail": "Overwrite not allowed"})
+
                 doc = existing_doc
                 # Version management: save old state before overwriting
                 from app.services.versioning import create_versions_on_edit, save_new_version
@@ -652,7 +662,8 @@ async def tus_hook(
                 from app.services.versioning import create_initial_version
                 await create_initial_version(db, doc, user.id)
 
-            await audit_log(db, user=user, action="document.upload",
+            audit_action = "document.overwrite" if tus_new_ver is not None else "document.upload"
+            await audit_log(db, user=user, action=audit_action,
                             target_type="document", target_id=str(doc.id), target_name=filename,
                             detail={"via": "tus"}, ip_address=client_ip)
 
