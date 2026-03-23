@@ -58,7 +58,6 @@ import {
   X,
   Undo2,
   Sparkles,
-  History,
   Pin,
   PinOff,
   RefreshCw,
@@ -368,7 +367,8 @@ export function FileExplorerPage() {
       pageRef.current = 1;
       loadGenRef.current += 1;
       setHasMore(true);
-      setItems([]);
+      setLoading(true);
+      loadingRef.current = true;
       setSelected(new Set());
     } else if (loadingRef.current) {
       return;
@@ -1854,7 +1854,7 @@ export function FileExplorerPage() {
                     <TableCell className="pl-4 overflow-hidden max-w-0">
                       <div className="font-medium text-sm truncate flex items-center gap-1">
                         <Tooltip content={item.title}><span className="truncate">{item.title}</span></Tooltip>
-                        {item.is_note && <BookOpenText className="h-3 w-3 text-primary flex-shrink-0" title="ノート" />}
+                        {item.is_note && <Tooltip content="ノート"><BookOpenText className="h-3 w-3 text-primary flex-shrink-0" /></Tooltip>}
                         {favoriteIds.has(item.id) && <Star className="h-3 w-3 fill-muted-foreground text-muted-foreground flex-shrink-0" />}
                         {isSearching && (item as any).rrf_score != null && (
                           <span className={`ml-2 text-xs font-normal ${(item as any).rrf_score >= 0.5 ? "text-green-600" : "text-orange-500"}`}>{((item as any).rrf_score as number).toFixed(4)}</span>
