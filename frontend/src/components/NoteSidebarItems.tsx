@@ -175,6 +175,8 @@ interface NoteSidebarProps {
   onCreateNote?: (parentId?: string | null) => void;
   onContextMenu?: (state: NoteContextMenuState) => void;
   onMoveNote?: (noteId: string, parentNoteId: string | null, position: number) => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export default function NoteSidebarItems({
@@ -184,6 +186,8 @@ export default function NoteSidebarItems({
   onCreateNote,
   onContextMenu,
   onMoveNote,
+  collapsed,
+  onToggleCollapse,
 }: NoteSidebarProps) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
@@ -259,8 +263,12 @@ export default function NoteSidebarItems({
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <h3 className="text-sm font-semibold text-muted-foreground">ノート</h3>
-        {onCreateNote && (
+        <button onClick={onToggleCollapse} className="text-sm font-semibold text-muted-foreground hover:text-foreground">
+          ノート
+        </button>
+        {collapsed ? (
+          <button onClick={onToggleCollapse} className="text-xs text-muted-foreground hover:text-foreground">展開</button>
+        ) : onCreateNote && (
           <button
             onClick={() => onCreateNote(null)}
             className="p-0.5 hover:bg-muted rounded"
@@ -270,7 +278,7 @@ export default function NoteSidebarItems({
           </button>
         )}
       </div>
-      <div className="space-y-0.5">
+      {!collapsed && <div className="space-y-0.5">
         {notes.map((node) => (
           <NoteTreeNode
             key={node.id}
@@ -291,7 +299,7 @@ export default function NoteSidebarItems({
             ノートはありません
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

@@ -163,6 +163,18 @@ export function FileExplorerPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [aiStreaming, setAiStreaming] = useState(false);
 
+  // Sidebar section collapse state (persisted in localStorage)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem("las_sidebar_collapsed") || "{}"); } catch { return {}; }
+  });
+  const toggleSection = useCallback((key: string) => {
+    setSidebarCollapsed((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      localStorage.setItem("las_sidebar_collapsed", JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   // Search history
   const navigate = useNavigate();
   const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>(loadSearchHistory);
@@ -1257,12 +1269,18 @@ export function FileExplorerPage() {
         {/* Folder tree */}
         <div>
           <div className="flex items-center justify-between mb-1">
-            <h3 className="text-sm font-semibold text-muted-foreground">フォルダ</h3>
-            <button onClick={() => setNewFolderOpen(true)} className="p-0.5 hover:bg-muted rounded" title="新しいフォルダ">
-              <FolderPlus className="h-3.5 w-3.5 text-muted-foreground" />
+            <button onClick={() => toggleSection("folders")} className="text-sm font-semibold text-muted-foreground hover:text-foreground">
+              フォルダ
             </button>
+            {sidebarCollapsed.folders ? (
+              <button onClick={() => toggleSection("folders")} className="text-xs text-muted-foreground hover:text-foreground">展開</button>
+            ) : (
+              <button onClick={() => setNewFolderOpen(true)} className="p-0.5 hover:bg-muted rounded" title="新しいフォルダ">
+                <FolderPlus className="h-3.5 w-3.5 text-muted-foreground" />
+              </button>
+            )}
           </div>
-          <div className="space-y-0.5">
+          {!sidebarCollapsed.folders && <div className="space-y-0.5">
             <button
               onClick={() => { setShowFavorites(true); setShowTrash(false); setActiveFolderId(null); setSidebarOpen(false); if (isSearching) navigate("/", { replace: true }); }}
               className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${showFavorites ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
@@ -1284,7 +1302,7 @@ export function FileExplorerPage() {
                 onContextMenu={handleFolderContextMenu}
               />
             ))}
-          </div>
+          </div>}
         </div>
 
         <Separator />
@@ -1292,12 +1310,18 @@ export function FileExplorerPage() {
         {/* Tags */}
         <div>
           <div className="flex items-center justify-between mb-1">
-            <h3 className="text-sm font-semibold text-muted-foreground">タグ</h3>
-            <button onClick={() => setNewTagOpen(true)} className="p-0.5 hover:bg-muted rounded" title="新しいタグ">
-              <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+            <button onClick={() => toggleSection("tags")} className="text-sm font-semibold text-muted-foreground hover:text-foreground">
+              タグ
             </button>
+            {sidebarCollapsed.tags ? (
+              <button onClick={() => toggleSection("tags")} className="text-xs text-muted-foreground hover:text-foreground">展開</button>
+            ) : (
+              <button onClick={() => setNewTagOpen(true)} className="p-0.5 hover:bg-muted rounded" title="新しいタグ">
+                <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+              </button>
+            )}
           </div>
-          <div className="space-y-0.5">
+          {!sidebarCollapsed.tags && <div className="space-y-0.5">
             {allTags.map((tag) => (
               <SidebarTagItem
                 key={tag.id}
@@ -1322,7 +1346,7 @@ export function FileExplorerPage() {
                 onEdit={(t) => { setEditingTag(t); setEditTagName(t.name); setEditTagColor(t.color || "#6b7280"); }}
               />
             ))}
-          </div>
+          </div>}
         </div>
 
         <Separator />
@@ -1335,6 +1359,8 @@ export function FileExplorerPage() {
           onCreateNote={handleCreateNote}
           onContextMenu={setNoteCtxMenu}
           onMoveNote={handleMoveNote}
+          collapsed={!!sidebarCollapsed.notes}
+          onToggleCollapse={() => toggleSection("notes")}
         />
 
         {/* Search History */}
@@ -1342,17 +1368,23 @@ export function FileExplorerPage() {
           <>
             <Separator />
             <div>
-              <h3 className="text-sm font-semibold text-muted-foreground mb-1 flex items-center gap-1">
-                <History className="h-3.5 w-3.5" />検索履歴
-                <button
-                  onClick={() => { if (confirm("検索履歴を削除しますか？（ピン留めは残ります）")) setSearchHistory(clearUnpinnedSearchHistory()); }}
-                  className="ml-auto p-0.5 hover:bg-muted rounded text-muted-foreground"
-                  title="ピン留め以外を一括削除"
-                >
-                  <X className="h-3.5 w-3.5" />
+              <div className="flex items-center justify-between mb-1">
+                <button onClick={() => toggleSection("history")} className="text-sm font-semibold text-muted-foreground hover:text-foreground">
+                  検索履歴
                 </button>
-              </h3>
-              <div className="space-y-0.5">
+                {sidebarCollapsed.history ? (
+                  <button onClick={() => toggleSection("history")} className="text-xs text-muted-foreground hover:text-foreground">展開</button>
+                ) : (
+                  <button
+                    onClick={() => { if (confirm("検索履歴を削除しますか？（ピン留めは残ります）")) setSearchHistory(clearUnpinnedSearchHistory()); }}
+                    className="p-0.5 hover:bg-muted rounded text-muted-foreground"
+                    title="ピン留め以外を一括削除"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              {!sidebarCollapsed.history && <div className="space-y-0.5">
                 {/* Pinned first, then unpinned (each group by recency) */}
                 {[...searchHistory.filter((e) => e.pinned), ...searchHistory.filter((e) => !e.pinned)].map((entry) => (
                   <div
@@ -1388,7 +1420,7 @@ export function FileExplorerPage() {
                     </div>
                   </div>
                 ))}
-              </div>
+              </div>}
             </div>
           </>
         )}
