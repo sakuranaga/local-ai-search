@@ -47,6 +47,7 @@ export const TAG_COLORS = [
 
 export const STATUS_LABELS: Record<string, string> = {
   pending: "待機中...",
+  queued: "順番待ち...",
   scanning: "ウイルススキャン中...",
   parsing: "テキスト抽出中...",
   chunking: "チャンク分割中...",
