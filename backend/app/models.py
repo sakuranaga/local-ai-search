@@ -193,6 +193,7 @@ class DocumentTag(Base):
     __table_args__ = (
         UniqueConstraint("document_id", "tag_id", name="uq_doc_tag"),
         Index("ix_document_tags_tag_id", "tag_id"),
+        Index("ix_document_tags_document_id", "document_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -368,6 +369,9 @@ class ApiKey(Base):
 
 class File(Base):
     __tablename__ = "files"
+    __table_args__ = (
+        Index("ix_files_document_id", "document_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -391,6 +395,9 @@ class File(Base):
 
 class ShareLink(Base):
     __tablename__ = "share_links"
+    __table_args__ = (
+        Index("ix_share_links_document_id", "document_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

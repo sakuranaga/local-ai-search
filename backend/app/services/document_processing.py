@@ -74,7 +74,8 @@ def make_doc_list_item(
     g_write = getattr(row, "group_write", False) or False
     o_read = getattr(row, "others_read", True)
     o_write = getattr(row, "others_write", False) or False
-    return DocumentListItem(
+    o_read_val = o_read if o_read is not None else True
+    return DocumentListItem.model_construct(
         id=str(row.id),
         title=row.title,
         summary=getattr(row, "summary", None),
@@ -86,9 +87,9 @@ def make_doc_list_item(
         group_name=group_name or getattr(row, "group_name", None),
         group_read=g_read,
         group_write=g_write,
-        others_read=o_read if o_read is not None else True,
+        others_read=o_read_val,
         others_write=o_write,
-        permissions=format_permission_string(g_read, g_write, o_read if o_read is not None else True, o_write),
+        permissions=format_permission_string(g_read, g_write, o_read_val, o_write),
         searchable=getattr(row, "searchable", True),
         ai_knowledge=getattr(row, "ai_knowledge", True),
         file_size=getattr(row, "file_size", None),

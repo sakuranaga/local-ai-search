@@ -78,36 +78,29 @@ async def list_documents(
     UpdatedByUser = aliased(User)
     OwnerUser = aliased(User)
 
-    # Subquery for chunk count
-    chunk_count_sq = (
-        select(
-            Chunk.document_id,
-            func.count(Chunk.id).label("chunk_count"),
-        )
-        .group_by(Chunk.document_id)
-        .subquery()
+    # Correlated subqueries (computed per-row, leveraging indexes)
+    chunk_count_subq = (
+        select(func.count(Chunk.id))
+        .where(Chunk.document_id == Document.id)
+        .correlate(Document)
+        .scalar_subquery()
+        .label("chunk_count")
     )
-
-    # Subquery for file size (sum of all files per document)
-    file_size_sq = (
-        select(
-            File.document_id,
-            func.sum(File.file_size).label("file_size"),
-        )
-        .group_by(File.document_id)
-        .subquery()
+    file_size_subq = (
+        select(func.coalesce(func.sum(File.file_size), 0))
+        .where(File.document_id == Document.id)
+        .correlate(Document)
+        .scalar_subquery()
+        .label("file_size")
     )
-
-    # Subquery for active share link count
     from app.models import ShareLink
-    share_count_sq = (
-        select(
-            ShareLink.document_id,
-            func.count(ShareLink.id).label("share_count"),
-        )
+    share_count_subq = (
+        select(func.count(ShareLink.id))
+        .where(ShareLink.document_id == Document.id)
         .where(ShareLink.is_active.is_(True))
-        .group_by(ShareLink.document_id)
-        .subquery()
+        .correlate(Document)
+        .scalar_subquery()
+        .label("share_count")
     )
 
     # Unix visibility filter
@@ -141,15 +134,12 @@ async def list_documents(
             Group.name.label("group_name"),
             Document.created_at,
             Document.updated_at,
-            file_size_sq.c.file_size.label("file_size"),
-            func.coalesce(chunk_count_sq.c.chunk_count, 0).label("chunk_count"),
-            func.coalesce(share_count_sq.c.share_count, 0).label("share_count"),
+            file_size_subq,
+            chunk_count_subq,
+            share_count_subq,
             func.coalesce(func.nullif(CreatedByUser.display_name, ""), CreatedByUser.username).label("created_by_name"),
             func.coalesce(func.nullif(UpdatedByUser.display_name, ""), UpdatedByUser.username).label("updated_by_name"),
         )
-        .outerjoin(file_size_sq, Document.id == file_size_sq.c.document_id)
-        .outerjoin(chunk_count_sq, Document.id == chunk_count_sq.c.document_id)
-        .outerjoin(share_count_sq, Document.id == share_count_sq.c.document_id)
         .outerjoin(CreatedByUser, Document.created_by_id == CreatedByUser.id)
         .outerjoin(UpdatedByUser, Document.updated_by_id == UpdatedByUser.id)
         .outerjoin(OwnerUser, Document.owner_id == OwnerUser.id)
