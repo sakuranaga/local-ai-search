@@ -89,6 +89,7 @@ export function DocumentDetailModal({
   const [loading, setLoading] = useState(false);
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [savingContent, setSavingContent] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
   const contentDirty = editedContent !== null && editedContent !== doc?.content;
 
   const showViewTab = item ? (isPreviewable(item.file_type) || hasExtractedContent(item.file_type)) : true;
@@ -165,7 +166,7 @@ export function DocumentDetailModal({
           <DialogDescription className="flex items-center gap-3 text-xs">
             <Badge variant="outline">{item.file_type}</Badge>
             {item.file_size != null && <span>サイズ: {formatBytes(item.file_size)}</span>}
-            <span>チャンク: {item.chunk_count}</span>
+            <span>テキスト: {item.chunk_count}</span>
             {item.folder_name && (
               <span className="flex items-center gap-0.5"><FolderIcon className="h-3 w-3" />{item.folder_name}</span>
             )}
@@ -210,15 +211,18 @@ export function DocumentDetailModal({
             )}
             <Button
               variant="outline" size="sm"
+              disabled={reindexing}
               onClick={async () => {
+                setReindexing(true);
                 try {
                   const res = await reindexDocument(item.id);
-                  toast.success(`再構築完了: ${res.chunk_count}チャンク`);
+                  toast.success(`再構築完了: ${res.chunk_count}テキスト`);
                   onUpdated();
-                } catch { toast.error("再構築失敗"); }
+                } catch { toast.error("再構築失敗"); } finally { setReindexing(false); }
               }}
             >
-              <RefreshCw className="h-3.5 w-3.5 mr-1" />再構築
+              <RefreshCw className={`h-3.5 w-3.5 mr-1${reindexing ? " animate-spin" : ""}`} />
+              {reindexing ? "再構築中..." : "再構築"}
             </Button>
             <Button
               variant="destructive" size="sm"

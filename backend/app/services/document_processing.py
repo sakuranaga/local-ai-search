@@ -133,6 +133,77 @@ async def load_tags_for_docs(db: AsyncSession, doc_ids: list[uuid.UUID]) -> dict
 
 
 # ---------------------------------------------------------------------------
+# Text sanitization
+# ---------------------------------------------------------------------------
+
+def _sanitize_text(text: str | None) -> str:
+    """Remove NULL bytes and non-printable control chars (keep newline/tab)."""
+    if not text:
+        return text or ""
+    text = text.replace("\x00", "")
+    return "".join(
+        ch for ch in text
+        if ch in ("\n", "\r", "\t") or (ord(ch) >= 32)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Reindex: parse → chunk → embed → save (single document)
+# ---------------------------------------------------------------------------
+
+async def reindex_document_content(
+    db: AsyncSession,
+    doc: "Document",
+    *,
+    updated_by_id: uuid.UUID | None = None,
+) -> tuple[str, list[str]]:
+    """Re-parse, re-chunk, and re-embed a single document.
+
+    Returns (text_content, chunks_text) for callers that need them.
+    Caller is responsible for commit/flush.
+    """
+    from app.services.embedding import get_embeddings
+
+    # Parse
+    text_content = doc.content or ""
+    if doc.source_path and Path(doc.source_path).exists():
+        try:
+            text_content = await parse_file(doc.source_path, doc.file_type)
+            text_content = _sanitize_text(text_content)
+        except Exception:
+            pass  # fall back to stored content
+
+    doc.content = text_content
+
+    # Delete old chunks
+    await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
+
+    # Chunk
+    chunks_text = chunk_text(text_content)
+
+    # Embed
+    try:
+        embeddings = await get_embeddings(chunks_text)
+    except Exception:
+        embeddings = [None] * len(chunks_text)
+
+    # Save new chunks
+    for i, (chunk_content, embedding) in enumerate(zip(chunks_text, embeddings)):
+        db.add(Chunk(
+            document_id=doc.id,
+            chunk_index=i,
+            content=_sanitize_text(chunk_content),
+            embedding=embedding,
+        ))
+
+    if updated_by_id is not None:
+        doc.updated_by_id = updated_by_id
+        doc.updated_at = func.now()
+
+    return text_content, chunks_text
+
+
+# ---------------------------------------------------------------------------
 # Background processing pipeline
 # ---------------------------------------------------------------------------
 
@@ -168,6 +239,7 @@ async def process_document_background(doc_id: uuid.UUID, storage_path: str, file
         await _set_status(doc_id, "parsing")
         try:
             text_content = await parse_file(storage_path, file_type)
+            text_content = _sanitize_text(text_content)
         except Exception as e:
             logger.error(f"Parse failed for {filename}: {e}")
             await _set_status(doc_id, "error")
