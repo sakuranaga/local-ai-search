@@ -1650,7 +1650,7 @@ function WebhooksTab() {
           <div className="flex gap-2 items-end flex-wrap">
             <div className="flex-1 min-w-[200px] grid gap-1.5">
               <Label>URL</Label>
-              <Input value={testUrl} onChange={(e) => setTestUrl(e.target.value)} placeholder="https://discord.com/api/webhooks/..." className="max-w-md" />
+              <Input value={testUrl} onChange={(e) => setTestUrl(e.target.value)} placeholder="https://discord.com/api/webhooks/..." className="max-w-md" autoComplete="one-time-code" />
             </div>
             <div className="grid gap-1.5">
               <Label>形式</Label>
@@ -1741,11 +1741,11 @@ function WebhooksTab() {
           <div className="space-y-4 py-4">
             <div className="grid gap-1.5">
               <Label>名前</Label>
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Slack通知" />
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Slack通知" autoComplete="one-time-code" />
             </div>
             <div className="grid gap-1.5">
               <Label>URL</Label>
-              <Input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://discord.com/api/webhooks/..." />
+              <Input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://discord.com/api/webhooks/..." autoComplete="one-time-code" />
             </div>
             <div className="grid gap-1.5">
               <Label>形式</Label>
