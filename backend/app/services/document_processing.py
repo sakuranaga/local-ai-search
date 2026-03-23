@@ -207,8 +207,9 @@ async def reindex_document_content(
 # Background processing pipeline
 # ---------------------------------------------------------------------------
 
-# Limit concurrent GPU-heavy tasks (embedding + summarization)
-_gpu_semaphore = asyncio.Semaphore(2)
+# Limit concurrent tasks to prevent resource exhaustion
+_parse_semaphore = asyncio.Semaphore(4)   # CPU/OCR-bound parsing
+_gpu_semaphore = asyncio.Semaphore(2)     # GPU-heavy embedding + summarization
 
 
 async def _set_status(doc_id: uuid.UUID, status: str):
@@ -235,21 +236,23 @@ async def process_document_background(doc_id: uuid.UUID, storage_path: str, file
             logger.info(f"Non-extractable file, skipped processing: {filename} ({file_type})")
             return
 
-        # Phase 1: Parse / OCR (no DB session held during I/O)
-        await _set_status(doc_id, "parsing")
-        try:
-            text_content = await parse_file(storage_path, file_type)
-            text_content = _sanitize_text(text_content)
-        except Exception as e:
-            logger.error(f"Parse failed for {filename}: {e}")
-            await _set_status(doc_id, "error")
-            return
+        # Phase 1: Parse / OCR (semaphore limits concurrent parsing)
+        await _set_status(doc_id, "queued")
+        async with _parse_semaphore:
+            await _set_status(doc_id, "parsing")
+            try:
+                text_content = await parse_file(storage_path, file_type)
+                text_content = _sanitize_text(text_content)
+            except Exception as e:
+                logger.error(f"Parse failed for {filename}: {e}")
+                await _set_status(doc_id, "error")
+                return
 
-        # Save parsed content + chunking
-        await _set_status(doc_id, "chunking")
-        chunks_text = chunk_text(text_content)
+            # Chunking (still under parse semaphore)
+            await _set_status(doc_id, "chunking")
+            chunks_text = chunk_text(text_content)
 
-        # Phase 2: Embedding (GPU - done outside DB session)
+        # Phase 2: Embedding (GPU - semaphore limits concurrent GPU tasks)
         await _set_status(doc_id, "embedding")
         async with _gpu_semaphore:
             try:
