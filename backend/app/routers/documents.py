@@ -31,10 +31,11 @@ from app.services.document_processing import (
     load_tags_for_docs,
     make_doc_list_item,
     process_document_background,
+    reindex_document_content,
 )
 from app.services.audit import audit_log
 from app.services.embedding import get_embeddings
-from app.services.parser import chunk_text, parse_file
+from app.services.parser import chunk_text
 from app.services.permissions import (
     is_admin as _is_admin,
     can_access_document as _check_doc_access,
@@ -1238,29 +1239,7 @@ async def bulk_action(
     elif body.action == "reindex":
         docs = await _accessible_docs()
         for doc in docs:
-            text_content = doc.content
-            if doc.source_path and Path(doc.source_path).exists():
-                try:
-                    text_content = await parse_file(doc.source_path, doc.file_type)
-                    doc.content = text_content
-                except Exception:
-                    pass
-
-            await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
-            chunks_text = chunk_text(text_content)
-            try:
-                embeddings = await get_embeddings(chunks_text)
-            except Exception:
-                embeddings = [None] * len(chunks_text)
-            for i, (chunk_content, embedding) in enumerate(zip(chunks_text, embeddings)):
-                db.add(Chunk(
-                    document_id=doc.id,
-                    chunk_index=i,
-                    content=chunk_content,
-                    embedding=embedding,
-                ))
-            doc.updated_by_id = current_user.id
-            doc.updated_at = func.now()
+            await reindex_document_content(db, doc, updated_by_id=current_user.id)
         await db.flush()
         return {"action": "reindex", "processed": len(docs)}
 
@@ -1468,44 +1447,12 @@ async def reindex_document(
     if not await _check_doc_access(doc, current_user, need_write=True, db=db):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Re-parse content from source_path if available, else use stored content
-    text_content = doc.content
-    if doc.source_path and Path(doc.source_path).exists():
-        try:
-            text_content = await parse_file(doc.source_path, doc.file_type)
-            doc.content = text_content
-        except Exception:
-            pass  # fall back to stored content
-
-    # Delete existing chunks
-    await db.execute(delete(Chunk).where(Chunk.document_id == doc.id))
-
-    # Re-chunk
-    chunks_text = chunk_text(text_content)
-
-    # Get embeddings
-    try:
-        embeddings = await get_embeddings(chunks_text)
-    except Exception:
-        embeddings = [None] * len(chunks_text)
-
-    # Create new chunk records
-    for i, (chunk_content, embedding) in enumerate(zip(chunks_text, embeddings)):
-        chunk = Chunk(
-            document_id=doc.id,
-            chunk_index=i,
-            content=chunk_content,
-            embedding=embedding,
-        )
-        db.add(chunk)
-
-    doc.updated_by_id = current_user.id
-    doc.updated_at = func.now()
+    _, chunks_text = await reindex_document_content(db, doc, updated_by_id=current_user.id)
 
     await db.flush()
     await db.refresh(doc)
 
-    return DocumentListItem(
+    return DocumentListItem.model_construct(
         id=str(doc.id),
         title=doc.title,
         source_path=doc.source_path,

@@ -61,6 +61,7 @@ import {
   History,
   Pin,
   PinOff,
+  RefreshCw,
   Star,
 } from "lucide-react";
 import {
@@ -215,6 +216,7 @@ export function FileExplorerPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [createTextOpen, setCreateTextOpen] = useState(false);
   const [bulkActionOpen, setBulkActionOpen] = useState<string | null>(null);
+  const [bulkReindexing, setBulkReindexing] = useState(false);
   const [shareTarget, setShareTarget] = useState<DocumentListItem | null>(null);
   const [shareEnabled, setShareEnabled] = useState(false);
 
@@ -1979,14 +1981,24 @@ export function FileExplorerPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={bulkActionOpen === "reindex"} onOpenChange={() => setBulkActionOpen(null)}>
+      <Dialog open={bulkActionOpen === "reindex"} onOpenChange={(o) => { if (!bulkReindexing) setBulkActionOpen(o ? "reindex" : null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>一括ベクトル再構築</DialogTitle>
             <DialogDescription>{selected.size}件の文書のベクトルデータを再構築します。</DialogDescription>
           </DialogHeader>
           <DialogFooter showCloseButton>
-            <Button onClick={() => handleBulkAction("reindex")}>再構築する</Button>
+            <Button
+              disabled={bulkReindexing}
+              onClick={async () => {
+                setBulkReindexing(true);
+                try {
+                  await handleBulkAction("reindex");
+                } finally { setBulkReindexing(false); }
+              }}
+            >
+              {bulkReindexing ? <><RefreshCw className="h-4 w-4 mr-1 animate-spin" />再構築中...</> : "再構築する"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
