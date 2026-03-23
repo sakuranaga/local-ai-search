@@ -675,6 +675,7 @@ export function FileExplorerPage() {
           setTotal((prev) => Math.max(0, prev - ids.length));
           loadFolders();
           loadTrash();
+          loadNotes();
         }).catch(() => toast.error("削除に失敗しました", { id: tid }));
         return;
       }
@@ -910,6 +911,7 @@ export function FileExplorerPage() {
         setTotal((prev) => Math.max(0, prev - ids.length));
         loadFolders();
         loadTrash();
+        loadNotes();
       } else {
         // For structural actions: clear selection & reload
         setSelected(new Set());
@@ -1008,6 +1010,7 @@ export function FileExplorerPage() {
       load(true);
       loadFolders();
       loadTrash();
+      loadNotes();
     } catch {
       tid ? toast.error("ゴミ箱への移動に失敗しました", { id: tid }) : toast.error("ゴミ箱への移動に失敗しました");
     }
