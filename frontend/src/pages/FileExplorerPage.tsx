@@ -153,6 +153,7 @@ export function FileExplorerPage() {
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
   const [filterCreatedBy, setFilterCreatedBy] = useState("");
+  const [filterIncludeUnsearchable, setFilterIncludeUnsearchable] = useState(false);
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({ file_types: [], creators: [] });
   const [searchTokens, setSearchTokens] = useState<string[]>([]);
 
@@ -371,6 +372,7 @@ export function FileExplorerPage() {
           page: currentPage,
           per_page: perPage,
           file_type: filterType || undefined,
+          include_unsearchable: filterIncludeUnsearchable || undefined,
         };
         const data = await searchDocumentsList(searchParams);
         if (gen !== loadGenRef.current) return; // stale
@@ -415,7 +417,7 @@ export function FileExplorerPage() {
       setLoading(false);
       loadingRef.current = false;
     }
-  }, [perPage, sortBy, sortDir, filterType, filterDateFrom, filterDateTo, filterCreatedBy, activeFolderId, activeTags, isSearching, urlQ, showFavorites]);
+  }, [perPage, sortBy, sortDir, filterType, filterDateFrom, filterDateTo, filterCreatedBy, filterIncludeUnsearchable, activeFolderId, activeTags, isSearching, urlQ, showFavorites]);
 
   reloadRef.current = () => { load(true); loadFolders(); };
 
@@ -1650,9 +1652,20 @@ export function FileExplorerPage() {
               title="更新日To"
             />
           </div>
-          {(filterType || filterDateFrom || filterDateTo || filterCreatedBy) && (
+          {isSearching && (
+            <label className="flex items-center gap-1 text-xs cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={filterIncludeUnsearchable}
+                onChange={(e) => setFilterIncludeUnsearchable(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <span className="text-muted-foreground">検索OFF含む</span>
+            </label>
+          )}
+          {(filterType || filterDateFrom || filterDateTo || filterCreatedBy || filterIncludeUnsearchable) && (
             <button
-              onClick={() => { setFilterType(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterCreatedBy(""); }}
+              onClick={() => { setFilterType(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterCreatedBy(""); setFilterIncludeUnsearchable(false); }}
               className="text-xs text-muted-foreground hover:text-foreground underline"
             >
               クリア
