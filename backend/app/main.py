@@ -71,6 +71,10 @@ async def init_db():
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_parent_note_id ON documents(parent_note_id)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_is_note ON documents(is_note) WHERE is_note = TRUE"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS note_readonly BOOLEAN DEFAULT FALSE"))
+        # Performance indexes for JOIN subqueries
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_files_document_id ON files(document_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_document_tags_document_id ON document_tags(document_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_share_links_document_id ON share_links(document_id)"))
         logger.info("Document table migration columns verified")
 
     # Phase 0: Role simplification (Admin/User)
