@@ -73,6 +73,7 @@ async def search_documents_list(
             Document.group_id, Document.group_read, Document.group_write,
             Document.others_read, Document.others_write,
             Document.searchable, Document.ai_knowledge, Document.summary,
+            Document.is_note,
             Document.memo, Document.folder_id, Folder.name.label("folder_name"),
             Group.name.label("group_name"),
             Document.created_at, Document.updated_at,
