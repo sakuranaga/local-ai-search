@@ -36,13 +36,31 @@ async def fulltext_search(
     if not words:
         return []
 
-    like_conditions = [
-        or_(Chunk.content.ilike(f"%{word}%"), Document.title.ilike(f"%{word}%"))
-        for word in words
-    ]
+    def _content_like(col, word: str):
+        """Use LIKE (not ILIKE) so pg_bigm GIN index is used on chunks.content.
+        Search both original case and lowercase to emulate case-insensitivity."""
+        conditions = [col.like(f"%{word}%")]
+        lower_word = word.lower()
+        if lower_word != word:
+            conditions.append(col.like(f"%{lower_word}%"))
+        upper_word = word.upper()
+        if upper_word != word and upper_word != lower_word:
+            conditions.append(col.like(f"%{upper_word}%"))
+        return or_(*conditions)
+
+    # CTE: pre-filter chunks using LIKE (triggers pg_bigm GIN index)
+    # before joining with documents to avoid full table scan
+    chunk_content_filter = or_(*[_content_like(Chunk.content, w) for w in words])
+    chunk_cte = (
+        select(Chunk.id, Chunk.document_id, Chunk.chunk_index, Chunk.content)
+        .where(chunk_content_filter)
+        .cte("matched_chunks")
+    )
+
+    # match_count: count how many query words match in content or title
     match_count = sum(
         case(
-            (or_(Chunk.content.ilike(f"%{w}%"), Document.title.ilike(f"%{w}%")), 1),
+            (or_(_content_like(chunk_cte.c.content, w), Document.title.ilike(f"%{w}%")), 1),
             else_=0,
         )
         for w in words
@@ -52,19 +70,18 @@ async def fulltext_search(
 
     stmt = (
         select(
-            Chunk.id,
-            Chunk.document_id,
-            Chunk.chunk_index,
-            Chunk.content,
+            chunk_cte.c.id,
+            chunk_cte.c.document_id,
+            chunk_cte.c.chunk_index,
+            chunk_cte.c.content,
             Document.title.label("document_title"),
             Document.file_type,
             Document.summary.label("document_summary"),
             Document.updated_at.label("document_updated_at"),
             match_count,
         )
-        .join(Document, Chunk.document_id == Document.id)
+        .join(Document, chunk_cte.c.document_id == Document.id)
         .where(Document.deleted_at.is_(None))
-        .where(or_(*like_conditions))
         .where(visibility)
     )
     if require_searchable:
