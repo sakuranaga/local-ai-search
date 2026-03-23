@@ -518,6 +518,8 @@ export function FileExplorerPage() {
   useEffect(() => { load(true); }, [load]);
   // Re-trigger search when URL timestamp changes (re-search same query)
   useEffect(() => { if (urlT) load(true); }, [urlT]);
+  // Exit trash/favorites view when entering search mode
+  useEffect(() => { if (isSearching) { setShowTrash(false); setShowFavorites(false); } }, [isSearching]);
   useEffect(() => {
     loadFolders(); loadTags(); loadTrash(); loadFavs(); loadNotes(); getMe().then(setMeUser).catch(() => {}); getFilterOptions().then(setFilterOptions).catch(() => {}); getShareEnabled().then(setShareEnabled).catch(() => {});
     // Check for uploads interrupted by page reload
@@ -1509,7 +1511,7 @@ export function FileExplorerPage() {
             <Menu className="h-8 w-8" strokeWidth={2.5} />
           </Button>
           <h1 className="text-lg md:text-xl font-bold min-w-0 flex items-center overflow-hidden">
-            {showTrash ? "ゴミ箱" : isSearching ? <span className="truncate">{`検索結果: ${urlQ}`}</span> : showFavorites ? "お気に入り" : activeTags.length > 0 ? (
+            {isSearching ? <span className="truncate">{`検索結果: ${urlQ}`}</span> : showTrash ? "ゴミ箱" : showFavorites ? "お気に入り" : activeTags.length > 0 ? (
               <span className="flex items-center gap-1.5">
                 <span className="text-muted-foreground font-normal">タグ:</span>
                 {activeTags.map((t) => {
@@ -1536,7 +1538,7 @@ export function FileExplorerPage() {
               ))
             ) : activeFolderId === "unfiled" ? "未整理" : "ドキュメント"}
           </h1>
-          {showTrash ? (
+          {showTrash && !isSearching ? (
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => { setShowTrash(false); setTrashSelected(new Set()); }}>
                 <ChevronLeft className="h-4 w-4 mr-1" />戻る
@@ -1567,7 +1569,7 @@ export function FileExplorerPage() {
           )}
         </div>
 
-        {showTrash ? (
+        {showTrash && !isSearching ? (
           /* Trash view */
           <div>
             {trashItems.length === 0 ? (
