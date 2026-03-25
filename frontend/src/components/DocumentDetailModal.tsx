@@ -90,18 +90,23 @@ export function DocumentDetailModal({
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [savingContent, setSavingContent] = useState(false);
   const [reindexing, setReindexing] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  // Preview overrides from EditTab (before save)
+  const [previewShareProhibited, setPreviewShareProhibited] = useState<boolean | null>(null);
+  const [previewDownloadProhibited, setPreviewDownloadProhibited] = useState<boolean | null>(null);
   const contentDirty = editedContent !== null && editedContent !== doc?.content;
 
   const showViewTab = item ? (isPreviewable(item.file_type) || hasExtractedContent(item.file_type)) : true;
   const showRawTab = item ? (hasExtractedContent(item.file_type) && !item.is_note) : true;
 
   useEffect(() => {
-    if (!item) { setDoc(null); setTab("view"); setEditedContent(null); return; }
+    if (!item) { setDoc(null); setTab("view"); setEditedContent(null); setPreviewShareProhibited(null); setPreviewDownloadProhibited(null); return; }
     const canPreview = isPreviewable(item.file_type) || hasExtractedContent(item.file_type);
     setTab(canPreview ? "view" : "edit");
     setLoading(true);
     setEditedContent(null);
     getDocument(item.id).then(setDoc).catch(() => toast.error("文書取得失敗")).finally(() => setLoading(false));
+    getMe().then((me) => setIsAdmin(me.roles.includes("admin"))).catch(() => {});
   }, [item?.id]);
 
   function handleClose() {
@@ -135,6 +140,9 @@ export function DocumentDetailModal({
   }
 
   if (!item) return null;
+
+  const effectiveShareProhibited = previewShareProhibited ?? item.share_prohibited;
+  const effectiveDownloadProhibited = previewDownloadProhibited ?? item.download_prohibited;
 
   return (
     <Dialog open={!!item} onOpenChange={() => handleClose()}>
@@ -183,7 +191,7 @@ export function DocumentDetailModal({
 
         {/* Tabs — hidden on mobile */}
         <div className="hidden md:flex gap-1 border-b">
-          {([...(showViewTab ? ["view" as const] : []), "edit" as const, "permissions" as const, ...(showRawTab ? ["raw" as const] : []), "versions" as const, ...(shareEnabled && !item.share_prohibited ? ["share" as const] : [])] as const).map((t) => (
+          {([...(showViewTab ? ["view" as const] : []), "edit" as const, "permissions" as const, ...(showRawTab ? ["raw" as const] : []), "versions" as const, ...(shareEnabled && !effectiveShareProhibited ? ["share" as const] : [])] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -195,7 +203,12 @@ export function DocumentDetailModal({
             </button>
           ))}
           <div className="ml-auto flex items-center gap-1 pb-1">
-            {item.source_path && !item.download_prohibited && (
+            {effectiveShareProhibited && (
+              <span className="text-xs text-destructive/70 px-1">共有禁止</span>
+            )}
+            {item.source_path && (effectiveDownloadProhibited ? (
+              <span className="text-xs text-destructive/70 px-1">ダウンロード禁止</span>
+            ) : (
               <Button
                 variant="outline" size="sm"
                 onClick={() => {
@@ -208,7 +221,7 @@ export function DocumentDetailModal({
               >
                 <Download className="h-3.5 w-3.5 mr-1" />ダウンロード
               </Button>
-            )}
+            ))}
             <Button
               variant="outline" size="sm"
               disabled={reindexing}
@@ -286,7 +299,7 @@ export function DocumentDetailModal({
           )}
 
           {tab === "edit" && doc && (
-            <EditTab doc={doc} item={item} folders={folders} allTags={allTags} onSaved={onUpdated} onTagsChanged={onTagsChanged} />
+            <EditTab doc={doc} item={item} folders={folders} allTags={allTags} onSaved={onUpdated} onTagsChanged={onTagsChanged} isAdmin={isAdmin} onPreviewShareProhibited={setPreviewShareProhibited} onPreviewDownloadProhibited={setPreviewDownloadProhibited} />
           )}
 
           {tab === "permissions" && doc && (
@@ -323,6 +336,9 @@ function EditTab({
   allTags,
   onSaved,
   onTagsChanged,
+  isAdmin,
+  onPreviewShareProhibited,
+  onPreviewDownloadProhibited,
 }: {
   doc: Document;
   item: DocumentListItem;
@@ -330,12 +346,17 @@ function EditTab({
   allTags: TagInfo[];
   onSaved: (updated: DocumentListItem) => void;
   onTagsChanged: () => void;
+  isAdmin: boolean;
+  onPreviewShareProhibited: (v: boolean | null) => void;
+  onPreviewDownloadProhibited: (v: boolean | null) => void;
 }) {
   const [title, setTitle] = useState(doc.title);
   const [summary, setSummary] = useState(doc.summary ?? "");
   const [memo, setMemo] = useState(doc.memo ?? "");
   const [searchable, setSearchable] = useState(doc.searchable);
   const [aiKnowledge, setAiKnowledge] = useState(doc.ai_knowledge);
+  const [shareProhibited, setShareProhibited] = useState(doc.share_prohibited);
+  const [downloadProhibited, setDownloadProhibited] = useState(doc.download_prohibited);
   const [folderId, setFolderId] = useState(doc.folder_id ?? "");
   const [docTags, setDocTags] = useState<TagInfo[]>(doc.tags ?? []);
   const [addTagId, setAddTagId] = useState("");
@@ -368,6 +389,28 @@ function EditTab({
     saveTagsNow(newTags);
   }
 
+  async function handleToggleFlag(field: "searchable" | "ai_knowledge" | "share_prohibited" | "download_prohibited", value: boolean) {
+    // Update local state immediately
+    if (field === "searchable") setSearchable(value);
+    else if (field === "ai_knowledge") setAiKnowledge(value);
+    else if (field === "share_prohibited") { setShareProhibited(value); onPreviewShareProhibited(value); }
+    else if (field === "download_prohibited") { setDownloadProhibited(value); onPreviewDownloadProhibited(value); }
+    // Save to server
+    try {
+      const updated = await updateDocument(item.id, { [field]: value });
+      onPreviewShareProhibited(null);
+      onPreviewDownloadProhibited(null);
+      onSaved({ ...item, ...updated });
+    } catch {
+      toast.error("更新に失敗しました");
+      // Revert
+      if (field === "searchable") setSearchable(!value);
+      else if (field === "ai_knowledge") setAiKnowledge(!value);
+      else if (field === "share_prohibited") { setShareProhibited(!value); onPreviewShareProhibited(!value); }
+      else if (field === "download_prohibited") { setDownloadProhibited(!value); onPreviewDownloadProhibited(!value); }
+    }
+  }
+
   async function handleSave() {
     setSaving(true);
     try {
@@ -375,13 +418,13 @@ function EditTab({
         title,
         summary,
         memo,
-        searchable,
-        ai_knowledge: aiKnowledge,
         folder_id: folderId || null,
         tag_ids: docTags.map((t) => t.id),
       });
       toast.success("保存しました");
-      onSaved({ ...item, title: updated.title, summary: updated.summary ?? "", folder_id: updated.folder_id ?? null, is_note: updated.is_note });
+      onPreviewShareProhibited(null);
+      onPreviewDownloadProhibited(null);
+      onSaved({ ...item, title: updated.title, summary: updated.summary ?? "", folder_id: updated.folder_id ?? null, is_note: updated.is_note, share_prohibited: updated.share_prohibited, download_prohibited: updated.download_prohibited });
       onTagsChanged();
     } catch { toast.error("保存失敗"); }
     finally { setSaving(false); }
@@ -446,17 +489,40 @@ function EditTab({
           </div>
         )}
       </div>
+      <div className="flex justify-end">
+        <Button onClick={handleSave} disabled={saving || !title.trim()}>保存</Button>
+      </div>
+      <Separator />
       <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium text-muted-foreground">検索設定</span>
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={searchable} onChange={(e) => setSearchable(e.target.checked)} />
+          <input type="checkbox" checked={searchable} onChange={(e) => handleToggleFlag("searchable", e.target.checked)} />
           検索対象に含める
         </label>
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={aiKnowledge} onChange={(e) => setAiKnowledge(e.target.checked)} />
+          <input type="checkbox" checked={aiKnowledge} onChange={(e) => handleToggleFlag("ai_knowledge", e.target.checked)} />
           AIナレッジに含める
         </label>
+        {isAdmin && (
+          <>
+            <span className="text-xs font-medium text-muted-foreground mt-1">管理者設定</span>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={shareProhibited} onChange={(e) => handleToggleFlag("share_prohibited", e.target.checked)} />
+              共有リンクを禁止
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={downloadProhibited} onChange={(e) => handleToggleFlag("download_prohibited", e.target.checked)} />
+              ダウンロードを禁止
+            </label>
+          </>
+        )}
+        {!isAdmin && (item.share_prohibited || item.download_prohibited) && (
+          <div className="flex flex-col gap-1 text-xs text-muted-foreground mt-1">
+            {item.share_prohibited && <span>共有リンク: 禁止</span>}
+            {item.download_prohibited && <span>ダウンロード: 禁止</span>}
+          </div>
+        )}
       </div>
-      <Button onClick={handleSave} disabled={saving || !title.trim()}>保存</Button>
     </div>
   );
 }
