@@ -146,7 +146,6 @@ export function FileExplorerPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const sentinelRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
   const [filterType, setFilterType] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
@@ -573,20 +572,6 @@ export function FileExplorerPage() {
     }
   }, [urlQ]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync header padding with scrollbar width
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    const header = headerRef.current;
-    if (!el || !header) return;
-    const sync = () => {
-      const sw = el.offsetWidth - el.clientWidth;
-      header.style.paddingRight = `${sw}px`;
-    };
-    sync();
-    const ro = new ResizeObserver(sync);
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
 
   // Infinite scroll via IntersectionObserver
   useEffect(() => {
@@ -1724,17 +1709,17 @@ export function FileExplorerPage() {
 
         {/* Table */}
         <Card className="!py-0 !gap-0 flex-1 min-h-0 overflow-hidden flex flex-col">
-          <div ref={headerRef}>
-          <table className="doc-table w-full text-sm" style={{ tableLayout: "fixed" }}>
-            <colgroup>
-              <col />
-              <col style={{ width: 64 }} />
-              <col style={{ width: 88 }} />
-              <col style={{ width: 96 }} />
-              <col style={{ width: 96 }} />
-              <col style={{ width: 112 }} />
-            </colgroup>
-            <TableHeader>
+          <div className="flex-1 min-h-0 overflow-auto" ref={scrollContainerRef}>
+            <table className="doc-table w-full text-sm" style={{ tableLayout: "fixed", minWidth: 720 }}>
+              <colgroup>
+                <col />
+                <col style={{ width: 64 }} />
+                <col style={{ width: 88 }} />
+                <col style={{ width: 96 }} />
+                <col style={{ width: 96 }} />
+                <col style={{ width: 112 }} />
+              </colgroup>
+            <TableHeader className="sticky top-0 z-10 bg-background">
               <TableRow className="hover:bg-transparent">
                 <TableHead className={`pl-4 ${isSearching ? "" : "cursor-pointer select-none"}`} onClick={isSearching ? undefined : () => handleSort("title")}>
                   <span className="flex items-center gap-2">
@@ -1761,18 +1746,6 @@ export function FileExplorerPage() {
                 <TableHead className="text-center">検索 / AI</TableHead>
               </TableRow>
             </TableHeader>
-          </table>
-          </div>
-          <div className="w-full flex-1 min-h-0 overflow-y-auto" ref={scrollContainerRef}>
-            <table className="doc-table w-full text-sm" style={{ tableLayout: "fixed" }}>
-              <colgroup>
-                <col />
-                <col style={{ width: 64 }} />
-                <col style={{ width: 88 }} />
-                <col style={{ width: 96 }} />
-                <col style={{ width: 96 }} />
-                <col style={{ width: 112 }} />
-              </colgroup>
               <TableBody className="[&_tr:last-child]:border-b">
                 {listFolders.map((folder) => (
                   <TableRow
