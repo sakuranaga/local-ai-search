@@ -388,6 +388,7 @@ async def ingest_content(
     existing_doc = None
     created = True
     if body.external_id:
+        # First check active docs, then check trashed docs (restore if found)
         result = await db.execute(
             select(Document).where(
                 Document.source == source,
@@ -396,6 +397,19 @@ async def ingest_content(
             )
         )
         existing_doc = result.scalar_one_or_none()
+        if existing_doc is None:
+            # Check trashed docs — restore if found
+            result = await db.execute(
+                select(Document).where(
+                    Document.source == source,
+                    Document.external_id == body.external_id,
+                    Document.deleted_at.is_not(None),
+                )
+            )
+            trashed_doc = result.scalar_one_or_none()
+            if trashed_doc:
+                trashed_doc.deleted_at = None
+                existing_doc = trashed_doc
 
     # Append mode: read existing content and prepend to new content
     is_append = body.mode == "append"
