@@ -1219,6 +1219,50 @@ function ApiKeysTab() {
         </Table>
       </CardContent>
 
+      {/* API Manual */}
+      <CardContent className="border-t pt-4">
+        <details>
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">API リファレンス</summary>
+          <div className="mt-3 space-y-4 text-sm">
+            <div>
+              <h4 className="font-medium mb-1">ファイルアップロード</h4>
+              <pre className="bg-muted rounded p-3 text-xs overflow-x-auto whitespace-pre">{`curl -X POST /api/ingest/upload \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -F "file=@document.pdf" \\
+  -F "folder_id=FOLDER_UUID"  # 省略可`}</pre>
+            </div>
+            <div>
+              <h4 className="font-medium mb-1">テキスト投入（n8n/Zapier連携向け）</h4>
+              <pre className="bg-muted rounded p-3 text-xs overflow-x-auto whitespace-pre">{`curl -X POST /api/ingest/content \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "title": "タイトル",
+    "content": "本文テキスト（Markdown可）",
+    "source": "jira",
+    "external_id": "PROJ-1234",
+    "external_url": "https://...",
+    "folder": "フォルダ名",
+    "tags": ["tag1", "tag2"],
+    "memo": "メモ"
+  }'`}</pre>
+              <p className="mt-1 text-xs text-muted-foreground">
+                <code>source</code> + <code>external_id</code> が同じ場合は既存ドキュメントを更新（upsert）。
+                <code>folder</code> / <code>tags</code> は名前指定で、存在しなければ自動作成されます。
+              </p>
+            </div>
+            <div>
+              <h4 className="font-medium mb-1">その他</h4>
+              <ul className="list-disc list-inside text-xs text-muted-foreground space-y-1">
+                <li><code>GET /api/ingest/status/&#123;id&#125;</code> — 処理状況の確認</li>
+                <li><code>DELETE /api/ingest/&#123;id&#125;</code> — ドキュメント削除（delete権限が必要）</li>
+                <li><code>GET /api/ingest/list</code> — ドキュメント一覧</li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </CardContent>
+
       {/* Create / Show Key Dialog */}
       <Dialog open={createOpen} onOpenChange={(open) => { if (!open) { setCreateOpen(false); setCreatedKey(null); } }}>
         <DialogContent>
@@ -1314,6 +1358,8 @@ const ACTION_LABELS: Record<string, string> = {
   "document.purge": "完全削除",
   "document.restore": "ゴミ箱から復元",
   "document.overwrite": "ドキュメント上書き",
+  "document.ingest_content": "テキスト投入(API)",
+  "document.ingest_content_update": "テキスト更新(API)",
 };
 
 // ---------------------------------------------------------------------------

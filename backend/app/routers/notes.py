@@ -300,6 +300,7 @@ async def create_note(
         others_read=True,
         processing_status="done",
         scan_status="skipped",
+        source="note",
     )
     db.add(doc)
 

@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import async_session, get_db
 from app.deps import get_api_key, get_current_user
-from app.models import ApiKey, Chunk, Document, File, Folder, User
+from app.models import ApiKey, Chunk, Document, DocumentTag, File, Folder, Tag, User
 from app.services.audit import audit_log
 from app.services.auth import verify_token
 from app.services.document_processing import get_file_type, process_document_background
@@ -103,6 +103,17 @@ class IngestListItem(BaseModel):
 class IngestBatchResponse(BaseModel):
     uploaded: list[IngestResponse]
     errors: list[dict]
+
+
+class IngestContentRequest(BaseModel):
+    title: str
+    content: str
+    source: str
+    external_id: str | None = None
+    external_url: str | None = None
+    folder: str | None = None  # folder name (auto-created if not exists)
+    tags: list[str] | None = None  # tag names (auto-created if not exists)
+    memo: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +237,7 @@ async def _ingest_single_file(
             folder_id=folder_id,
             share_prohibited=default_share_prohibited,
             download_prohibited=default_download_prohibited,
+            source="api_upload",
         )
         db.add(doc)
 
@@ -328,6 +340,226 @@ async def ingest_upload_batch(
             errors.append({"filename": file.filename or "unknown", "detail": str(e)})
 
     return IngestBatchResponse(uploaded=uploaded, errors=errors)
+
+
+@router.post("/content", response_model=IngestResponse, status_code=status.HTTP_201_CREATED)
+async def ingest_content(
+    body: IngestContentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create/update a document from text content (for n8n/Zapier integration)."""
+    api_key = _require_api_key(current_user)
+    _check_permission(api_key, "upload")
+
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    if not title.endswith(".md"):
+        title += ".md"
+
+    source = body.source.strip()
+    if not source:
+        raise HTTPException(status_code=400, detail="Source is required")
+
+    # Resolve folder by name (auto-create if needed)
+    folder_id: uuid.UUID | None = None
+    if body.folder:
+        folder_name = body.folder.strip()
+        if folder_name:
+            result = await db.execute(
+                select(Folder).where(Folder.name == folder_name)
+            )
+            folder_obj = result.scalar_one_or_none()
+            if folder_obj:
+                folder_id = folder_obj.id
+            else:
+                folder_obj = Folder(name=folder_name, owner_id=current_user.id)
+                db.add(folder_obj)
+                await db.flush()
+                folder_id = folder_obj.id
+
+    # Enforce API key folder restriction
+    resolved_folder = _resolve_folder_id(api_key, folder_id)
+
+    # Upsert: check by source + external_id
+    existing_doc = None
+    created = True
+    if body.external_id:
+        result = await db.execute(
+            select(Document).where(
+                Document.source == source,
+                Document.external_id == body.external_id,
+                Document.deleted_at.is_(None),
+            )
+        )
+        existing_doc = result.scalar_one_or_none()
+
+    # Write .md file to disk
+    storage_dir = Path(settings.STORAGE_PATH) / "uploads" / str(current_user.id)
+    storage_dir.mkdir(parents=True, exist_ok=True)
+
+    file_id = uuid.uuid4()
+    suffix = ".md"
+    max_name_bytes = 255 - 37 - len(suffix.encode("utf-8"))
+    base_name = Path(title).stem
+    truncated = base_name.encode("utf-8")[:max_name_bytes].decode("utf-8", errors="ignore")
+    stored_filename = f"{file_id}_{truncated}{suffix}"
+    storage_path = storage_dir / stored_filename
+
+    content_bytes = body.content.encode("utf-8")
+    with open(storage_path, "wb") as f:
+        f.write(content_bytes)
+    file_size = len(content_bytes)
+
+    if existing_doc:
+        # Update existing document
+        doc = existing_doc
+        created = False
+
+        # Version management
+        from app.services.versioning import create_versions_on_edit, save_new_version
+        new_ver = await create_versions_on_edit(db, doc, current_user.id)
+
+        # Remove old files
+        old_files = await db.execute(select(File).where(File.document_id == doc.id))
+        for old_f in old_files.scalars().all():
+            try:
+                Path(old_f.storage_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+            await db.delete(old_f)
+
+        doc.title = title
+        doc.source_path = str(storage_path)
+        doc.file_type = "md"
+        doc.content = ""
+        doc.processing_status = "pending"
+        doc.updated_by_id = current_user.id
+        doc.updated_at = func.now()
+        doc.external_url = body.external_url or doc.external_url
+        doc.memo = body.memo if body.memo is not None else doc.memo
+        if resolved_folder is not None:
+            doc.folder_id = resolved_folder
+    else:
+        # Copy permissions from folder
+        doc_group_id = None
+        doc_group_read = False
+        doc_group_write = False
+        doc_others_read = True
+        doc_others_write = False
+        if resolved_folder:
+            folder_obj = await db.get(Folder, resolved_folder)
+            if folder_obj:
+                doc_group_id = folder_obj.group_id
+                doc_group_read = folder_obj.group_read
+                doc_group_write = folder_obj.group_write
+                doc_others_read = folder_obj.others_read
+                doc_others_write = folder_obj.others_write
+
+        from app.services.settings import get_setting
+        default_share_prohibited = (await get_setting(db, "default_share_prohibited")).lower() == "true"
+        default_download_prohibited = (await get_setting(db, "default_download_prohibited")).lower() == "true"
+
+        doc = Document(
+            title=title,
+            source_path=str(storage_path),
+            file_type="md",
+            content="",
+            owner_id=current_user.id,
+            group_id=doc_group_id,
+            group_read=doc_group_read,
+            group_write=doc_group_write,
+            others_read=doc_others_read,
+            others_write=doc_others_write,
+            created_by_id=current_user.id,
+            updated_by_id=current_user.id,
+            processing_status="pending",
+            folder_id=resolved_folder,
+            share_prohibited=default_share_prohibited,
+            download_prohibited=default_download_prohibited,
+            source=source,
+            external_id=body.external_id,
+            external_url=body.external_url,
+            memo=body.memo or "",
+        )
+        db.add(doc)
+
+    await db.flush()
+
+    # File record
+    db.add(File(
+        document_id=doc.id,
+        filename=title,
+        storage_path=str(storage_path),
+        file_size=file_size,
+        mime_type="text/markdown",
+    ))
+
+    await db.flush()
+    if created:
+        from app.services.versioning import create_initial_version
+        await create_initial_version(db, doc, current_user.id)
+    else:
+        await save_new_version(db, doc, new_ver, current_user.id, "overwrite")
+
+    # Auto-create and assign tags
+    if body.tags:
+        # Remove existing tags on update
+        if not created:
+            await db.execute(
+                delete(DocumentTag).where(DocumentTag.document_id == doc.id)
+            )
+        for tag_name in body.tags:
+            tag_name = tag_name.strip()
+            if not tag_name:
+                continue
+            result = await db.execute(select(Tag).where(Tag.name == tag_name))
+            tag = result.scalar_one_or_none()
+            if not tag:
+                tag = Tag(name=tag_name)
+                db.add(tag)
+                await db.flush()
+            # Check if already linked
+            existing_link = await db.execute(
+                select(DocumentTag).where(
+                    DocumentTag.document_id == doc.id,
+                    DocumentTag.tag_id == tag.id,
+                )
+            )
+            if not existing_link.scalar_one_or_none():
+                db.add(DocumentTag(document_id=doc.id, tag_id=tag.id))
+
+    await audit_log(db, user=current_user, action="document.ingest_content" if created else "document.ingest_content_update",
+                    target_type="document", target_id=str(doc.id), target_name=doc.title,
+                    detail={"via": "api_key", "api_key": api_key.name, "source": source, "external_id": body.external_id})
+
+    await db.commit()
+    await db.refresh(doc)
+
+    from app.services.mail import notify_create, notify_update
+    from app.services.webhook import webhook_create, webhook_update
+    uname = current_user.display_name or current_user.username
+    if created:
+        notify_create(uname, [doc.title])
+        webhook_create(uname, [doc.title])
+    else:
+        notify_update(uname, [doc.title])
+        webhook_update(uname, [doc.title])
+
+    # Background processing (chunk, embedding, summary)
+    asyncio.create_task(
+        process_document_background(doc.id, str(storage_path), "md", title)
+    )
+
+    return IngestResponse(
+        id=str(doc.id),
+        title=doc.title,
+        file_type=doc.file_type,
+        processing_status=doc.processing_status,
+        created=created,
+        created_at=doc.created_at,
+    )
 
 
 @router.get("/status/{document_id}", response_model=IngestStatusResponse)
@@ -640,6 +872,7 @@ async def tus_hook(
                     folder_id=folder_uuid,
                     share_prohibited=default_share_prohibited,
                     download_prohibited=default_download_prohibited,
+                    source="api_upload" if api_key else "upload",
                 )
                 db.add(doc)
 
