@@ -71,6 +71,14 @@ async def init_db():
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_parent_note_id ON documents(parent_note_id)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_is_note ON documents(is_note) WHERE is_note = TRUE"))
         await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS note_readonly BOOLEAN DEFAULT FALSE"))
+        # External integration columns
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'upload'"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS external_id VARCHAR(500)"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS external_url VARCHAR(2000)"))
+        await conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_documents_source_external_id "
+            "ON documents(source, external_id) WHERE external_id IS NOT NULL"
+        ))
         # Performance indexes for JOIN subqueries
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_files_document_id ON files(document_id)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_document_tags_document_id ON document_tags(document_id)"))

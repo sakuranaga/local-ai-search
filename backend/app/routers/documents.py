@@ -348,6 +348,7 @@ async def create_text_document(
             folder_id=folder_id,
             share_prohibited=default_share_prohibited,
             download_prohibited=default_download_prohibited,
+            source="text",
         )
         db.add(doc)
     await db.flush()

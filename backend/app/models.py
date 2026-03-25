@@ -285,6 +285,11 @@ class Document(Base):
     note_order: Mapped[int] = mapped_column(Integer, default=0)
     note_readonly: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # External integration
+    source: Mapped[str | None] = mapped_column(String(50), default="upload")
+    external_id: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    external_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+
     owner: Mapped["User"] = relationship(back_populates="documents", foreign_keys=[owner_id])
     folder: Mapped["Folder | None"] = relationship(back_populates="documents")
     created_by: Mapped["User | None"] = relationship(foreign_keys=[created_by_id])
