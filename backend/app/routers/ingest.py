@@ -114,6 +114,8 @@ class IngestContentRequest(BaseModel):
     folder: str | None = None  # folder name (auto-created if not exists)
     tags: list[str] | None = None  # tag names (auto-created if not exists)
     memo: str | None = None
+    mode: str | None = None  # "append" to append content to existing doc
+    version: bool = False  # True to create a version snapshot on update
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +397,24 @@ async def ingest_content(
         )
         existing_doc = result.scalar_one_or_none()
 
+    # Append mode: read existing content and prepend to new content
+    is_append = body.mode == "append"
+    existing_content = ""
+    if is_append and existing_doc:
+        # Read current file content
+        old_files_result = await db.execute(
+            select(File).where(File.document_id == existing_doc.id)
+        )
+        old_file = old_files_result.scalars().first()
+        if old_file and Path(old_file.storage_path).exists():
+            existing_content = Path(old_file.storage_path).read_text(encoding="utf-8")
+
+    # Build final content
+    if is_append and existing_content:
+        final_content = existing_content + "\n" + body.content
+    else:
+        final_content = body.content
+
     # Write .md file to disk
     storage_dir = Path(settings.STORAGE_PATH) / "uploads" / str(current_user.id)
     storage_dir.mkdir(parents=True, exist_ok=True)
@@ -407,7 +427,7 @@ async def ingest_content(
     stored_filename = f"{file_id}_{truncated}{suffix}"
     storage_path = storage_dir / stored_filename
 
-    content_bytes = body.content.encode("utf-8")
+    content_bytes = final_content.encode("utf-8")
     with open(storage_path, "wb") as f:
         f.write(content_bytes)
     file_size = len(content_bytes)
@@ -417,9 +437,11 @@ async def ingest_content(
         doc = existing_doc
         created = False
 
-        # Version management
-        from app.services.versioning import create_versions_on_edit, save_new_version
-        new_ver = await create_versions_on_edit(db, doc, current_user.id)
+        # Version management (only when explicitly requested)
+        new_ver = None
+        if body.version:
+            from app.services.versioning import create_versions_on_edit
+            new_ver = await create_versions_on_edit(db, doc, current_user.id)
 
         # Remove old files
         old_files = await db.execute(select(File).where(File.document_id == doc.id))
@@ -500,8 +522,9 @@ async def ingest_content(
     if created:
         from app.services.versioning import create_initial_version
         await create_initial_version(db, doc, current_user.id)
-    else:
-        await save_new_version(db, doc, new_ver, current_user.id, "overwrite")
+    elif new_ver is not None:
+        from app.services.versioning import save_new_version
+        await save_new_version(db, doc, new_ver, current_user.id, "append" if is_append else "overwrite")
 
     # Auto-create and assign tags
     if body.tags:

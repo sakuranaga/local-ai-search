@@ -1244,12 +1244,35 @@ function ApiKeysTab() {
     "external_url": "https://...",
     "folder": "フォルダ名",
     "tags": ["tag1", "tag2"],
-    "memo": "メモ"
+    "memo": "メモ",
+    "mode": "append",
+    "version": true
   }'`}</pre>
               <p className="mt-1 text-xs text-muted-foreground">
                 <code>source</code> + <code>external_id</code> が同じ場合は既存ドキュメントを更新（upsert）。
                 <code>folder</code> / <code>tags</code> は名前指定で、存在しなければ自動作成されます。
               </p>
+              <table className="mt-2 w-full text-xs text-muted-foreground border-collapse">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-1 pr-2 font-medium">パラメータ</th>
+                    <th className="text-left py-1 pr-2 font-medium">必須</th>
+                    <th className="text-left py-1 font-medium">説明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>title</code></td><td className="py-1 pr-2">○</td><td className="py-1">ドキュメントタイトル（.md自動付与）</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>content</code></td><td className="py-1 pr-2">○</td><td className="py-1">本文（Markdown形式）</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>source</code></td><td className="py-1 pr-2">○</td><td className="py-1">登録元の識別子（例: discord, jira, n8n）</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>external_id</code></td><td className="py-1 pr-2"></td><td className="py-1">外部サービスの一意ID（upsertキー）</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>external_url</code></td><td className="py-1 pr-2"></td><td className="py-1">外部サービスのURL</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>folder</code></td><td className="py-1 pr-2"></td><td className="py-1">フォルダ名（自動作成）</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>tags</code></td><td className="py-1 pr-2"></td><td className="py-1">タグ名の配列（自動作成）</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>memo</code></td><td className="py-1 pr-2"></td><td className="py-1">メモ</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>mode</code></td><td className="py-1 pr-2"></td><td className="py-1"><code>"append"</code>: 既存ドキュメントに追記。省略時は全文置換</td></tr>
+                  <tr><td className="py-1 pr-2"><code>version</code></td><td className="py-1 pr-2"></td><td className="py-1"><code>true</code>: 更新時にバージョンを保存。デフォルト <code>false</code></td></tr>
+                </tbody>
+              </table>
             </div>
             <div>
               <h4 className="font-medium mb-1">その他</h4>
