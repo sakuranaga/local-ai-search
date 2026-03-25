@@ -631,7 +631,7 @@ function PermissionsTab({ docId, doc }: { docId: string; doc: Document }) {
           : "権限の変更はオーナーまたは管理者のみ可能です"}
       </p>
 
-      <Button onClick={handleSave} disabled={saving || !canEdit}>権限を保存</Button>
+      <div className="flex justify-end"><Button onClick={handleSave} disabled={saving || !canEdit}>権限を保存</Button></div>
     </div>
   );
 }
