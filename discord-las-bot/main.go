@@ -130,7 +130,8 @@ func main() {
 			return
 		}
 
-		timestamp := m.Timestamp
+		jst := time.FixedZone("JST", 9*60*60)
+		timestamp := m.Timestamp.In(jst)
 		content := fmt.Sprintf("\n---\n**%s** (%s)\n%s",
 			m.Author.Username, timestamp.Format("2006-01-02 15:04:05"), m.Content)
 
