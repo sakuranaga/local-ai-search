@@ -19,9 +19,11 @@ interface NoteEditorProps {
   updatedAt?: string;
   updatedByName?: string | null;
   currentVersion?: number;
+  folderPath?: string;
   onTitleChange?: (title: string) => void;
   onSaved?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  onFileClick?: (noteId: string) => void;
 }
 
 type ConnMode = "connecting" | "collaborative" | "local";
@@ -218,6 +220,8 @@ function NoteEditorInner({
   onTitleChange,
   onSaved,
   onDirtyChange,
+  onFileClick,
+  folderPath,
   ydoc,
   provider,
   needsPopulate,
@@ -368,6 +372,12 @@ function NoteEditorInner({
           <span>更新: {new Date(updatedAt).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
           {updatedByName && <span>by {updatedByName}</span>}
           {currentVersion != null && <span>v{currentVersion}</span>}
+          <button
+            className="hover:text-foreground hover:underline cursor-pointer"
+            onClick={() => onFileClick?.(noteId)}
+          >
+            {folderPath ? `${folderPath}/${title}` : title}
+          </button>
         </div>
       )}
 

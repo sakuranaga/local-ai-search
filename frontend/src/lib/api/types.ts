@@ -147,6 +147,7 @@ export interface NoteDetail {
   updated_by_name: string | null;
   created_at: string;
   updated_at: string;
+  folder_path: string;
 }
 
 export interface DocumentListResponse {
