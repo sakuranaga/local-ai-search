@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user, require_permission
-from app.models import Chunk, Document, File, User
+from app.models import Chunk, Document, File, Folder, User
 from app.services.document_processing import chunk_text, get_embeddings
 from app.services.versioning import create_initial_version, create_versions_on_edit, save_new_version
 
@@ -389,6 +389,21 @@ async def get_note(
         if ub:
             updated_by_name = ub.display_name or ub.username
 
+    # Resolve folder path
+    folder_path = ""
+    if doc.folder_id:
+        folder = await db.get(Folder, doc.folder_id)
+        if folder:
+            parts = [folder.name]
+            parent = folder.parent_id
+            while parent:
+                pf = await db.get(Folder, parent)
+                if not pf:
+                    break
+                parts.append(pf.name)
+                parent = pf.parent_id
+            folder_path = "/".join(reversed(parts))
+
     return {
         "id": str(doc.id),
         "title": doc.title,
@@ -403,6 +418,7 @@ async def get_note(
         "updated_by_name": updated_by_name,
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
         "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
+        "folder_path": folder_path,
     }
 
 

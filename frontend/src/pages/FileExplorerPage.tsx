@@ -1458,6 +1458,16 @@ export function FileExplorerPage() {
                       <span>更新: {new Date(activeNote.updated_at).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
                       {activeNote.updated_by_name && <span>by {activeNote.updated_by_name}</span>}
                       {activeNote.current_version != null && <span>v{activeNote.current_version}</span>}
+                      <button
+                        className="hover:text-foreground hover:underline cursor-pointer"
+                        onClick={() => {
+                          const item = items.find((i) => i.id === activeNoteId);
+                          if (item) setDetailDoc(item);
+                          else setDetailDoc({ id: activeNoteId } as any);
+                        }}
+                      >
+                        {activeNote.folder_path ? `${activeNote.folder_path}/${activeNote.title}` : activeNote.title}
+                      </button>
                     </div>
                   )}
                   <div className="flex-1 overflow-auto">
@@ -1477,12 +1487,18 @@ export function FileExplorerPage() {
                     updatedAt={activeNote.updated_at}
                     updatedByName={activeNote.updated_by_name}
                     currentVersion={activeNote.current_version}
+                    folderPath={activeNote.folder_path}
                     onTitleChange={(newTitle) => {
                       setActiveNote((prev) => prev ? { ...prev, title: newTitle } : prev);
                       loadNotes();
                     }}
                     onSaved={() => { loadNotes(); load(true); }}
                     onDirtyChange={(d) => { noteDirtyRef.current = d; }}
+                    onFileClick={(id) => {
+                      const item = items.find((i) => i.id === id);
+                      if (item) setDetailDoc(item);
+                      else setDetailDoc({ id } as any);
+                    }}
                   />
                 </Suspense>
               )}
