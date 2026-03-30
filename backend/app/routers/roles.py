@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deps import require_permission
 from app.models import Role, User
+from app.services.audit import audit_log
 
 router = APIRouter(prefix="/roles", tags=["roles"])
 
@@ -47,6 +48,7 @@ async def list_roles(
 @router.post("", response_model=RoleResponse, status_code=status.HTTP_201_CREATED)
 async def create_role(
     body: RoleCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_permission("admin")),
 ):
@@ -62,6 +64,10 @@ async def create_role(
     await db.flush()
     await db.refresh(role)
 
+    await audit_log(db, user=_admin, action="role.create", target_type="role",
+                    target_id=str(role.id), target_name=role.name,
+                    detail={"permissions": body.permissions}, request=request)
+
     return RoleResponse(
         id=role.id,
         name=role.name,
@@ -73,6 +79,7 @@ async def create_role(
 @router.delete("/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_role(
     role_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_permission("admin")),
 ):
@@ -80,4 +87,7 @@ async def delete_role(
     role = result.scalar_one_or_none()
     if role is None:
         raise HTTPException(status_code=404, detail="Role not found")
+    role_name = role.name
     await db.delete(role)
+    await audit_log(db, user=_admin, action="role.delete", target_type="role",
+                    target_id=str(role_id), target_name=role_name, request=request)

@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Document, Folder, Group, GroupMember, User
+from app.services.audit import audit_log
 from app.services.permissions import is_admin
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -106,6 +107,7 @@ async def list_groups(
 @router.post("", response_model=GroupResponse, status_code=status.HTTP_201_CREATED)
 async def create_group(
     body: GroupCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -122,6 +124,9 @@ async def create_group(
     await db.flush()
     await db.refresh(group)
 
+    await audit_log(db, user=current_user, action="group.create", target_type="group",
+                    target_id=str(group.id), target_name=group.name, request=request)
+
     return GroupResponse(
         id=str(group.id),
         name=group.name,
@@ -136,6 +141,7 @@ async def create_group(
 async def update_group(
     group_id: uuid.UUID,
     body: GroupUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -161,6 +167,10 @@ async def update_group(
         )
     ).scalar() or 0
 
+    await audit_log(db, user=current_user, action="group.update", target_type="group",
+                    target_id=str(group_id), target_name=group.name,
+                    detail=body.model_dump(exclude_unset=True), request=request)
+
     return GroupResponse(
         id=str(group.id),
         name=group.name,
@@ -174,6 +184,7 @@ async def update_group(
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_group(
     group_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -193,7 +204,10 @@ async def delete_group(
         update(Folder).where(Folder.group_id == group_id).values(group_id=None)
     )
 
+    group_name = group.name
     await db.delete(group)
+    await audit_log(db, user=current_user, action="group.delete", target_type="group",
+                    target_id=str(group_id), target_name=group_name, request=request)
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +255,7 @@ async def list_members(
 async def add_member(
     group_id: uuid.UUID,
     body: MemberAdd,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -269,6 +284,10 @@ async def add_member(
 
     db.add(GroupMember(group_id=group_id, user_id=user_id))
     await db.flush()
+    await audit_log(db, user=current_user, action="group.member_add", target_type="group",
+                    target_id=str(group_id), target_name=group.name,
+                    detail={"added_user_id": str(user_id), "added_username": user.username},
+                    request=request)
     return {"status": "ok"}
 
 
@@ -276,6 +295,7 @@ async def add_member(
 async def remove_member(
     group_id: uuid.UUID,
     user_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -294,3 +314,6 @@ async def remove_member(
         raise HTTPException(status_code=404, detail="Member not found")
 
     await db.delete(member)
+    await audit_log(db, user=current_user, action="group.member_remove", target_type="group",
+                    target_id=str(group_id),
+                    detail={"removed_user_id": str(user_id)}, request=request)

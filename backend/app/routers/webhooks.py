@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deps import require_permission
 from app.models import User, WebhookEndpoint
+from app.services.audit import audit_log
 
 router = APIRouter(prefix="/admin/webhooks", tags=["webhooks"])
 
@@ -81,11 +82,16 @@ async def list_webhooks(
 @router.post("", response_model=WebhookOut, status_code=201)
 async def create_webhook(
     body: WebhookCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("admin")),
 ):
     ep = WebhookEndpoint(name=body.name, url=body.url, format=body.format, secret=body.secret)
     db.add(ep)
+    await db.flush()
+    await audit_log(db, user=current_user, action="webhook.create", target_type="webhook",
+                    target_id=str(ep.id), target_name=body.name,
+                    detail={"url": body.url, "format": body.format}, request=request)
     await db.commit()
     await db.refresh(ep)
     return _to_out(ep)
@@ -95,6 +101,7 @@ async def create_webhook(
 async def update_webhook(
     webhook_id: uuid.UUID,
     body: WebhookUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("admin")),
 ):
@@ -104,8 +111,12 @@ async def update_webhook(
     ep = result.scalar_one_or_none()
     if not ep:
         raise HTTPException(status_code=404, detail="Webhook が見つかりません")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changed = body.model_dump(exclude_unset=True)
+    for field, value in changed.items():
         setattr(ep, field, value)
+    await audit_log(db, user=current_user, action="webhook.update", target_type="webhook",
+                    target_id=str(webhook_id), target_name=ep.name,
+                    detail=changed, request=request)
     await db.commit()
     await db.refresh(ep)
     return _to_out(ep)
@@ -114,6 +125,7 @@ async def update_webhook(
 @router.delete("/{webhook_id}", status_code=204)
 async def delete_webhook(
     webhook_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("admin")),
 ):
@@ -123,7 +135,10 @@ async def delete_webhook(
     ep = result.scalar_one_or_none()
     if not ep:
         raise HTTPException(status_code=404, detail="Webhook が見つかりません")
+    ep_name = ep.name
     await db.delete(ep)
+    await audit_log(db, user=current_user, action="webhook.delete", target_type="webhook",
+                    target_id=str(webhook_id), target_name=ep_name, request=request)
     await db.commit()
 
 
