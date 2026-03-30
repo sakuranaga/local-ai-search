@@ -3,7 +3,7 @@ import secrets
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deps import require_permission
 from app.models import ApiKey, Folder, User
+from app.services.audit import audit_log
 
 router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 
@@ -112,6 +113,7 @@ async def list_api_keys(
 @router.post("", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_api_key(
     body: ApiKeyCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_permission("admin")),
 ):
@@ -154,6 +156,12 @@ async def create_api_key(
     await db.flush()
     await db.refresh(api_key)
 
+    await audit_log(db, user=_admin, action="api_key.create", target_type="api_key",
+                    target_id=str(api_key.id), target_name=body.name,
+                    detail={"owner_id": body.owner_id, "permissions": body.permissions,
+                            "key_prefix": key_prefix},
+                    request=request)
+
     resp = _key_response(api_key)
     return ApiKeyCreateResponse(
         **resp.model_dump(),
@@ -165,6 +173,7 @@ async def create_api_key(
 async def update_api_key(
     key_id: uuid.UUID,
     body: ApiKeyUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_permission("admin")),
 ):
@@ -193,12 +202,16 @@ async def update_api_key(
 
     await db.flush()
     await db.refresh(api_key)
+    await audit_log(db, user=_admin, action="api_key.update", target_type="api_key",
+                    target_id=str(key_id), target_name=api_key.name,
+                    detail=body.model_dump(exclude_unset=True), request=request)
     return _key_response(api_key)
 
 
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_api_key(
     key_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_permission("admin")),
 ):
@@ -206,4 +219,9 @@ async def delete_api_key(
     api_key = result.scalar_one_or_none()
     if api_key is None:
         raise HTTPException(status_code=404, detail="API key not found")
+    key_name = api_key.name
+    key_prefix = api_key.key_prefix
     await db.delete(api_key)
+    await audit_log(db, user=_admin, action="api_key.delete", target_type="api_key",
+                    target_id=str(key_id), target_name=key_name,
+                    detail={"key_prefix": key_prefix}, request=request)

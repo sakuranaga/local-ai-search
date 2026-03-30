@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,7 @@ from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user, require_permission
 from app.models import Chunk, Document, File, Folder, User
+from app.services.audit import audit_log
 from app.services.document_processing import chunk_text, get_embeddings
 from app.services.versioning import create_initial_version, create_versions_on_edit, save_new_version
 
@@ -700,6 +701,7 @@ class NoteReadonlyToggle(BaseModel):
 async def admin_toggle_readonly(
     note_id: uuid.UUID,
     body: NoteReadonlyToggle,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("admin")),
 ):
@@ -708,6 +710,9 @@ async def admin_toggle_readonly(
     if not doc or not doc.is_note or doc.deleted_at:
         raise HTTPException(404, "ノートが見つかりません")
     doc.note_readonly = body.note_readonly
+    await audit_log(db, user=current_user, action="note.readonly_toggle", target_type="note",
+                    target_id=str(note_id), target_name=doc.title,
+                    detail={"note_readonly": body.note_readonly}, request=request)
     await db.commit()
     return {"id": str(doc.id), "note_readonly": doc.note_readonly}
 
@@ -715,12 +720,14 @@ async def admin_toggle_readonly(
 @router.post("/admin/bulk-delete")
 async def admin_bulk_delete_notes(
     body: BulkNoteDeleteRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("admin")),
 ):
     """Bulk soft-delete notes (admin only)."""
     now = datetime.now(timezone.utc)
     deleted = 0
+    deleted_titles = []
     for nid in body.note_ids:
         doc = await db.get(Document, uuid.UUID(nid))
         if doc and doc.is_note and not doc.deleted_at:
@@ -733,5 +740,9 @@ async def admin_bulk_delete_notes(
             )
             doc.deleted_at = now
             deleted += 1
+            deleted_titles.append({"id": nid, "title": doc.title})
+    if deleted:
+        await audit_log(db, user=current_user, action="note.bulk_delete", target_type="note",
+                        detail={"count": deleted, "notes": deleted_titles}, request=request)
     await db.commit()
     return {"deleted": deleted}

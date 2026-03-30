@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deps import require_permission
 from app.models import MailRecipient, User
+from app.services.audit import audit_log
 
 router = APIRouter(prefix="/admin/mail", tags=["mail"])
 
@@ -66,6 +67,7 @@ async def list_recipients(
 @router.post("/recipients", response_model=RecipientOut, status_code=201)
 async def add_recipient(
     body: RecipientCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("admin")),
 ):
@@ -76,6 +78,9 @@ async def add_recipient(
         raise HTTPException(status_code=409, detail="このメールアドレスは既に登録されています")
     r = MailRecipient(email=body.email)
     db.add(r)
+    await db.flush()
+    await audit_log(db, user=current_user, action="mail_recipient.create", target_type="mail_recipient",
+                    target_id=str(r.id), target_name=body.email, request=request)
     await db.commit()
     await db.refresh(r)
     return RecipientOut(id=str(r.id), email=r.email, on_login=r.on_login,
@@ -87,6 +92,7 @@ async def add_recipient(
 async def update_recipient(
     recipient_id: uuid.UUID,
     body: RecipientUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("admin")),
 ):
@@ -96,8 +102,12 @@ async def update_recipient(
     r = result.scalar_one_or_none()
     if not r:
         raise HTTPException(status_code=404, detail="通知先が見つかりません")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changed = body.model_dump(exclude_unset=True)
+    for field, value in changed.items():
         setattr(r, field, value)
+    await audit_log(db, user=current_user, action="mail_recipient.update", target_type="mail_recipient",
+                    target_id=str(recipient_id), target_name=r.email,
+                    detail=changed, request=request)
     await db.commit()
     await db.refresh(r)
     return RecipientOut(id=str(r.id), email=r.email, on_login=r.on_login,
@@ -108,6 +118,7 @@ async def update_recipient(
 @router.delete("/recipients/{recipient_id}", status_code=204)
 async def delete_recipient(
     recipient_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("admin")),
 ):
@@ -117,7 +128,10 @@ async def delete_recipient(
     r = result.scalar_one_or_none()
     if not r:
         raise HTTPException(status_code=404, detail="通知先が見つかりません")
+    email = r.email
     await db.delete(r)
+    await audit_log(db, user=current_user, action="mail_recipient.delete", target_type="mail_recipient",
+                    target_id=str(recipient_id), target_name=email, request=request)
     await db.commit()
 
 

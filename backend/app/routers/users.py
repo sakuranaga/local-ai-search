@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deps import require_permission
 from app.models import Role, User, UserRole
+from app.services.audit import audit_log
 from app.services.auth import hash_password
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -81,6 +82,7 @@ async def list_users(
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: UserCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_permission("admin")),
 ):
@@ -114,6 +116,9 @@ async def create_user(
             await db.flush()
 
     await db.refresh(user)
+    await audit_log(db, user=_admin, action="user.create", target_type="user",
+                    target_id=str(user.id), target_name=user.username,
+                    detail={"role": body.role or None}, request=request)
     return _user_response(user)
 
 
@@ -134,6 +139,7 @@ async def get_user(
 async def update_user(
     user_id: uuid.UUID,
     body: UserUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_permission("admin")),
 ):
@@ -168,14 +174,22 @@ async def update_user(
             if role:
                 db.add(UserRole(user_id=user.id, role_id=role.id))
 
+    changed = {k: v for k, v in body.model_dump(exclude_unset=True).items() if k != "password"}
+    if body.password is not None:
+        changed["password"] = "***changed***"
+
     await db.flush()
     await db.refresh(user)
+    await audit_log(db, user=_admin, action="user.update", target_type="user",
+                    target_id=str(user.id), target_name=user.username,
+                    detail=changed, request=request)
     return _user_response(user)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_permission("admin")),
 ):
@@ -183,6 +197,9 @@ async def delete_user(
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    await audit_log(db, user=_admin, action="user.delete", target_type="user",
+                    target_id=str(user_id), target_name=user.username, request=request)
+    await db.execute(delete(UserRole).where(UserRole.user_id == user_id))
     await db.delete(user)
 
 
@@ -190,6 +207,7 @@ async def delete_user(
 async def assign_roles(
     user_id: uuid.UUID,
     body: RoleAssignment,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_permission("admin")),
 ):
@@ -210,4 +228,7 @@ async def assign_roles(
 
     await db.flush()
     await db.refresh(user)
+    await audit_log(db, user=_admin, action="user.role_assign", target_type="user",
+                    target_id=str(user_id), target_name=user.username,
+                    detail={"role_ids": body.role_ids}, request=request)
     return _user_response(user)

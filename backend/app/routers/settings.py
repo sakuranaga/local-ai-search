@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deps import get_current_user, require_permission
 from app.models import SystemSetting, User
+from app.services.audit import audit_log
 from app.services.settings import DEFAULTS
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -71,6 +72,7 @@ async def list_settings(
 async def update_setting(
     key: str,
     body: SettingUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("admin")),
 ):
@@ -95,6 +97,10 @@ async def update_setting(
     await db.flush()
 
     is_secret = DEFAULTS[key].get("secret", False)
+    await audit_log(db, user=current_user, action="setting.update", target_type="setting",
+                    target_id=key, target_name=key,
+                    detail={"value": "***" if is_secret else body.value},
+                    request=request)
     display_value = ("••••••••" + body.value[-4:]) if is_secret and body.value else body.value
     return SettingItem(
         key=key,
