@@ -264,6 +264,7 @@ export interface ChatStatus {
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  turnContext?: string;
 }
 
 export interface ChatSource {

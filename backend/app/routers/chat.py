@@ -23,6 +23,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
     content: str
+    turn_context: str | None = None  # Tool action summary from previous turn
 
 
 class ContextChunk(BaseModel):
@@ -75,7 +76,10 @@ async def chat_stream(
     Creates a per-request cancel event so disconnecting clients don't waste
     LLM inference resources.
     """
-    messages = [{"role": m.role, "content": m.content} for m in body.messages]
+    messages = [
+        {"role": m.role, "content": m.content, **({"turn_context": m.turn_context} if m.turn_context else {})}
+        for m in body.messages
+    ]
 
     # Carried-over context from frontend
     existing_context = [c.content for c in body.context] if body.context else None

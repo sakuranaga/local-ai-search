@@ -342,3 +342,72 @@ def summarize_result(tool_name: str, result_text: str) -> str:
         return result_text.strip()
     lines = result_text.strip().split("\n")
     return lines[0] if lines else "完了"
+
+
+def summarize_result_for_context(tool_name: str, tool_args: dict, result_text: str) -> str:
+    """Create a condensed summary of a tool action for multi-turn context.
+
+    More detailed than summarize_result (for UI) but much smaller than raw result.
+    Target: ~100-300 chars per call.
+    """
+    if tool_name == "search":
+        query = tool_args.get("query", "")
+        # Extract first line (has count info) + document titles
+        lines = result_text.strip().split("\n")
+        header = lines[0] if lines else ""
+        titles = []
+        for line in lines[1:]:
+            if line.startswith("- **"):
+                # Extract "title (ID: ...)" part
+                end = line.find("**", 4)
+                if end > 4:
+                    titles.append(line[4:end])
+        summary = f"search(\"{query}\"): {header}"
+        if titles:
+            summary += " → " + ", ".join(titles[:5])
+        return summary
+
+    elif tool_name == "grep":
+        pattern = tool_args.get("pattern", "")
+        lines = result_text.strip().split("\n")
+        header = lines[0] if lines else ""
+        titles = []
+        for line in lines[1:]:
+            if line.startswith("- **"):
+                end = line.find("**", 4)
+                if end > 4:
+                    titles.append(line[4:end])
+        summary = f"grep(\"{pattern}\"): {header}"
+        if titles:
+            summary += " → " + ", ".join(titles[:5])
+        return summary
+
+    elif tool_name == "search_by_title":
+        query = tool_args.get("query", "")
+        lines = result_text.strip().split("\n")
+        header = lines[0] if lines else ""
+        titles = []
+        for line in lines[1:]:
+            if line.startswith("- **"):
+                end = line.find("**", 4)
+                if end > 4:
+                    titles.append(line[4:end])
+        summary = f"search_by_title(\"{query}\"): {header}"
+        if titles:
+            summary += " → " + ", ".join(titles[:5])
+        return summary
+
+    elif tool_name == "read_document":
+        doc_id = tool_args.get("id", "")
+        # Extract title and first ~150 chars of content
+        if "の全文:" in result_text:
+            parts = result_text.split("の全文:\n\n", 1)
+            title = parts[0].replace("**", "").strip()
+            content_preview = parts[1][:150].replace("\n", " ") if len(parts) > 1 else ""
+            return f"read_document({doc_id[:8]}...): {title} → {content_preview}..."
+        return f"read_document({doc_id[:8]}...): {result_text[:150]}"
+
+    elif tool_name == "count_results":
+        return f"count_results: {result_text.strip()}"
+
+    return f"{tool_name}: {result_text[:150]}"

@@ -42,6 +42,7 @@ export function streamChat(
   onDone: () => void,
   onError: (err: Error) => void,
   onToolEvent?: (step: ToolStep) => void,
+  onTurnContext?: (summary: string) => void,
 ): AbortController {
   const controller = new AbortController();
   const token = getToken();
@@ -52,7 +53,14 @@ export function streamChat(
   fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ messages, context }),
+    body: JSON.stringify({
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        ...(m.turnContext ? { turn_context: m.turnContext } : {}),
+      })),
+      context,
+    }),
     signal: controller.signal,
   })
     .then(async (res) => {
@@ -98,6 +106,8 @@ export function streamChat(
               } else if (parsed.type === "sources") {
                 const sources: ChatSource[] = parsed.sources;
                 onContext([], sources);
+              } else if (parsed.type === "turn_context") {
+                onTurnContext?.(parsed.summary);
               } else if (parsed.type === "context") {
                 const ctx: ChatContext[] = parsed.context;
                 const sources: ChatSource[] = ctx.map((c: ChatContext) => ({
