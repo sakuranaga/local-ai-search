@@ -364,22 +364,28 @@ async def ingest_content(
     if not source:
         raise HTTPException(status_code=400, detail="Source is required")
 
-    # Resolve folder by name (auto-create if needed)
+    # Resolve folder by name or path (auto-create if needed)
+    # Supports "/" separated paths like "Parent/Child/Grandchild"
     folder_id: uuid.UUID | None = None
     if body.folder:
-        folder_name = body.folder.strip()
-        if folder_name:
-            result = await db.execute(
-                select(Folder).where(Folder.name == folder_name)
-            )
-            folder_obj = result.scalar_one_or_none()
-            if folder_obj:
-                folder_id = folder_obj.id
-            else:
-                folder_obj = Folder(name=folder_name, owner_id=current_user.id)
-                db.add(folder_obj)
-                await db.flush()
-                folder_id = folder_obj.id
+        folder_path = body.folder.strip().strip("/")
+        if folder_path:
+            parts = [p.strip() for p in folder_path.split("/") if p.strip()]
+            parent_id: uuid.UUID | None = None
+            for part in parts:
+                result = await db.execute(
+                    select(Folder).where(
+                        Folder.name == part,
+                        Folder.parent_id == parent_id,
+                    )
+                )
+                folder_obj = result.scalar_one_or_none()
+                if not folder_obj:
+                    folder_obj = Folder(name=part, parent_id=parent_id, owner_id=current_user.id)
+                    db.add(folder_obj)
+                    await db.flush()
+                parent_id = folder_obj.id
+            folder_id = parent_id
 
     # Enforce API key folder restriction
     resolved_folder = _resolve_folder_id(api_key, folder_id)

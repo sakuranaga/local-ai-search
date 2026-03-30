@@ -1242,7 +1242,7 @@ function ApiKeysTab() {
     "source": "jira",
     "external_id": "PROJ-1234",
     "external_url": "https://...",
-    "folder": "フォルダ名",
+    "folder": "Notion/プロジェクトA",
     "tags": ["tag1", "tag2"],
     "memo": "メモ",
     "mode": "append",
@@ -1266,7 +1266,7 @@ function ApiKeysTab() {
                   <tr className="border-b"><td className="py-1 pr-2"><code>source</code></td><td className="py-1 pr-2">○</td><td className="py-1">登録元の識別子（例: discord, jira, n8n）</td></tr>
                   <tr className="border-b"><td className="py-1 pr-2"><code>external_id</code></td><td className="py-1 pr-2"></td><td className="py-1">外部サービスの一意ID（upsertキー）</td></tr>
                   <tr className="border-b"><td className="py-1 pr-2"><code>external_url</code></td><td className="py-1 pr-2"></td><td className="py-1">外部サービスのURL</td></tr>
-                  <tr className="border-b"><td className="py-1 pr-2"><code>folder</code></td><td className="py-1 pr-2"></td><td className="py-1">フォルダ名（自動作成）</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>folder</code></td><td className="py-1 pr-2"></td><td className="py-1">フォルダ名（自動作成）。<code>/</code> 区切りでサブフォルダ指定可（例: <code>親/子</code>）</td></tr>
                   <tr className="border-b"><td className="py-1 pr-2"><code>tags</code></td><td className="py-1 pr-2"></td><td className="py-1">タグ名の配列（自動作成）</td></tr>
                   <tr className="border-b"><td className="py-1 pr-2"><code>memo</code></td><td className="py-1 pr-2"></td><td className="py-1">メモ</td></tr>
                   <tr className="border-b"><td className="py-1 pr-2"><code>mode</code></td><td className="py-1 pr-2"></td><td className="py-1"><code>"append"</code>: 既存ドキュメントに追記。省略時は全文置換</td></tr>
