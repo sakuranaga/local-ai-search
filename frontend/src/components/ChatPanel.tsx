@@ -32,6 +32,7 @@ interface DisplayMessage {
   content: string;
   sources?: ChatSource[];
   toolSteps?: ToolStepDisplay[];
+  turnContext?: string;
 }
 
 interface ChatCache {
@@ -163,6 +164,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
       const chatMessages: ChatMessage[] = newMessages.map((m) => ({
         role: m.role,
         content: m.content,
+        ...(m.turnContext ? { turnContext: m.turnContext } : {}),
       }));
 
       let accumulated = "";
@@ -229,6 +231,17 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
 
             last.toolSteps = steps;
             updated[updated.length - 1] = last;
+            return updated;
+          });
+        },
+        // onTurnContext
+        (summary: string) => {
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              ...updated[updated.length - 1],
+              turnContext: summary,
+            };
             return updated;
           });
         },

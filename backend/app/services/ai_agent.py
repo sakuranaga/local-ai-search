@@ -19,6 +19,7 @@ from app.services.agent_tools import (
     execute_tool,
     extract_tool_calls_from_text,
     summarize_result,
+    summarize_result_for_context,
 )
 from app.services.llm import CancelledByClient, chat_completion, stream_chat_raw
 from app.services.settings import get_setting
@@ -97,6 +98,7 @@ async def run_agent(
     max_rounds = int(await get_setting(db, "ai_max_search_rounds") or "3")
     all_sources: list[dict] = []
     seen_doc_ids: set[str] = set()
+    tool_actions: list[str] = []  # Condensed summaries for turn_context
 
     # Build conversation with system prompt
     system_content = SYSTEM_PROMPT
@@ -104,7 +106,18 @@ async def run_agent(
         context_text = "\n\n---\n\n".join(existing_context)
         system_content += f"\n\n## 前回の検索で取得済みのコンテキスト:\n{context_text}"
 
-    conv_messages = [{"role": "system", "content": system_content}] + messages
+    conv_messages = [{"role": "system", "content": system_content}]
+
+    # Inject previous turn contexts into conversation
+    for m in messages:
+        if m.get("turn_context") and m.get("role") == "assistant":
+            augmented = (
+                f"[前回のツール使用結果]\n{m['turn_context']}\n\n"
+                f"[回答]\n{m['content']}"
+            )
+            conv_messages.append({"role": "assistant", "content": augmented})
+        else:
+            conv_messages.append({"role": m["role"], "content": m["content"]})
 
     for round_num in range(1, max_rounds + 1):
         if cancel_event and cancel_event.is_set():
@@ -172,6 +185,7 @@ async def run_agent(
                         if s["document_id"] not in seen_doc_ids:
                             seen_doc_ids.add(s["document_id"])
                             all_sources.append(s)
+                    tool_actions.append(summarize_result_for_context("search", {"query": user_query}, result_text))
                     yield {
                         "type": "tool_result",
                         "round": round_num,
@@ -249,6 +263,8 @@ async def run_agent(
                     seen_doc_ids.add(s["document_id"])
                     all_sources.append(s)
 
+            tool_actions.append(summarize_result_for_context(tool_name, tool_args, result_text))
+
             yield {
                 "type": "tool_result",
                 "round": round_num,
@@ -261,6 +277,14 @@ async def run_agent(
                 "tool_call_id": tc_id,
                 "content": result_text,
             })
+
+    # Send turn context summary for multi-turn memory
+    if tool_actions:
+        turn_summary = "\n".join(tool_actions)
+        # Cap at ~1500 chars to be context-window-friendly
+        if len(turn_summary) > 1500:
+            turn_summary = turn_summary[:1500] + "..."
+        yield {"type": "turn_context", "summary": turn_summary}
 
     # Send sources
     if all_sources:
