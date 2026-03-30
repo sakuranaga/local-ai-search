@@ -403,6 +403,58 @@ curl -X PATCH https://your-server/tusd/<upload-id> \
   --data-binary @file.pdf
 ```
 
+#### ファイルアップロード
+
+```bash
+curl -X POST https://your-server/api/ingest/upload \
+  -H "X-API-Key: las_xxx" \
+  -F "file=@document.pdf" \
+  -F "folder_id=FOLDER_UUID"  # 省略可
+```
+
+#### テキスト投入（n8n / Zapier 連携向け）
+
+```bash
+curl -X POST https://your-server/api/ingest/content \
+  -H "X-API-Key: las_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "タイトル",
+    "content": "本文テキスト（Markdown可）",
+    "source": "notion",
+    "external_id": "page-id-123",
+    "external_url": "https://notion.so/...",
+    "folder": "Notion/プロジェクトA",
+    "tags": ["notion", "sync"],
+    "memo": "メモ",
+    "mode": "append",
+    "version": true
+  }'
+```
+
+`source` + `external_id` が同じ場合は既存ドキュメントを更新（upsert）。
+
+| パラメータ | 必須 | 説明 |
+|-----------|------|------|
+| `title` | ○ | ドキュメントタイトル（`.md` 自動付与） |
+| `content` | ○ | 本文（Markdown 形式） |
+| `source` | ○ | 登録元の識別子（例: `discord`, `jira`, `notion`） |
+| `external_id` | | 外部サービスの一意 ID（upsert キー） |
+| `external_url` | | 外部サービスの URL |
+| `folder` | | フォルダ名（自動作成）。`/` 区切りでサブフォルダ指定可（例: `親/子/孫`） |
+| `tags` | | タグ名の配列（自動作成） |
+| `memo` | | メモ |
+| `mode` | | `"append"`: 既存ドキュメントに追記。省略時は全文置換 |
+| `version` | | `true`: 更新時にバージョンを保存。デフォルト `false` |
+
+#### その他のエンドポイント
+
+| メソッド | エンドポイント | 説明 |
+|---------|--------------|------|
+| GET | `/api/ingest/status/{id}` | 処理状況の確認 |
+| DELETE | `/api/ingest/{id}` | ドキュメント削除（`delete` 権限が必要） |
+| GET | `/api/ingest/list` | ドキュメント一覧 |
+
 ## 設計書
 
 - [共有リンク設計](docs/share-links.md) — Share Server アーキテクチャ, API 仕様
