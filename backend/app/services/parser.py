@@ -303,9 +303,11 @@ def chunk_text(text: str, chunk_size: int = 800, overlap: int = 100) -> list[str
         if chunk:
             chunks.append(chunk)
 
+        # テキスト末尾まで到達したら終了
+        if end >= text_len:
+            break
+
         # Move start forward, applying overlap
         start = max(end - overlap, start + 1)
-        if start >= text_len:
-            break
 
     return chunks
