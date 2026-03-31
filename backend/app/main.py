@@ -218,6 +218,9 @@ app.include_router(favorites.router, prefix="/api")
 from app.routers import notes
 app.include_router(notes.router, prefix="/api")
 
+from app.routers import jobs
+app.include_router(jobs.router, prefix="/api/jobs")
+
 
 @app.get("/api/health")
 async def health():

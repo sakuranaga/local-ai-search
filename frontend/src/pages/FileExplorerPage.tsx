@@ -70,6 +70,7 @@ import {
   getShareEnabled,
   updateDocument,
   bulkAction,
+  pollJobsProgress,
   getFolders,
   createFolder,
   createFoldersBulk,
@@ -227,7 +228,6 @@ export function FileExplorerPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [createTextOpen, setCreateTextOpen] = useState(false);
   const [bulkActionOpen, setBulkActionOpen] = useState<string | null>(null);
-  const [bulkReindexing, setBulkReindexing] = useState(false);
   const [shareTarget, setShareTarget] = useState<DocumentListItem | null>(null);
   const [shareEnabled, setShareEnabled] = useState(false);
 
@@ -2020,7 +2020,7 @@ export function FileExplorerPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={bulkActionOpen === "reindex"} onOpenChange={(o) => { if (!bulkReindexing) setBulkActionOpen(o ? "reindex" : null); }}>
+      <Dialog open={bulkActionOpen === "reindex"} onOpenChange={(o) => setBulkActionOpen(o ? "reindex" : null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>一括ベクトル再構築</DialogTitle>
@@ -2028,15 +2028,31 @@ export function FileExplorerPage() {
           </DialogHeader>
           <DialogFooter showCloseButton>
             <Button
-              disabled={bulkReindexing}
               onClick={async () => {
-                setBulkReindexing(true);
+                const ids = [...selected];
+                setBulkActionOpen(null);
+                const tid = toast.loading(`再構築中... 0/${ids.length}`);
                 try {
-                  await handleBulkAction("reindex");
-                } finally { setBulkReindexing(false); }
+                  const res = await bulkAction(ids, "reindex");
+                  const jobIds = res.job_ids ?? [];
+                  if (jobIds.length === 0) {
+                    toast.error("再構築対象がありません", { id: tid });
+                  } else {
+                    const result = await pollJobsProgress(jobIds, (done, total) => {
+                      toast.loading(`再構築中... ${done}/${total}`, { id: tid });
+                    });
+                    const msg = result.errors > 0
+                      ? `再構築完了: ${result.done}件成功, ${result.errors}件エラー`
+                      : `再構築完了: ${result.done}件`;
+                    toast.success(msg, { id: tid });
+                  }
+                  load(true);
+                } catch {
+                  toast.error("再構築に失敗しました", { id: tid });
+                }
               }}
             >
-              {bulkReindexing ? <><RefreshCw className="h-4 w-4 mr-1 animate-spin" />再構築中...</> : "再構築する"}
+              再構築する
             </Button>
           </DialogFooter>
         </DialogContent>

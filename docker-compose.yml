@@ -55,6 +55,22 @@ services:
       --timeout 300
       --graceful-timeout 30
 
+  queue-worker:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://las:${POSTGRES_PASSWORD}@db:5432/las
+      STORAGE_PATH: /data/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/data/storage
+    command: python -u -m app.worker --concurrency 2 --poll-interval 1.0
+
   clamav:
     image: clamav/clamav:latest
     restart: unless-stopped

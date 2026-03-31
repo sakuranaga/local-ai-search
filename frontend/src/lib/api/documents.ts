@@ -89,7 +89,7 @@ export async function bulkAction(
   ids: string[],
   action: string,
   extra?: Record<string, unknown>,
-): Promise<{ action: string; processed: number }> {
+): Promise<{ action: string; processed: number; job_ids?: string[] }> {
   return apiFetch("/documents/bulk-action", {
     method: "POST",
     body: JSON.stringify({ ids, action, ...extra }),
@@ -110,8 +110,63 @@ export async function setDocumentPermissions(
   });
 }
 
-export async function reindexDocument(id: string): Promise<{ chunk_count: number }> {
+export async function reindexDocument(id: string): Promise<{ id: string }> {
   return apiFetch(`/documents/${id}/reindex`, { method: "POST" });
+}
+
+// ---------------------------------------------------------------------------
+// Job queue polling
+// ---------------------------------------------------------------------------
+
+export interface JobStatus {
+  id: string;
+  job_type: string;
+  status: string;  // pending, running, completed, failed
+  progress: string | null;
+  error: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export async function getJobsStatus(jobIds: string[]): Promise<JobStatus[]> {
+  const res = await apiFetch<{ jobs: JobStatus[] }>(`/jobs?ids=${jobIds.join(",")}`);
+  return res.jobs;
+}
+
+/**
+ * Poll job statuses until all reach "completed" or "failed".
+ * Calls onProgress with (completed, total) on each tick.
+ */
+export async function pollJobsProgress(
+  jobIds: string[],
+  onProgress: (completed: number, total: number) => void,
+): Promise<{ done: number; errors: number }> {
+  const pending = new Set(jobIds);
+  let doneCount = 0;
+  let errorCount = 0;
+
+  while (pending.size > 0) {
+    try {
+      const jobs = await getJobsStatus([...pending]);
+      for (const job of jobs) {
+        if (job.status === "completed") {
+          pending.delete(job.id);
+          doneCount++;
+        } else if (job.status === "failed") {
+          pending.delete(job.id);
+          errorCount++;
+        }
+      }
+    } catch {
+      break;
+    }
+    onProgress(doneCount + errorCount, jobIds.length);
+    if (pending.size > 0) {
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  return { done: doneCount, errors: errorCount };
 }
 
 // ---------------------------------------------------------------------------

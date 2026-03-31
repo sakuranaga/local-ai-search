@@ -8,7 +8,6 @@ Endpoints:
   GET    /api/ingest/list        List documents accessible by this API key
 """
 
-import asyncio
 import base64
 import hashlib
 import logging
@@ -28,7 +27,8 @@ from app.deps import get_api_key, get_current_user
 from app.models import ApiKey, Chunk, Document, DocumentTag, File, Folder, Tag, User
 from app.services.audit import audit_log
 from app.services.auth import verify_token
-from app.services.document_processing import get_file_type, process_document_background
+from app.services.document_processing import get_file_type
+from app.services.job_queue import create_job
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +265,12 @@ async def _ingest_single_file(
                     target_type="document", target_id=str(doc.id), target_name=doc.title,
                     detail={"via": "api_key", "api_key": api_key.name})
 
+    await create_job(db, "document_processing", {
+        "doc_id": str(doc.id),
+        "storage_path": str(storage_path),
+        "file_type": file_type,
+        "filename": file.filename,
+    })
     await db.commit()
     await db.refresh(doc)
 
@@ -277,11 +283,6 @@ async def _ingest_single_file(
     else:
         notify_update(uname, [doc.title])
         webhook_update(uname, [doc.title])
-
-    # Background processing (detached from request lifecycle to free DB session)
-    asyncio.create_task(
-        process_document_background(doc.id, str(storage_path), file_type, file.filename)
-    )
 
     return IngestResponse(
         id=str(doc.id),
@@ -577,6 +578,12 @@ async def ingest_content(
                     target_type="document", target_id=str(doc.id), target_name=doc.title,
                     detail={"via": "api_key", "api_key": api_key.name, "source": source, "external_id": body.external_id})
 
+    await create_job(db, "document_processing", {
+        "doc_id": str(doc.id),
+        "storage_path": str(storage_path),
+        "file_type": "md",
+        "filename": title,
+    })
     await db.commit()
     await db.refresh(doc)
 
@@ -589,11 +596,6 @@ async def ingest_content(
     else:
         notify_update(uname, [doc.title])
         webhook_update(uname, [doc.title])
-
-    # Background processing (chunk, embedding, summary)
-    asyncio.create_task(
-        process_document_background(doc.id, str(storage_path), "md", title)
-    )
 
     return IngestResponse(
         id=str(doc.id),
@@ -972,12 +974,13 @@ async def tus_hook(
                 await db.commit()
                 return JSONResponse(content={"ok": False, "error": f"Virus detected: {scan_message}"})
 
+            await create_job(db, "document_processing", {
+                "doc_id": str(doc.id),
+                "storage_path": file_path,
+                "file_type": file_type,
+                "filename": filename,
+            })
             await db.commit()
-
-            # Start background processing (detached from request lifecycle)
-            asyncio.create_task(
-                process_document_background(doc.id, file_path, file_type, filename)
-            )
 
             return JSONResponse(content={"ok": True, "document_id": str(doc.id)})
 

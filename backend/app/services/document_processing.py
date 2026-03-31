@@ -1,7 +1,6 @@
 """Document processing helpers: file type detection, list item building,
 tag loading, and background processing pipeline."""
 
-import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -9,7 +8,6 @@ from pathlib import Path
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import async_session
 from app.models import Chunk, Document, DocumentTag, Tag
 from app.schemas.documents import DocumentListItem, TagInfo
 from app.services.embedding import get_embedding, get_embeddings
@@ -199,131 +197,133 @@ async def reindex_document_content(
     if updated_by_id is not None:
         doc.updated_by_id = updated_by_id
         doc.updated_at = func.now()
+    else:
+        # 再構築時は updated_at を変更しない
+        # doc.content 代入で dirty になるため、明示的に元の値を保持
+        from sqlalchemy import inspect
+        history = inspect(doc).attrs.updated_at.history
+        if history.unchanged:
+            doc.updated_at = history.unchanged[0]
 
     return text_content, chunks_text
 
 
 # ---------------------------------------------------------------------------
-# Background processing pipeline
+# Background processing (called by queue-worker)
 # ---------------------------------------------------------------------------
 
-# Limit concurrent tasks to prevent resource exhaustion
-_parse_semaphore = asyncio.Semaphore(4)   # CPU/OCR-bound parsing
-_gpu_semaphore = asyncio.Semaphore(2)     # GPU-heavy embedding + summarization
 
+async def process_document_job(
+    job_id: uuid.UUID,
+    doc_id: uuid.UUID,
+    storage_path: str,
+    file_type: str,
+    filename: str,
+    session_factory,
+):
+    """Process a document: parse → chunk → embed → summarize → preview.
 
-async def _set_status(doc_id: uuid.UUID, status: str):
-    """Quick DB session just to update processing_status."""
-    async with async_session() as db:
-        result = await db.execute(select(Document).where(Document.id == doc_id))
-        doc = result.scalar_one_or_none()
-        if doc:
-            doc.processing_status = status
-            await db.commit()
-
-
-async def process_document_background(doc_id: uuid.UUID, storage_path: str, file_type: str, filename: str):
-    """Background task: parse → chunk → embed → summarize.
-
-    Each phase opens/closes its own DB session so connections are not held
-    during long-running GPU operations (embedding, summarization).
-    Non-extractable file types (Tier 2/3) skip the pipeline entirely.
+    Called by the queue-worker process. Updates both Document.processing_status
+    and Job.progress. Raises on failure so the worker can handle retries.
     """
-    try:
-        # Tier 2/3: no text extraction — mark done immediately
-        if file_type not in EXTRACTABLE_TYPES:
-            await _set_status(doc_id, "done")
-            logger.info(f"Non-extractable file, skipped processing: {filename} ({file_type})")
-            return
+    from app.services.job_queue import update_progress
 
-        # Phase 1: Parse / OCR (semaphore limits concurrent parsing)
-        await _set_status(doc_id, "queued")
-        async with _parse_semaphore:
-            await _set_status(doc_id, "parsing")
-            try:
-                text_content = await parse_file(storage_path, file_type)
-                text_content = _sanitize_text(text_content)
-            except Exception as e:
-                logger.error(f"Parse failed for {filename}: {e}")
-                await _set_status(doc_id, "error")
-                return
-
-            # Chunking (still under parse semaphore)
-            await _set_status(doc_id, "chunking")
-            chunks_text = chunk_text(text_content)
-
-        # Phase 2: Embedding (GPU - semaphore limits concurrent GPU tasks)
-        await _set_status(doc_id, "embedding")
-        async with _gpu_semaphore:
-            try:
-                embeddings = await get_embeddings(chunks_text)
-            except Exception:
-                embeddings = [None] * len(chunks_text)
-            # Title embedding (title + filename for semantic search)
-            try:
-                title_text = filename
-                async with async_session() as db:
-                    result = await db.execute(select(Document.title, Document.source_path).where(Document.id == doc_id))
-                    row = result.one_or_none()
-                    if row:
-                        parts = [row.title]
-                        if row.source_path and row.source_path != row.title:
-                            parts.append(row.source_path)
-                        title_text = " | ".join(parts)
-                title_emb = await get_embedding(title_text)
-            except Exception:
-                title_emb = None
-
-        # Phase 3: Save content + chunks to DB (short session)
-        async with async_session() as db:
-            result = await db.execute(select(Document).where(Document.id == doc_id))
-            doc = result.scalar_one_or_none()
-            if not doc:
-                return
-            doc.content = text_content
-            doc.title_embedding = title_emb
-            doc.processing_status = "summarizing"
-            await db.execute(delete(Chunk).where(Chunk.document_id == doc_id))
-            for i, (chunk_content, embedding) in enumerate(zip(chunks_text, embeddings)):
-                db.add(Chunk(
-                    document_id=doc_id,
-                    chunk_index=i,
-                    content=chunk_content,
-                    embedding=embedding,
-                ))
-            await db.commit()
-
-        # Phase 4: Summary (GPU - done outside DB session)
-        async with _gpu_semaphore:
-            try:
-                summary = await generate_summary(text_content, filename)
-            except Exception:
-                summary = None
-
-        # Save summary (short session)
-        async with async_session() as db:
+    async def _set_status_and_progress(status: str):
+        async with session_factory() as db:
             result = await db.execute(select(Document).where(Document.id == doc_id))
             doc = result.scalar_one_or_none()
             if doc:
-                if summary:
-                    doc.summary = summary
+                doc.processing_status = status
+                await db.commit()
+        async with session_factory() as db:
+            await update_progress(db, job_id, status)
+
+    # Tier 2/3: no text extraction — mark done immediately
+    if file_type not in EXTRACTABLE_TYPES:
+        async with session_factory() as db:
+            result = await db.execute(select(Document).where(Document.id == doc_id))
+            doc = result.scalar_one_or_none()
+            if doc:
                 doc.processing_status = "done"
                 await db.commit()
+        logger.info("Non-extractable file, skipped processing: %s (%s)", filename, file_type)
+        return
 
-        # Phase 5: Preview image generation (LibreOffice, non-GPU)
-        from app.services.preview_generator import PREVIEW_ELIGIBLE, generate_preview_images
-        if file_type in PREVIEW_ELIGIBLE:
-            try:
-                page_count = await generate_preview_images(str(doc_id), storage_path, file_type)
-                logger.info(f"Generated {page_count} preview images for {filename}")
-            except Exception as e:
-                logger.warning(f"Preview generation failed for {filename}: {e}")
+    # Phase 1: Parse / OCR
+    await _set_status_and_progress("parsing")
+    text_content = await parse_file(storage_path, file_type)
+    text_content = _sanitize_text(text_content)
 
-        logger.info(f"Background processing complete: {filename} ({doc_id})")
+    # Phase 2: Chunking
+    await _set_status_and_progress("chunking")
+    chunks_text = chunk_text(text_content)
 
-    except Exception as e:
-        logger.error(f"Background processing error for {doc_id}: {e}")
+    # Phase 3: Embedding
+    await _set_status_and_progress("embedding")
+    try:
+        embeddings = await get_embeddings(chunks_text)
+    except Exception:
+        embeddings = [None] * len(chunks_text)
+
+    # Title embedding
+    try:
+        title_text = filename
+        async with session_factory() as db:
+            result = await db.execute(
+                select(Document.title, Document.source_path).where(Document.id == doc_id)
+            )
+            row = result.one_or_none()
+            if row:
+                parts = [row.title]
+                if row.source_path and row.source_path != row.title:
+                    parts.append(row.source_path)
+                title_text = " | ".join(parts)
+        title_emb = await get_embedding(title_text)
+    except Exception:
+        title_emb = None
+
+    # Save content + chunks
+    async with session_factory() as db:
+        result = await db.execute(select(Document).where(Document.id == doc_id))
+        doc = result.scalar_one_or_none()
+        if not doc:
+            return
+        doc.content = text_content
+        doc.title_embedding = title_emb
+        doc.processing_status = "summarizing"
+        await db.execute(delete(Chunk).where(Chunk.document_id == doc_id))
+        for i, (chunk_content, embedding) in enumerate(zip(chunks_text, embeddings)):
+            db.add(Chunk(
+                document_id=doc_id,
+                chunk_index=i,
+                content=chunk_content,
+                embedding=embedding,
+            ))
+        await db.commit()
+
+    # Phase 4: Summary
+    await _set_status_and_progress("summarizing")
+    try:
+        summary = await generate_summary(text_content, filename)
+    except Exception:
+        summary = None
+
+    async with session_factory() as db:
+        result = await db.execute(select(Document).where(Document.id == doc_id))
+        doc = result.scalar_one_or_none()
+        if doc:
+            if summary:
+                doc.summary = summary
+            doc.processing_status = "done"
+            await db.commit()
+
+    # Phase 5: Preview image generation
+    from app.services.preview_generator import PREVIEW_ELIGIBLE, generate_preview_images
+    if file_type in PREVIEW_ELIGIBLE:
         try:
-            await _set_status(doc_id, "error")
-        except Exception:
-            pass
+            page_count = await generate_preview_images(str(doc_id), storage_path, file_type)
+            logger.info("Generated %d preview images for %s", page_count, filename)
+        except Exception as e:
+            logger.warning("Preview generation failed for %s: %s", filename, e)
+
+    logger.info("Processing complete: %s (%s)", filename, doc_id)
