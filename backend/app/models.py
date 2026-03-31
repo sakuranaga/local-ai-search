@@ -285,6 +285,15 @@ class Document(Base):
     note_order: Mapped[int] = mapped_column(Integer, default=0)
     note_readonly: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Usage tracking
+    view_count: Mapped[int] = mapped_column(Integer, default=0)
+    edit_count: Mapped[int] = mapped_column(Integer, default=0)
+    download_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_accessed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    folder_scores = mapped_column(JSON, nullable=False, default=dict)
+
     # External integration
     source: Mapped[str | None] = mapped_column(String(50), default="upload")
     external_id: Mapped[str | None] = mapped_column(String(500), nullable=True)

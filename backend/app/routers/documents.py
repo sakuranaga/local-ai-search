@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -45,6 +45,15 @@ from app.services.permissions import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+async def _increment_counter(db: AsyncSession, doc_id: uuid.UUID, field: str):
+    """Increment a usage counter and update last_accessed_at."""
+    await db.execute(
+        update(Document)
+        .where(Document.id == doc_id)
+        .values({field: getattr(Document, field) + 1, "last_accessed_at": func.now()})
+    )
 
 
 
@@ -699,6 +708,10 @@ async def download_document_file(
         if not _is_admin(current_user) and not current_user.can_download:
             raise HTTPException(status_code=403, detail="ダウンロード権限がありません")
 
+    if not inline:
+        await _increment_counter(db, document_id, "download_count")
+        await db.commit()
+
     resp = FileResponse(
         path=file_record.storage_path,
         filename=file_record.filename if not inline else None,
@@ -785,6 +798,9 @@ async def preview_document(
 
     current_user = await _resolve_token_user(request, token, db)
     doc, file_record = await _get_doc_file(document_id, current_user, db)
+
+    await _increment_counter(db, document_id, "view_count")
+    await db.commit()
 
     # Try pre-generated image preview first
     images = get_preview_images(str(document_id))
@@ -889,6 +905,8 @@ async def get_document(
 
     if not await _check_doc_access(doc, current_user, need_write=False, db=db):
         raise HTTPException(status_code=403, detail="Access denied")
+
+    await _increment_counter(db, document_id, "view_count")
 
     # Get chunks and files
     chunks_result = await db.execute(
@@ -1057,6 +1075,8 @@ async def update_document(
         )
         for tid in body.tag_ids:
             db.add(DocumentTag(document_id=doc.id, tag_id=tid))
+
+    await _increment_counter(db, document_id, "edit_count")
 
     if is_content_change:
         doc.updated_by_id = current_user.id

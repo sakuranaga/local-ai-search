@@ -79,6 +79,12 @@ async def init_db():
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_documents_source_external_id "
             "ON documents(source, external_id) WHERE external_id IS NOT NULL"
         ))
+        # Usage tracking columns
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS edit_count INTEGER DEFAULT 0"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS download_count INTEGER DEFAULT 0"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMPTZ"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS folder_scores JSONB DEFAULT '{}'"))
         # Performance indexes for JOIN subqueries
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_files_document_id ON files(document_id)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_document_tags_document_id ON document_tags(document_id)"))
