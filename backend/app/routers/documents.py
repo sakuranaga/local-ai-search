@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -30,10 +29,9 @@ from app.services.document_processing import (
     get_file_type,
     load_tags_for_docs,
     make_doc_list_item,
-    process_document_background,
-    reindex_document_content,
 )
 from app.services.audit import audit_log
+from app.services.job_queue import create_job, create_jobs_bulk
 from app.services.embedding import get_embeddings
 from app.services.parser import chunk_text
 from app.services.permissions import (
@@ -369,12 +367,14 @@ async def create_text_document(
     await audit_log(db, user=current_user, action="document.create", target_type="document",
                     target_id=str(doc.id), target_name=doc.title, request=request)
 
+    await create_job(db, "document_processing", {
+        "doc_id": str(doc.id),
+        "storage_path": str(storage_path),
+        "file_type": "md",
+        "filename": title,
+    })
     await db.commit()
     await db.refresh(doc)
-
-    asyncio.create_task(
-        process_document_background(doc.id, str(storage_path), "md", title)
-    )
 
     return DocumentListItem(
         id=str(doc.id),
@@ -1243,10 +1243,15 @@ async def bulk_action(
 
     elif body.action == "reindex":
         docs = await _accessible_docs()
+        payloads = [
+            {"doc_id": str(doc.id), "storage_path": doc.source_path or "", "file_type": doc.file_type, "filename": doc.title}
+            for doc in docs
+        ]
         for doc in docs:
-            await reindex_document_content(db, doc, updated_by_id=current_user.id)
-        await db.flush()
-        return {"action": "reindex", "processed": len(docs)}
+            doc.processing_status = "queued"
+        jobs = await create_jobs_bulk(db, "document_processing", payloads)
+        await db.commit()
+        return {"action": "reindex", "processed": len(docs), "job_ids": [str(j.id) for j in jobs]}
 
     elif body.action == "set_permissions":
         docs = await _accessible_docs(need_owner_only=True)
@@ -1436,7 +1441,7 @@ async def set_document_permissions(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{document_id}/reindex", response_model=DocumentListItem)
+@router.post("/{document_id}/reindex")
 async def reindex_document(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -1452,34 +1457,16 @@ async def reindex_document(
     if not await _check_doc_access(doc, current_user, need_write=True, db=db):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    _, chunks_text = await reindex_document_content(db, doc, updated_by_id=current_user.id)
+    doc.processing_status = "queued"
+    job = await create_job(db, "document_processing", {
+        "doc_id": str(doc.id),
+        "storage_path": doc.source_path or "",
+        "file_type": doc.file_type,
+        "filename": doc.title,
+    })
+    await db.commit()
 
-    await db.flush()
-    await db.refresh(doc)
-
-    return DocumentListItem.model_construct(
-        id=str(doc.id),
-        title=doc.title,
-        source_path=doc.source_path,
-        file_type=doc.file_type,
-        owner_id=str(doc.owner_id) if doc.owner_id else None,
-        owner_name=current_user.username,
-        group_id=str(doc.group_id) if doc.group_id else None,
-        group_read=doc.group_read,
-        group_write=doc.group_write,
-        others_read=doc.others_read,
-        others_write=doc.others_write,
-        permissions=format_permission_string(doc.group_read, doc.group_write, doc.others_read, doc.others_write),
-        searchable=doc.searchable,
-        ai_knowledge=doc.ai_knowledge,
-        chunk_count=len(chunks_text),
-        memo=doc.memo,
-        is_note=doc.is_note,
-        created_by_name=None,
-        updated_by_name=current_user.username,
-        created_at=doc.created_at,
-        updated_at=doc.updated_at,
-    )
+    return {"id": str(doc.id), "job_id": str(job.id)}
 
 
 # ---------------------------------------------------------------------------

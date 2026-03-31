@@ -36,6 +36,7 @@ import {
   updateDocument,
   deleteDocument,
   reindexDocument,
+  pollJobsProgress,
   setDocumentPermissions,
   getGroups,
   getMe,
@@ -229,7 +230,11 @@ export function DocumentDetailModal({
                 setReindexing(true);
                 try {
                   const res = await reindexDocument(item.id);
-                  toast.success(`再構築完了: ${res.chunk_count}テキスト`);
+                  const jobId = (res as { job_id?: string }).job_id;
+                  if (jobId) {
+                    await pollJobsProgress([jobId], () => {});
+                  }
+                  toast.success("再構築完了");
                   onUpdated();
                 } catch { toast.error("再構築失敗"); } finally { setReindexing(false); }
               }}

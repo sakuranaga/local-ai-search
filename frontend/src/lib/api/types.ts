@@ -72,6 +72,7 @@ export interface Document {
   tags: TagInfo[];
   created_by_name: string | null;
   updated_by_name: string | null;
+  processing_status: string;
   is_note: boolean;
   created_at: string;
   updated_at: string;

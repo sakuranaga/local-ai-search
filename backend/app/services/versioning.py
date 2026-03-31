@@ -1,6 +1,5 @@
 """Document version management: snapshot, restore, and cleanup."""
 
-import asyncio
 import logging
 import os
 import shutil
@@ -186,13 +185,15 @@ async def restore_version(
     storage_path = file_record.storage_path if file_record else ""
     filename = file_record.filename if file_record else doc.title
 
+    from app.services.job_queue import create_job
+
+    await create_job(db, "document_processing", {
+        "doc_id": str(doc.id),
+        "storage_path": storage_path,
+        "file_type": doc.file_type,
+        "filename": filename,
+    })
     await db.commit()
-
-    from app.services.document_processing import process_document_background
-
-    asyncio.create_task(
-        process_document_background(doc.id, storage_path, doc.file_type, filename)
-    )
 
     logger.info("Restored document %s to version %d", doc.id, version_number)
 

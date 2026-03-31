@@ -36,6 +36,7 @@ class DocumentListItem(BaseModel):
     tags: list[TagInfo] = []
     created_by_name: str | None
     updated_by_name: str | None
+    processing_status: str = "done"
     scan_status: str = "pending"
     share_count: int = 0
     is_note: bool = False
