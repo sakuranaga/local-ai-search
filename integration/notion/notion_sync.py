@@ -8,6 +8,7 @@ Local AI Search (LAS) に同期する。
 import hashlib
 import json
 import os
+import re
 import signal
 import sys
 import time
@@ -389,8 +390,15 @@ class HashStore:
         self.path.write_text(json.dumps(self.hashes, indent=2))
 
     @staticmethod
+    def _normalize_for_hash(content: str) -> str:
+        """URLのクエリパラメータを除去してハッシュ比較を安定させる。
+        Notion の署名付き画像URLは毎回変わるため。"""
+        return re.sub(r'(https?://[^\s\)]+)\?[^\s\)]*', r'\1', content)
+
+    @staticmethod
     def _compute_hash(content: str) -> str:
-        return hashlib.sha256(content.encode()).hexdigest()
+        normalized = HashStore._normalize_for_hash(content)
+        return hashlib.sha256(normalized.encode()).hexdigest()
 
     def has_changed(self, page_id: str, content: str) -> bool:
         """コンテンツが前回と異なるか判定する。"""
