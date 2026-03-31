@@ -180,7 +180,7 @@ async def list_folders(
             Folder.name,
             Folder.parent_id,
             Folder.owner_id,
-            OwnerUser.username.label("owner_name"),
+            func.coalesce(OwnerUser.display_name, OwnerUser.username).label("owner_name"),
             Folder.group_id,
             Folder.group_read,
             Folder.group_write,
@@ -254,7 +254,7 @@ async def create_folder(
         name=folder.name,
         parent_id=str(folder.parent_id) if folder.parent_id else None,
         owner_id=str(folder.owner_id) if folder.owner_id else None,
-        owner_name=current_user.username,
+        owner_name=current_user.display_name or current_user.username,
         document_count=0,
         created_at=folder.created_at.isoformat(),
         updated_at=folder.updated_at.isoformat(),
@@ -408,7 +408,7 @@ async def update_folder(
     # Owner name
     owner_name = None
     if folder.owner_id:
-        r = await db.execute(select(User.username).where(User.id == folder.owner_id))
+        r = await db.execute(select(func.coalesce(User.display_name, User.username)).where(User.id == folder.owner_id))
         owner_name = r.scalar_one_or_none()
 
     return FolderResponse(
