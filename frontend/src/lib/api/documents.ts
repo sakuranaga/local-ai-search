@@ -19,6 +19,7 @@ export async function getDocuments(params: {
   date_to?: string;
   created_by?: string;
   favorites?: boolean;
+  recent?: boolean;
 } = {}): Promise<DocumentListResponse> {
   const p = new URLSearchParams();
   if (params.page) p.set("page", String(params.page));
@@ -34,6 +35,7 @@ export async function getDocuments(params: {
   if (params.date_to) p.set("date_to", params.date_to);
   if (params.created_by) p.set("created_by", params.created_by);
   if (params.favorites) p.set("favorites", "true");
+  if (params.recent) p.set("recent", "true");
   return apiFetch(`/documents?${p.toString()}`);
 }
 

@@ -47,13 +47,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
-async def _increment_counter(db: AsyncSession, doc_id: uuid.UUID, field: str):
+async def _increment_counter(
+    db: AsyncSession, doc_id: uuid.UUID, field: str, user_id: uuid.UUID | None = None,
+):
     """Increment a usage counter and update last_accessed_at."""
     await db.execute(
         update(Document)
         .where(Document.id == doc_id)
         .values({field: getattr(Document, field) + 1, "last_accessed_at": func.now()})
     )
+    if user_id is not None:
+        from app.models import UserDocumentAccess
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        stmt = pg_insert(UserDocumentAccess).values(
+            user_id=user_id, document_id=doc_id, last_accessed_at=func.now()
+        ).on_conflict_do_update(
+            index_elements=["user_id", "document_id"],
+            set_={"last_accessed_at": func.now()},
+        )
+        await db.execute(stmt)
 
 
 
@@ -77,6 +89,7 @@ async def list_documents(
     date_to: str | None = Query(None),
     created_by: str | None = Query(None),
     favorites: bool = Query(False),
+    recent: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -142,6 +155,7 @@ async def list_documents(
             Group.name.label("group_name"),
             Document.created_at,
             Document.updated_at,
+            Document.last_accessed_at,
             file_size_subq,
             chunk_count_subq,
             share_count_subq,
@@ -189,6 +203,14 @@ async def list_documents(
             .subquery()
         )
         base = base.where(Document.id.in_(select(fav_sq.c.document_id)))
+    if recent:
+        from app.models import UserDocumentAccess
+        recent_sq = (
+            select(UserDocumentAccess.document_id)
+            .where(UserDocumentAccess.user_id == current_user.id)
+            .subquery()
+        )
+        base = base.where(Document.id.in_(select(recent_sq.c.document_id)))
 
     # Count total before pagination (lightweight query without JOINs)
     count_q = select(func.count(Document.id)).where(visibility_filter).where(Document.deleted_at.is_(None))
@@ -215,20 +237,33 @@ async def list_documents(
         count_q = count_q.where(Document.id.in_(
             select(UserFavorite.document_id).where(UserFavorite.user_id == current_user.id)
         ))
+    if recent:
+        from app.models import UserDocumentAccess
+        count_q = count_q.where(Document.id.in_(
+            select(UserDocumentAccess.document_id).where(UserDocumentAccess.user_id == current_user.id)
+        ))
     total = (await db.execute(count_q)).scalar() or 0
 
     # Sorting
-    allowed_sort_cols = {
-        "updated_at": Document.updated_at,
-        "created_at": Document.created_at,
-        "title": Document.title,
-        "file_type": Document.file_type,
-    }
-    sort_col = allowed_sort_cols.get(sort_by, Document.updated_at)
-    if sort_dir.lower() == "asc":
-        base = base.order_by(sort_col.asc(), Document.id.asc())
+    if recent:
+        # Recent items sorted by per-user last_accessed_at desc
+        from app.models import UserDocumentAccess
+        base = base.join(
+            UserDocumentAccess,
+            (UserDocumentAccess.document_id == Document.id) & (UserDocumentAccess.user_id == current_user.id),
+        ).order_by(UserDocumentAccess.last_accessed_at.desc(), Document.id.desc())
     else:
-        base = base.order_by(sort_col.desc(), Document.id.desc())
+        allowed_sort_cols = {
+            "updated_at": Document.updated_at,
+            "created_at": Document.created_at,
+            "title": Document.title,
+            "file_type": Document.file_type,
+        }
+        sort_col = allowed_sort_cols.get(sort_by, Document.updated_at)
+        if sort_dir.lower() == "asc":
+            base = base.order_by(sort_col.asc(), Document.id.asc())
+        else:
+            base = base.order_by(sort_col.desc(), Document.id.desc())
 
     # Pagination
     offset = (page - 1) * per_page
@@ -709,7 +744,7 @@ async def download_document_file(
             raise HTTPException(status_code=403, detail="ダウンロード権限がありません")
 
     if not inline:
-        await _increment_counter(db, document_id, "download_count")
+        await _increment_counter(db, document_id, "download_count", current_user.id)
         await db.commit()
 
     resp = FileResponse(
@@ -799,7 +834,7 @@ async def preview_document(
     current_user = await _resolve_token_user(request, token, db)
     doc, file_record = await _get_doc_file(document_id, current_user, db)
 
-    await _increment_counter(db, document_id, "view_count")
+    await _increment_counter(db, document_id, "view_count", current_user.id)
     await db.commit()
 
     # Try pre-generated image preview first
@@ -906,7 +941,7 @@ async def get_document(
     if not await _check_doc_access(doc, current_user, need_write=False, db=db):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    await _increment_counter(db, document_id, "view_count")
+    await _increment_counter(db, document_id, "view_count", current_user.id)
 
     # Get chunks and files
     chunks_result = await db.execute(
@@ -1076,7 +1111,7 @@ async def update_document(
         for tid in body.tag_ids:
             db.add(DocumentTag(document_id=doc.id, tag_id=tid))
 
-    await _increment_counter(db, document_id, "edit_count")
+    await _increment_counter(db, document_id, "edit_count", current_user.id)
 
     if is_content_change:
         doc.updated_by_id = current_user.id
