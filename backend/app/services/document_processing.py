@@ -105,6 +105,7 @@ def make_doc_list_item(
         updated_by_name=getattr(row, "updated_by_name", None),
         created_at=row.created_at,
         updated_at=row.updated_at,
+        last_accessed_at=getattr(row, "last_accessed_at", None),
     )
 
 

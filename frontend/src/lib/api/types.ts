@@ -121,6 +121,7 @@ export interface DocumentListItem {
   share_count: number;
   created_at: string;
   updated_at: string;
+  last_accessed_at: string | null;
 }
 
 export interface NoteTreeItem {

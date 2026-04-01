@@ -62,6 +62,7 @@ import {
   PinOff,
   RefreshCw,
   Star,
+  Clock,
 } from "lucide-react";
 import {
   getDocuments,
@@ -181,6 +182,9 @@ export function FileExplorerPage() {
   const [focusedIdx, setFocusedIdx] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Recent items
+  const [showRecent, setShowRecent] = useState(false);
+
   // Favorites
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [showFavorites, setShowFavorites] = useState(false);
@@ -274,6 +278,7 @@ export function FileExplorerPage() {
     setSidebarOpen(false);
     setShowTrash(false);
     setShowFavorites(false);
+    setShowRecent(false);
     setActiveNoteId(null);
     setActiveNote(null);
     if (isSearching) {
@@ -404,6 +409,8 @@ export function FileExplorerPage() {
         };
         if (activeTags.length > 0) {
           params.tags = activeTags;
+        } else if (showRecent) {
+          params.recent = true;
         } else if (showFavorites) {
           params.favorites = true;
         } else if (activeFolderId === "unfiled") {
@@ -428,7 +435,7 @@ export function FileExplorerPage() {
       setLoading(false);
       loadingRef.current = false;
     }
-  }, [perPage, sortBy, sortDir, filterType, filterDateFrom, filterDateTo, filterCreatedBy, filterIncludeUnsearchable, activeFolderId, activeTags, isSearching, urlQ, showFavorites]);
+  }, [perPage, sortBy, sortDir, filterType, filterDateFrom, filterDateTo, filterCreatedBy, filterIncludeUnsearchable, activeFolderId, activeTags, isSearching, urlQ, showFavorites, showRecent]);
 
   reloadRef.current = () => { load(true); loadFolders(); };
 
@@ -440,6 +447,7 @@ export function FileExplorerPage() {
     setActiveNoteId(noteId);
     setShowTrash(false);
     setShowFavorites(false);
+    setShowRecent(false);
     setSidebarOpen(false);
     try {
       const detail = await getNote(noteId);
@@ -703,14 +711,14 @@ export function FileExplorerPage() {
 
   // Child folders to display in the file list (Google Drive style)
   const listFolders = useMemo(() => {
-    if (isSearching || showTrash || showFavorites || activeTags.length > 0 || activeFolderId === "unfiled") return [];
+    if (isSearching || showTrash || showRecent || showFavorites || activeTags.length > 0 || activeFolderId === "unfiled") return [];
     if (activeFolderId === null) {
       // Root: show folders with no parent
       return folders.filter((f) => !f.parent_id).sort((a, b) => a.name.localeCompare(b.name));
     }
     // Inside a folder: show direct children
     return folders.filter((f) => f.parent_id === activeFolderId).sort((a, b) => a.name.localeCompare(b.name));
-  }, [folders, activeFolderId, isSearching, showTrash, showFavorites, activeTags]);
+  }, [folders, activeFolderId, isSearching, showTrash, showRecent, showFavorites, activeTags]);
 
   function handleSort(col: string) {
     if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -1269,14 +1277,21 @@ export function FileExplorerPage() {
           </div>
           {!sidebarCollapsed.folders && <div className="space-y-0.5">
             <button
-              onClick={() => { setShowFavorites(true); setShowTrash(false); setActiveFolderId(null); setSidebarOpen(false); if (isSearching) navigate("/", { replace: true }); }}
+              onClick={() => { setShowRecent(true); setShowFavorites(false); setShowTrash(false); setActiveFolderId(null); setSidebarOpen(false); if (isSearching) navigate("/", { replace: true }); }}
+              className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${showRecent ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
+            >
+              <Clock className={`h-3.5 w-3.5`} />
+              <span className="truncate">最近の項目</span>
+            </button>
+            <button
+              onClick={() => { setShowFavorites(true); setShowRecent(false); setShowTrash(false); setActiveFolderId(null); setSidebarOpen(false); if (isSearching) navigate("/", { replace: true }); }}
               className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${showFavorites ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
             >
               <Star className={`h-3.5 w-3.5 ${showFavorites ? "fill-primary" : ""}`} />
               <span className="truncate">お気に入り</span>
               {favoriteIds.size > 0 && <span className="ml-auto text-xs text-muted-foreground">{favoriteIds.size}</span>}
             </button>
-            <DropTarget folderId={null} onDrop={handleDropOnFolder} onFolderDrop={handleDropFolderOnFolder} label="すべて" count={allDocCount} isActive={activeFolderId === null && !showTrash && !showFavorites} onClick={() => selectFolder(null)} icon={<FolderIcon className="h-3.5 w-3.5" />} />
+            <DropTarget folderId={null} onDrop={handleDropOnFolder} onFolderDrop={handleDropFolderOnFolder} label="すべて" count={allDocCount} isActive={activeFolderId === null && !showTrash && !showFavorites && !showRecent} onClick={() => selectFolder(null)} icon={<FolderIcon className="h-3.5 w-3.5" />} />
             <DropTarget folderId={null} onDrop={handleDropOnFolder} onFolderDrop={handleDropFolderOnFolder} label="未整理" count={unfiledCount} isActive={activeFolderId === "unfiled" && !showTrash} onClick={() => selectFolder("unfiled")} icon={<FileText className="h-3.5 w-3.5" />} />
             {folderTree.map((node) => (
               <FolderTreeItem
@@ -1512,7 +1527,7 @@ export function FileExplorerPage() {
             <Menu className="h-8 w-8" strokeWidth={2.5} />
           </Button>
           <h1 className="text-lg md:text-xl font-bold min-w-0 flex items-center overflow-hidden">
-            {isSearching ? <span className="truncate">{`検索結果: ${urlQ}`}</span> : showTrash ? "ゴミ箱" : showFavorites ? "お気に入り" : activeTags.length > 0 ? (
+            {isSearching ? <span className="truncate">{`検索結果: ${urlQ}`}</span> : showTrash ? "ゴミ箱" : showRecent ? "最近の項目" : showFavorites ? "お気に入り" : activeTags.length > 0 ? (
               <span className="flex items-center gap-1.5">
                 <span className="text-muted-foreground font-normal">タグ:</span>
                 {activeTags.map((t) => {
@@ -1733,6 +1748,7 @@ export function FileExplorerPage() {
                 <col style={{ width: 88 }} />
                 <col style={{ width: 96 }} />
                 <col style={{ width: 96 }} />
+                {showRecent && <col style={{ width: 96 }} />}
                 <col style={{ width: 112 }} />
               </colgroup>
             <TableHeader className="sticky top-0 z-10 bg-background">
@@ -1759,6 +1775,7 @@ export function FileExplorerPage() {
                 <TableHead className={isSearching ? "" : "cursor-pointer select-none"} onClick={isSearching ? undefined : () => handleSort("updated_at")}>
                   <span className="flex items-center">更新日 {!isSearching && <SortIcon col="updated_at" />}</span>
                 </TableHead>
+                {showRecent && <TableHead>最終閲覧</TableHead>}
                 <TableHead className="text-center">検索 / AI</TableHead>
               </TableRow>
             </TableHeader>
@@ -1812,6 +1829,7 @@ export function FileExplorerPage() {
                     <TableCell className="text-xs text-muted-foreground">
                       {formatDate(folder.updated_at)}
                     </TableCell>
+                    {showRecent && <TableCell />}
                     <TableCell />
                   </TableRow>
                 ))}
@@ -1884,6 +1902,7 @@ export function FileExplorerPage() {
                     <TableCell className="text-xs text-muted-foreground">
                       {formatDate(item.updated_at)}
                     </TableCell>
+                    {showRecent && <TableCell className="text-xs text-muted-foreground">{item.last_accessed_at ? formatDate(item.last_accessed_at) : "-"}</TableCell>}
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-2">
                         <button

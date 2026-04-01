@@ -42,6 +42,7 @@ class DocumentListItem(BaseModel):
     is_note: bool = False
     created_at: datetime
     updated_at: datetime
+    last_accessed_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
