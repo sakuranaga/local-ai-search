@@ -102,6 +102,7 @@ import {
   deleteNoteWithFile,
   convertToNote,
   getMe,
+  deleteConversation,
   type NoteTreeItem,
   type NoteDetail,
 } from "@/lib/api";
@@ -1378,7 +1379,7 @@ export function FileExplorerPage() {
                   <button onClick={() => toggleSection("history")} className="text-xs text-muted-foreground hover:text-foreground">展開</button>
                 ) : (
                   <button
-                    onClick={() => { if (confirm("検索履歴を削除しますか？（ピン留めは残ります）")) setSearchHistory(clearUnpinnedSearchHistory()); }}
+                    onClick={() => { if (confirm("検索履歴を削除しますか？（ピン留めは残ります）")) { searchHistory.filter((e) => !e.pinned).forEach((e) => deleteConversation(e.query).catch(() => {})); setSearchHistory(clearUnpinnedSearchHistory()); } }}
                     className="p-0.5 hover:bg-muted rounded text-muted-foreground"
                     title="ピン留め以外を一括削除"
                   >
@@ -1413,7 +1414,7 @@ export function FileExplorerPage() {
                         {entry.pinned ? <PinOff className="h-3 w-3 text-muted-foreground" /> : <Pin className="h-3 w-3 text-muted-foreground" />}
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setSearchHistory(removeSearchHistory(entry.query)); }}
+                        onClick={(e) => { e.stopPropagation(); deleteConversation(entry.query).catch(() => {}); setSearchHistory(removeSearchHistory(entry.query)); }}
                         className="p-0.5 hover:bg-muted rounded"
                         title="削除"
                       >

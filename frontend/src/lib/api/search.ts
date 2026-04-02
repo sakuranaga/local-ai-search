@@ -131,3 +131,50 @@ export function streamChat(
 
   return controller;
 }
+
+// ---------------------------------------------------------------------------
+// Chat history persistence
+// ---------------------------------------------------------------------------
+
+export interface ConversationMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  turn_context: string | null;
+  sources: ChatSource[] | null;
+  tool_steps: Array<{ round: number; name: string; query?: string; summary?: string }> | null;
+  created_at: string | null;
+}
+
+export interface Conversation {
+  id: string;
+  query: string;
+  messages: ConversationMessage[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export async function getConversation(query: string): Promise<Conversation | null> {
+  return apiFetch(`/chat/conversations?query=${encodeURIComponent(query)}`);
+}
+
+export async function saveMessage(params: {
+  query: string;
+  role: string;
+  content: string;
+  turn_context?: string | null;
+  sources?: ChatSource[] | null;
+  tool_steps?: Array<{ round: number; name: string; query?: string; summary?: string }> | null;
+}): Promise<{ id: string; conversation_id: string }> {
+  return apiFetch("/chat/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+}
+
+export async function deleteConversation(query: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/chat/conversations?query=${encodeURIComponent(query)}`, {
+    method: "DELETE",
+  });
+}
