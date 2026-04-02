@@ -420,9 +420,10 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
                           key={s.document_id + i}
                           variant="secondary"
                           className="cursor-pointer hover:bg-accent text-[10px] px-1.5 py-0"
+                          title={s.title}
                           onClick={() => onSourceClick ? onSourceClick(s.document_id) : navigate(`/documents/${s.document_id}`)}
                         >
-                          {s.title}
+                          {s.title.length > 20 ? s.title.slice(0, 20) + "…" : s.title}
                         </Badge>
                       ))}
                     </div>
