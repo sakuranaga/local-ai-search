@@ -11,14 +11,15 @@ import { Sparkles, Send, Trash2, User, Search, FileText, TextSearch, Hash, Loade
 import {
   streamChat,
   getChatStatus,
+  getConversation,
+  saveMessage,
+  deleteConversation,
   type ChatMessage,
   type ChatSource,
   type ChatContext,
   type ChatStatus,
   type ToolStep,
 } from "@/lib/api";
-
-const CHAT_CACHE_KEY = "las_chat_cache";
 
 interface ToolStepDisplay {
   round: number;
@@ -35,30 +36,8 @@ interface DisplayMessage {
   turnContext?: string;
 }
 
-interface ChatCache {
-  query: string;
-  messages: DisplayMessage[];
-  context: ChatContext[];
-}
-
-function loadChatCache(): ChatCache | null {
-  try {
-    const raw = sessionStorage.getItem(CHAT_CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveChatCache(cache: ChatCache) {
-  try {
-    sessionStorage.setItem(CHAT_CACHE_KEY, JSON.stringify(cache));
-  } catch {}
-}
-
-export function clearChatCache() {
-  sessionStorage.removeItem(CHAT_CACHE_KEY);
-}
+// clearChatCache kept for backward compat (no-op now, DB handles persistence)
+export function clearChatCache() {}
 
 const TOOL_LABELS: Record<string, { label: string; icon: typeof Search }> = {
   search: { label: "検索", icon: Search },
@@ -108,24 +87,19 @@ function LoadingDots() {
 export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreamingChange }: ChatPanelProps) {
   const navigate = useNavigate();
 
-  const cached = useRef(loadChatCache());
-  const canRestore = cached.current && cached.current.messages.length > 0 &&
-    (!initialQuery || cached.current.query === initialQuery);
-
-  const [messages, setMessages] = useState<DisplayMessage[]>(
-    canRestore ? cached.current!.messages : [],
-  );
-  const [ragContext, setRagContext] = useState<ChatContext[]>(
-    canRestore ? cached.current!.context ?? [] : [],
-  );
+  const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const [ragContext, setRagContext] = useState<ChatContext[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   useEffect(() => { onStreamingChange?.(isStreaming); }, [isStreaming, onStreamingChange]);
   const [chatStatus, setChatStatus] = useState<ChatStatus | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const lastInitialQueryRef = useRef(canRestore ? initialQuery! : "");
+  const lastInitialQueryRef = useRef("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Track how many messages are already persisted in DB
+  const persistedCountRef = useRef(0);
 
   // Fetch LLM status
   useEffect(() => {
@@ -141,23 +115,20 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
     el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  // Persist to sessionStorage when not streaming
-  useEffect(() => {
-    if (!isStreaming && messages.length > 0 && (initialQuery || lastInitialQueryRef.current)) {
-      saveChatCache({
-        query: initialQuery || lastInitialQueryRef.current,
-        messages,
-        context: ragContext,
-      });
-    }
-  }, [messages, isStreaming, initialQuery, ragContext]);
+  const currentQueryRef = useRef("");
 
   const sendMessage = useCallback(
     (userText: string, history: DisplayMessage[], currentContext: ChatContext[]) => {
+      const query = currentQueryRef.current;
       const userMsg: DisplayMessage = { role: "user", content: userText };
       const newMessages = [...history, userMsg];
       setMessages([...newMessages, { role: "assistant", content: "", toolSteps: [] }]);
       setIsStreaming(true);
+
+      // Save user message to DB
+      if (query) {
+        saveMessage({ query, role: "user", content: userText }).catch(() => {});
+      }
 
       abortRef.current?.abort();
 
@@ -168,6 +139,9 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
       }));
 
       let accumulated = "";
+      let finalSources: ChatSource[] | undefined;
+      let finalToolSteps: ToolStepDisplay[] | undefined;
+      let finalTurnContext: string | undefined;
 
       abortRef.current = streamChat(
         chatMessages,
@@ -186,6 +160,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
         },
         // onContext
         (_ctx, sources) => {
+          finalSources = sources;
           setRagContext(_ctx);
           setMessages((prev) => {
             const updated = [...prev];
@@ -196,8 +171,20 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
             return updated;
           });
         },
-        // onDone
-        () => setIsStreaming(false),
+        // onDone — save assistant message to DB
+        () => {
+          setIsStreaming(false);
+          if (query && accumulated) {
+            saveMessage({
+              query,
+              role: "assistant",
+              content: accumulated,
+              turn_context: finalTurnContext ?? null,
+              sources: finalSources ?? null,
+              tool_steps: finalToolSteps ?? null,
+            }).catch(() => {});
+          }
+        },
         // onError
         () => setIsStreaming(false),
         // onToolEvent
@@ -208,7 +195,6 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
             const steps = [...(last.toolSteps || [])];
 
             if (step.summary) {
-              // This is a tool_result — update the last step with matching name/round
               let idx = -1;
               for (let i = steps.length - 1; i >= 0; i--) {
                 if (steps[i].name === step.name && steps[i].round === step.round && !steps[i].summary) {
@@ -220,22 +206,19 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
                 steps[idx] = { ...steps[idx], summary: step.summary };
               }
             } else {
-              // This is a tool_call — add new step
-              const query = step.arguments.query || step.arguments.pattern || step.arguments.id || "";
-              steps.push({
-                round: step.round,
-                name: step.name,
-                query,
-              });
+              const q = step.arguments.query || step.arguments.pattern || step.arguments.id || "";
+              steps.push({ round: step.round, name: step.name, query: q });
             }
 
             last.toolSteps = steps;
+            finalToolSteps = steps;
             updated[updated.length - 1] = last;
             return updated;
           });
         },
         // onTurnContext
         (summary: string) => {
+          finalTurnContext = summary;
           setMessages((prev) => {
             const updated = [...prev];
             updated[updated.length - 1] = {
@@ -250,13 +233,46 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
     [],
   );
 
-  // Trigger initial query from search
+  // Trigger initial query from search — load history or start new
   useEffect(() => {
     if (initialQuery && initialQuery !== lastInitialQueryRef.current) {
       lastInitialQueryRef.current = initialQuery;
+      currentQueryRef.current = initialQuery;
       setMessages([]);
       setRagContext([]);
-      sendMessage(initialQuery, [], []);
+      setLoadingHistory(true);
+
+      getConversation(initialQuery)
+        .then((conv) => {
+          if (conv && conv.messages.length > 0) {
+            // Restore from DB
+            const restored: DisplayMessage[] = conv.messages.map((m) => ({
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              turnContext: m.turn_context ?? undefined,
+              sources: m.sources ?? undefined,
+              toolSteps: m.tool_steps?.map((s: { round: number; name: string; query?: string; summary?: string }) => ({
+                round: s.round,
+                name: s.name,
+                query: s.query ?? "",
+                summary: s.summary,
+              })) ?? undefined,
+            }));
+            persistedCountRef.current = restored.length;
+            setMessages(restored);
+            setLoadingHistory(false);
+          } else {
+            // No history — start new conversation
+            persistedCountRef.current = 0;
+            setLoadingHistory(false);
+            sendMessage(initialQuery, [], []);
+          }
+        })
+        .catch(() => {
+          persistedCountRef.current = 0;
+          setLoadingHistory(false);
+          sendMessage(initialQuery, [], []);
+        });
     }
   }, [initialQuery, sendMessage]);
 
@@ -281,11 +297,16 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
 
   function handleClear() {
     abortRef.current?.abort();
+    const query = currentQueryRef.current;
+    if (query) {
+      deleteConversation(query).catch(() => {});
+    }
     setMessages([]);
     setRagContext([]);
     setInput("");
     lastInitialQueryRef.current = "";
-    clearChatCache();
+    currentQueryRef.current = "";
+    persistedCountRef.current = 0;
   }
 
   if (messages.length === 0) {

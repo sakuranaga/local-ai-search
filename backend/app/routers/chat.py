@@ -3,14 +3,16 @@ import json
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import User
+from app.models import ChatConversation, ChatMessage as ChatMessageModel, User
 from app.services.ai_agent import run_agent
 from app.services.llm import CancelledByClient
 from app.services.settings import get_setting
@@ -36,6 +38,15 @@ class ContextChunk(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     context: list[ContextChunk] = []  # Carried-over RAG context from previous turns
+
+
+class SaveMessageRequest(BaseModel):
+    query: str
+    role: str
+    content: str
+    turn_context: str | None = None
+    sources: list | None = None
+    tool_steps: list | None = None
 
 
 @router.get("/status")
@@ -120,3 +131,98 @@ async def chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/conversations")
+async def get_conversation(
+    query: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get conversation by search query for the current user."""
+    result = await db.execute(
+        select(ChatConversation)
+        .options(selectinload(ChatConversation.messages))
+        .where(
+            ChatConversation.user_id == current_user.id,
+            ChatConversation.query == query,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if conv is None:
+        return None
+
+    return {
+        "id": str(conv.id),
+        "query": conv.query,
+        "messages": [
+            {
+                "id": str(m.id),
+                "role": m.role,
+                "content": m.content,
+                "turn_context": m.turn_context,
+                "sources": m.sources,
+                "tool_steps": m.tool_steps,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+            for m in conv.messages
+        ],
+        "created_at": conv.created_at.isoformat() if conv.created_at else None,
+        "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+    }
+
+
+@router.post("/messages")
+async def save_message(
+    body: SaveMessageRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Save a chat message. Creates conversation if it doesn't exist."""
+    # Upsert conversation
+    result = await db.execute(
+        select(ChatConversation).where(
+            ChatConversation.user_id == current_user.id,
+            ChatConversation.query == body.query,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if conv is None:
+        conv = ChatConversation(user_id=current_user.id, query=body.query)
+        db.add(conv)
+        await db.flush()
+
+    msg = ChatMessageModel(
+        conversation_id=conv.id,
+        role=body.role,
+        content=body.content,
+        turn_context=body.turn_context,
+        sources=body.sources,
+        tool_steps=body.tool_steps,
+    )
+    db.add(msg)
+    await db.commit()
+
+    return {"id": str(msg.id), "conversation_id": str(conv.id)}
+
+
+@router.delete("/conversations")
+async def delete_conversation(
+    query: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete conversation by search query (cascade deletes messages)."""
+    result = await db.execute(
+        select(ChatConversation).where(
+            ChatConversation.user_id == current_user.id,
+            ChatConversation.query == query,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if conv is None:
+        return {"deleted": False}
+
+    await db.delete(conv)
+    await db.commit()
+    return {"deleted": True}
