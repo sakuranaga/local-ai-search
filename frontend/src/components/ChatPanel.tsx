@@ -72,6 +72,7 @@ interface ChatPanelProps {
   onSourceClick?: (documentId: string) => void;
   onCollapse?: () => void;
   onStreamingChange?: (streaming: boolean) => void;
+  collapsed?: boolean;
 }
 
 function LoadingDots() {
@@ -84,7 +85,7 @@ function LoadingDots() {
   );
 }
 
-export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreamingChange }: ChatPanelProps) {
+export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreamingChange, collapsed }: ChatPanelProps) {
   const navigate = useNavigate();
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -100,6 +101,16 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Track how many messages are already persisted in DB
   const persistedCountRef = useRef(0);
+
+  const collapsedRef = useRef(false);
+  useEffect(() => { collapsedRef.current = !!collapsed; }, [collapsed]);
+
+  // Request notification permission on mount
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
 
   // Fetch LLM status
   useEffect(() => {
@@ -171,7 +182,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
             return updated;
           });
         },
-        // onDone — save assistant message to DB
+        // onDone — save assistant message to DB & notify if hidden
         () => {
           setIsStreaming(false);
           if (query && accumulated) {
@@ -183,6 +194,16 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
               sources: finalSources ?? null,
               tool_steps: finalToolSteps ?? null,
             }).catch(() => {});
+          }
+          // Browser notification when chat panel is collapsed or tab is hidden
+          if (
+            "Notification" in window &&
+            Notification.permission === "granted" &&
+            (document.hidden || collapsedRef.current)
+          ) {
+            const preview = accumulated.slice(0, 100) + (accumulated.length > 100 ? "…" : "");
+            const n = new Notification("AI回答が完了しました", { body: preview, tag: "ai-chat" });
+            n.onclick = () => { window.focus(); n.close(); };
           }
         },
         // onError

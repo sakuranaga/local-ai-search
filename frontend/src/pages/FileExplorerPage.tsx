@@ -1986,6 +1986,7 @@ export function FileExplorerPage() {
             }}
             onCollapse={() => setChatOpen(false)}
             onStreamingChange={setAiStreaming}
+            collapsed={!chatOpen}
           />
         </div>
       </div>
