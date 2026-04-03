@@ -95,7 +95,7 @@ async def run_agent(
       - {"type": "sources", "sources": [...]}
       - {"type": "done"}
     """
-    max_rounds = int(await get_setting(db, "ai_max_search_rounds") or "3")
+    max_rounds = int(await get_setting(db, "ai_max_search_rounds") or "10")
     all_sources: list[dict] = []
     seen_doc_ids: set[str] = set()
     tool_actions: list[str] = []  # Condensed summaries for turn_context
