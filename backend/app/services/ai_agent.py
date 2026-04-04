@@ -359,179 +359,236 @@ async def run_agent(
     # -----------------------------------------------------------------------
     # Search path — ReAct agent loop
     # -----------------------------------------------------------------------
+    answer_generated = False
     for round_num in range(1, max_rounds + 1):
         if cancel_event and cancel_event.is_set():
             raise CancelledByClient()
 
-        # Update system prompt with working memory (after round 1+)
-        memory_section = memory.to_prompt_section()
-        if memory_section and conv_messages and conv_messages[0]["role"] == "system":
-            base = system_content
-            conv_messages[0] = {"role": "system", "content": f"{base}\n\n{memory_section}"}
+        try:
+            # Update system prompt with working memory (after round 1+)
+            memory_section = memory.to_prompt_section()
+            if memory_section and conv_messages and conv_messages[0]["role"] == "system":
+                base = system_content
+                conv_messages[0] = {"role": "system", "content": f"{base}\n\n{memory_section}"}
 
-        is_last_round = round_num == max_rounds
+            is_last_round = round_num == max_rounds
 
-        # Call LLM — use tools only if not the last round
-        response = await chat_completion(
-            conv_messages,
-            tools=None if is_last_round else TOOLS,
-            cancel_event=cancel_event,
-        )
+            # Call LLM — use tools only if not the last round
+            response = await chat_completion(
+                conv_messages,
+                tools=None if is_last_round else TOOLS,
+                cancel_event=cancel_event,
+            )
 
-        choices = response.get("choices", [])
-        if not choices:
-            logger.warning("LLM returned empty choices in round %d", round_num)
-            break
-        choice = choices[0]
-        message = choice.get("message", {})
-        finish_reason = choice.get("finish_reason", "stop")
-        logger.info(
-            "Round %d: finish_reason=%s, has_content=%s, has_tool_calls=%s",
-            round_num,
-            finish_reason,
-            bool(message.get("content")),
-            bool(message.get("tool_calls")),
-        )
+            choices = response.get("choices", [])
+            if not choices:
+                logger.warning("LLM returned empty choices in round %d", round_num)
+                break
+            choice = choices[0]
+            message = choice.get("message", {})
+            finish_reason = choice.get("finish_reason", "stop")
+            logger.info(
+                "Round %d: finish_reason=%s, has_content=%s, has_tool_calls=%s",
+                round_num,
+                finish_reason,
+                bool(message.get("content")),
+                bool(message.get("tool_calls")),
+            )
 
-        # Check for tool calls (structured or embedded in text)
-        tool_calls = message.get("tool_calls")
-        content = message.get("content", "")
+            # Check for tool calls (structured or embedded in text)
+            tool_calls = message.get("tool_calls")
+            content = message.get("content", "")
 
-        # Some models embed tool calls in text instead of using tool_calls field
-        if not tool_calls and content and "<tool_call>" in content:
-            text_tool_calls, cleaned_content = extract_tool_calls_from_text(content)
-            if text_tool_calls:
-                logger.info(
-                    "Round %d: Extracted %d tool calls from text",
-                    round_num,
-                    len(text_tool_calls),
-                )
-                tool_calls = text_tool_calls
-                content = cleaned_content
-                message = {**message, "content": content, "tool_calls": tool_calls}
-
-        logger.info(
-            "Round %d: tool_calls=%s, content_len=%d",
-            round_num,
-            bool(tool_calls),
-            len(content) if content else 0,
-        )
-
-        if not tool_calls or is_last_round:
-            # Round 1: LLM skipped tools — prompt it to search
-            if round_num == 1 and not is_last_round:
-                logger.info(
-                    "Round 1: LLM skipped tools, prompting to search"
-                )
-                # Add LLM's response if it had content
-                if content:
-                    conv_messages.append(
-                        {"role": "assistant", "content": content}
+            # Some models embed tool calls in text instead of using tool_calls field.
+            # Only extract if LLM explicitly wants to continue (finish_reason != stop)
+            # OR if it's the first round (need at least one search).
+            # When finish_reason=stop after multiple rounds, the LLM intends to
+            # finish — extracting embedded tool calls causes the stream to hang.
+            should_extract = (
+                not tool_calls
+                and content
+                and "<tool_call>" in content
+                and (finish_reason != "stop" or round_num <= 1)
+            )
+            if should_extract:
+                text_tool_calls, cleaned_content = extract_tool_calls_from_text(content)
+                if text_tool_calls:
+                    logger.info(
+                        "Round %d: Extracted %d tool calls from text",
+                        round_num,
+                        len(text_tool_calls),
                     )
-                # Ask LLM to use search tools
-                conv_messages.append({
-                    "role": "user",
-                    "content": (
-                        "ユーザーの質問に答えるために、searchツールで検索してください。"
-                        "適切な検索クエリを考えて検索を実行してください。"
-                    ),
-                })
-                continue  # Go to next round
+                    tool_calls = text_tool_calls
+                    content = cleaned_content
+                    # Build a clean message dict — only include fields the LLM API
+                    # expects, to avoid issues when sending conv_messages back
+                    message = {
+                        "role": "assistant",
+                        "content": content,
+                        "tool_calls": tool_calls,
+                    }
+            elif not tool_calls and content and "<tool_call>" in content:
+                # finish_reason=stop after tool use — the remaining text is
+                # an intermediate observation, not a real answer.
+                # Clear content to force a proper streaming final answer.
+                logger.info(
+                    "Round %d: Ignoring embedded tool call (finish_reason=stop, round>1), forcing final answer",
+                    round_num,
+                )
+                content = ""
 
-            # No tool calls (or last round) — generate final answer
-            if content:
-                content = re.sub(
-                    r"<tool_call>.*?</tool_call>", "", content, flags=re.DOTALL
-                ).strip()
-                content = _truncate_repetition(content)
+            logger.info(
+                "Round %d: tool_calls=%s, content_len=%d",
+                round_num,
+                bool(tool_calls),
+                len(content) if content else 0,
+            )
+
+            if not tool_calls or is_last_round:
+                # Round 1: LLM skipped tools — prompt it to search
+                if round_num == 1 and not is_last_round:
+                    logger.info(
+                        "Round 1: LLM skipped tools, prompting to search"
+                    )
+                    # Add LLM's response if it had content
+                    if content:
+                        conv_messages.append(
+                            {"role": "assistant", "content": content}
+                        )
+                    # Ask LLM to use search tools
+                    conv_messages.append({
+                        "role": "user",
+                        "content": (
+                            "ユーザーの質問に答えるために、searchツールで検索してください。"
+                            "適切な検索クエリを考えて検索を実行してください。"
+                        ),
+                    })
+                    continue  # Go to next round
+
+                # No tool calls (or last round) — generate final answer
                 if content:
-                    for chunk in _chunk_text_for_streaming(content):
-                        yield {"type": "token", "content": chunk}
-                        await asyncio.sleep(0.02)
-                    break
+                    content = re.sub(
+                        r"<tool_call>.*?</tool_call>", "", content, flags=re.DOTALL
+                    ).strip()
+                    content = _truncate_repetition(content)
+                    if content:
+                        for chunk in _chunk_text_for_streaming(content):
+                            yield {"type": "token", "content": chunk}
+                            await asyncio.sleep(0.02)
+                        answer_generated = True
+                        break
 
-            # No content — force a streaming answer
-            if round_num > 1:
+                # No content — force a streaming answer
+                if round_num > 1:
+                    conv_messages.append({
+                        "role": "user",
+                        "content": (
+                            "これまでに収集した情報を元に、ユーザーの質問に回答してください。"
+                            "ツールは使えません。直接回答してください。"
+                        ),
+                    })
+                else:
+                    conv_messages.append({
+                        "role": "user",
+                        "content": "ツールは使えません。直接回答してください。",
+                    })
+                async for evt in _stream_filtered(
+                    conv_messages, cancel_event=cancel_event
+                ):
+                    yield evt
+                answer_generated = True
+                break
+
+            # ---------------------------------------------------------------
+            # Execute tool calls
+            # ---------------------------------------------------------------
+            conv_messages.append(message)
+
+            for tc in tool_calls:
+
+                func_info = tc.get("function", {})
+                tool_name = func_info.get("name", "")
+                try:
+                    tool_args = json.loads(func_info.get("arguments", "{}"))
+                except json.JSONDecodeError:
+                    tool_args = {}
+
+                tc_id = tc.get("id", f"call_{round_num}")
+
+                yield {
+                    "type": "tool_call",
+                    "round": round_num,
+                    "name": tool_name,
+                    "arguments": tool_args,
+                }
+
+                result_text, sources = await execute_tool(
+                    db, tool_name, tool_args, user=user
+                )
+
+                for s in sources:
+                    if s["document_id"] not in seen_doc_ids:
+                        seen_doc_ids.add(s["document_id"])
+                        all_sources.append(s)
+
+                tool_actions.append(
+                    summarize_result_for_context(tool_name, tool_args, result_text)
+                )
+
+                # Update working memory
+                if tool_name == "search":
+                    memory.searched_queries.append(tool_args.get("query", ""))
+                elif tool_name == "read_document":
+                    doc_title = ""
+                    for s in sources:
+                        doc_title = s.get("title", "")
+                        break
+                    memory.read_documents.append({
+                        "id": tool_args.get("id", ""),
+                        "title": doc_title,
+                        "summary": result_text[:150],
+                    })
+
+                yield {
+                    "type": "tool_result",
+                    "round": round_num,
+                    "name": tool_name,
+                    "summary": summarize_result(tool_name, result_text),
+                }
+
                 conv_messages.append({
-                    "role": "user",
-                    "content": (
-                        "これまでに収集した情報を元に、ユーザーの質問に回答してください。"
-                        "ツールは使えません。直接回答してください。"
-                    ),
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "content": result_text,
                 })
-            else:
-                conv_messages.append({
-                    "role": "user",
-                    "content": "ツールは使えません。直接回答してください。",
-                })
+
+        except CancelledByClient:
+            raise
+        except Exception:
+            logger.exception("Agent loop error in round %d", round_num)
+            break
+
+    # -----------------------------------------------------------------------
+    # Fallback: if no answer was generated, force one
+    # -----------------------------------------------------------------------
+    if not answer_generated and tool_actions:
+        logger.info("Generating fallback answer (no answer from agent loop)")
+        conv_messages.append({
+            "role": "user",
+            "content": (
+                "これまでに収集した情報を元に、ユーザーの質問に回答してください。"
+                "ツールは使えません。直接回答してください。"
+            ),
+        })
+        try:
             async for evt in _stream_filtered(
                 conv_messages, cancel_event=cancel_event
             ):
                 yield evt
-            break
-
-        # ---------------------------------------------------------------
-        # Execute tool calls
-        # ---------------------------------------------------------------
-        conv_messages.append(message)
-
-        for tc in tool_calls:
-
-            func_info = tc.get("function", {})
-            tool_name = func_info.get("name", "")
-            try:
-                tool_args = json.loads(func_info.get("arguments", "{}"))
-            except json.JSONDecodeError:
-                tool_args = {}
-
-            tc_id = tc.get("id", f"call_{round_num}")
-
-            yield {
-                "type": "tool_call",
-                "round": round_num,
-                "name": tool_name,
-                "arguments": tool_args,
-            }
-
-            result_text, sources = await execute_tool(
-                db, tool_name, tool_args, user=user
-            )
-
-            for s in sources:
-                if s["document_id"] not in seen_doc_ids:
-                    seen_doc_ids.add(s["document_id"])
-                    all_sources.append(s)
-
-            tool_actions.append(
-                summarize_result_for_context(tool_name, tool_args, result_text)
-            )
-
-            # Update working memory
-            if tool_name == "search":
-                memory.searched_queries.append(tool_args.get("query", ""))
-            elif tool_name == "read_document":
-                doc_title = ""
-                for s in sources:
-                    doc_title = s.get("title", "")
-                    break
-                memory.read_documents.append({
-                    "id": tool_args.get("id", ""),
-                    "title": doc_title,
-                    "summary": result_text[:150],
-                })
-
-            yield {
-                "type": "tool_result",
-                "round": round_num,
-                "name": tool_name,
-                "summary": summarize_result(tool_name, result_text),
-            }
-
-            conv_messages.append({
-                "role": "tool",
-                "tool_call_id": tc_id,
-                "content": result_text,
-            })
+        except CancelledByClient:
+            raise
+        except Exception:
+            logger.exception("Fallback answer generation failed")
 
     # -----------------------------------------------------------------------
     # Emit turn context and sources

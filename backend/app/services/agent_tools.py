@@ -78,11 +78,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "grep",
-            "description": "全文書の内容から正確なテキストパターンを部分一致で検索します。特定の文字列やフレーズを探すときに使います。",
+            "description": "全文書の内容からリテラル文字列を部分一致で検索します。正規表現は使えません。特定の文字列・フレーズ・住所・固有名詞をそのまま探すときに使います。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "pattern": {"type": "string", "description": "検索パターン（部分一致）"}
+                    "pattern": {"type": "string", "description": "検索文字列（リテラル部分一致。正規表現不可。例: 「東京都新宿区」「sm-tokyo.com」）"}
                 },
                 "required": ["pattern"],
             },
@@ -174,7 +174,7 @@ SYSTEM_PROMPT = """\
 
 ## 利用可能なツール
 - search: キーワード＋意味検索で社内文書を検索（スペース区切りでAND検索、folder_idで範囲限定可）
-- grep: 正確なテキストパターンで全文書を部分一致検索
+- grep: リテラル文字列で全文書を部分一致検索（正規表現不可）
 - search_by_title: 文書のタイトル・ファイル名で検索
 - read_document: 文書IDを指定して内容を取得（query指定でヒット箇所のスニペットのみ返す）
 - count_results: 検索クエリに一致する文書の件数を確認
