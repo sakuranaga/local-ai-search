@@ -75,6 +75,42 @@ def _split_long_katakana(surface: str) -> list[str]:
     return [surface]
 
 
+def extract_noun_phrases(text: str) -> list[str]:
+    """Extract compound noun phrases (consecutive noun sequences including suffixes).
+
+    Unlike extract_nouns() which returns individual nouns (excluding suffixes),
+    this returns multi-noun compounds as complete phrases for exact-match search
+    of proper nouns, place names, and technical terms.
+
+    Examples:
+        "東京都新宿区新宿" -> ["東京都新宿区新宿"]
+        "本店所在地の変更" -> ["本店所在地"]
+        "DDR8の設立について" -> []  (single nouns don't form phrases)
+    """
+    tokenizer = _get_tokenizer()
+    phrases: list[str] = []
+    current: list[str] = []
+
+    for token in tokenizer.tokenize(text):
+        pos = token.part_of_speech.split(",")[0]
+        if pos == "名詞":
+            current.append(token.surface)
+        else:
+            if len(current) >= 2:
+                phrase = "".join(current)
+                if len(phrase) >= 3:
+                    phrases.append(phrase)
+            current = []
+
+    # Final sequence
+    if len(current) >= 2:
+        phrase = "".join(current)
+        if len(phrase) >= 3:
+            phrases.append(phrase)
+
+    return phrases
+
+
 def extract_nouns(text: str) -> list[str]:
     """Extract meaningful nouns from Japanese text.
 
@@ -152,12 +188,18 @@ def tokenize_query(query: str) -> list[str]:
             _add(segment)
             continue
 
-        # Contains Japanese → extract nouns
+        # Contains Japanese → extract nouns AND compound noun phrases
         if _JAPANESE_RE.search(segment):
             nouns = extract_nouns(segment)
+            noun_phrases = extract_noun_phrases(segment)
             if nouns:
                 for n in nouns:
                     _add(n)
+            # Add compound noun phrases for exact matching
+            # (e.g. "東京都新宿区新宿", "本店所在地")
+            for p in noun_phrases:
+                _add(p)
+            if nouns or noun_phrases:
                 continue
 
         # Fallback: use segment as-is

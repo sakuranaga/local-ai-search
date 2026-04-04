@@ -698,6 +698,7 @@ async def grep_search(
             Chunk.content,
             Document.title.label("document_title"),
             Document.file_type,
+            Document.updated_at.label("document_updated_at"),
         )
         .join(Document, Chunk.document_id == Document.id)
         .where(Chunk.content.ilike(f"%{pattern}%"))
@@ -717,6 +718,7 @@ async def grep_search(
             "document_id": str(row.document_id),
             "document_title": row.document_title,
             "file_type": row.file_type,
+            "updated_at": row.document_updated_at.isoformat() if row.document_updated_at else None,
             "content": row.content[:300],
         }
         for row in rows
