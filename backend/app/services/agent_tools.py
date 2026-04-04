@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import uuid as _uuid_mod
+from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,41 @@ from app.services.permissions import can_access_document
 from app.services.search import grep_search, merged_search, title_search
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Date/age formatting helpers
+# ---------------------------------------------------------------------------
+
+
+def _format_age(updated_at: str | datetime | None) -> str:
+    """Format document updated_at as ', 更新: YYYY-MM-DD, N日前'."""
+    if not updated_at:
+        return ""
+    try:
+        if isinstance(updated_at, str):
+            dt = datetime.fromisoformat(updated_at)
+        else:
+            dt = updated_at
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        days = (now - dt).days
+        if days == 0:
+            age = "今日"
+        elif days == 1:
+            age = "昨日"
+        elif days < 30:
+            age = f"{days}日前"
+        elif days < 365:
+            age = f"{days // 30}ヶ月前"
+        else:
+            age = f"{days // 365}年前"
+        date_str = dt.strftime("%Y-%m-%d")
+        return f", 更新: {date_str}, {age}"
+    except Exception:
+        return ""
+
 
 # ---------------------------------------------------------------------------
 # Tool definitions (OpenAI function calling format)
@@ -160,6 +196,17 @@ SYSTEM_PROMPT = """\
   会話履歴の回答は要約であり、正確な情報が欠落している可能性があります。
   記憶に頼らず、必ず read_document や search で原文を確認してから回答してください。
 - **文書IDを絶対に捏造しないでください。** read_document に渡すIDは、直前の検索結果に表示された「ID:」の値をそのまま使ってください。記憶やUUIDの推測は厳禁です。IDが分からない場合は search_by_title で再検索してください。
+
+## 時間的判断
+- 検索結果や文書には更新日と経過期間が表示されます。情報の鮮度を必ず考慮してください
+- 古い文書（1年以上前）の情報は「当時の情報」として扱い、現在も有効か注意してください
+- 和暦（令和/平成/昭和）は西暦に変換して時系列を正確に把握してください
+  - 令和元年 = 2019年、令和2年 = 2020年、令和3年 = 2021年 ...
+  - 平成元年 = 1989年、平成31年 = 2019年
+  - 昭和64年 = 1989年
+- 登記簿などの履歴文書は、最も日付が新しい記録が最新情報です
+- 複数の文書で矛盾する情報がある場合、より新しい文書を優先してください
+- 文書の日付と現在日時の差から「この情報は○年前のものです」と明示してください
 """
 
 
@@ -192,7 +239,8 @@ async def execute_tool(
             for r in results:
                 sources.append({"document_id": r["document_id"], "title": r["document_title"]})
                 snippet = r["content"][:200].replace("\n", " ")
-                lines.append(f"- **{r['document_title']}** (ID: {r['document_id']})\n  {snippet}...")
+                age = _format_age(r.get("updated_at"))
+                lines.append(f"- **{r['document_title']}** (ID: {r['document_id']}{age})\n  {snippet}...")
             return "\n".join(lines), sources
 
         elif name == "grep":
@@ -205,7 +253,8 @@ async def execute_tool(
             for r in results:
                 sources.append({"document_id": r["document_id"], "title": r["document_title"]})
                 snippet = r["content"][:200].replace("\n", " ")
-                lines.append(f"- **{r['document_title']}** (ID: {r['document_id']})\n  {snippet}...")
+                age = _format_age(r.get("updated_at"))
+                lines.append(f"- **{r['document_title']}** (ID: {r['document_id']}{age})\n  {snippet}...")
             return "\n".join(lines), sources
 
         elif name == "search_by_title":
@@ -217,7 +266,8 @@ async def execute_tool(
             lines = [f"タイトル「{query}」の検索結果（{len(results)}件）:\n"]
             for r in results:
                 sources.append({"document_id": r["document_id"], "title": r["title"]})
-                lines.append(f"- **{r['title']}** (ID: {r['document_id']}, タイプ: {r['file_type']})")
+                age = _format_age(r.get("updated_at"))
+                lines.append(f"- **{r['title']}** (ID: {r['document_id']}, タイプ: {r['file_type']}{age})")
             return "\n".join(lines), sources
 
         elif name == "read_document":
@@ -247,15 +297,22 @@ async def execute_tool(
                 return f"文書ID {doc_id} へのアクセス権限がありません。", sources
 
             sources.append({"document_id": str(doc.id), "title": doc.title})
+            age = _format_age(doc.updated_at)
+            # Build metadata header
+            folder_name = ""
+            if doc.folder_id:
+                folder_result = await db.execute(select(Folder.name).where(Folder.id == doc.folder_id))
+                fn = folder_result.scalar_one_or_none()
+                if fn:
+                    folder_name = f" | フォルダ: {fn}"
+            meta_header = f"**{doc.title}**\nタイプ: {doc.file_type}{age}{folder_name}\n"
+
             content = doc.content or ""
             if not content.strip():
-                return (
-                    f"**{doc.title}** にはテキスト情報がありません。"
-                    f"\nファイルタイプ: {doc.file_type}"
-                ), sources
+                return f"{meta_header}\nテキスト情報がありません。", sources
             if len(content) > 4000:
                 content = content[:4000] + "\n\n... (以下省略、全文は4000文字を超えています)"
-            return f"**{doc.title}** の全文:\n\n{content}", sources
+            return f"{meta_header}\n全文:\n{content}", sources
 
         elif name == "count_results":
             query = arguments.get("query", "")
@@ -349,7 +406,8 @@ async def execute_tool(
             lines = [f"フォルダ内の文書一覧（{len(docs)}件）:\n"]
             for d in docs:
                 sources.append({"document_id": str(d.id), "title": d.title})
-                lines.append(f"- **{d.title}** (ID: {d.id}, タイプ: {d.file_type})")
+                age = _format_age(d.updated_at)
+                lines.append(f"- **{d.title}** (ID: {d.id}, タイプ: {d.file_type}{age})")
             return "\n".join(lines), sources
 
         else:

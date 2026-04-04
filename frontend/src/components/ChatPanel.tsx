@@ -34,6 +34,7 @@ interface DisplayMessage {
   sources?: ChatSource[];
   toolSteps?: ToolStepDisplay[];
   turnContext?: string;
+  createdAt?: string;
 }
 
 // clearChatCache kept for backward compat (no-op now, DB handles persistence)
@@ -133,7 +134,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
   const sendMessage = useCallback(
     (userText: string, history: DisplayMessage[], currentContext: ChatContext[]) => {
       const query = currentQueryRef.current;
-      const userMsg: DisplayMessage = { role: "user", content: userText };
+      const userMsg: DisplayMessage = { role: "user", content: userText, createdAt: new Date().toISOString() };
       const newMessages = [...history, userMsg];
       setMessages([...newMessages, { role: "assistant", content: "", toolSteps: [] }]);
       setIsStreaming(true);
@@ -149,6 +150,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
         role: m.role,
         content: m.content,
         ...(m.turnContext ? { turnContext: m.turnContext } : {}),
+        ...(m.createdAt ? { createdAt: m.createdAt } : {}),
       }));
 
       let accumulated = "";
@@ -273,6 +275,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
               role: m.role as "user" | "assistant",
               content: m.content,
               turnContext: m.turn_context ?? undefined,
+              createdAt: m.created_at ?? undefined,
               sources: m.sources ?? undefined,
               toolSteps: m.tool_steps?.map((s: { round: number; name: string; query?: string; summary?: string }) => ({
                 round: s.round,

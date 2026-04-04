@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -141,8 +142,17 @@ async def run_agent(
     seen_doc_ids: set[str] = set()
     tool_actions: list[str] = []  # Condensed summaries for turn_context
 
-    # Build conversation with system prompt + folder tree
+    # Build conversation with system prompt
     system_content = SYSTEM_PROMPT
+
+    # Inject current datetime
+    JST = timezone(timedelta(hours=9))
+    now = datetime.now(JST)
+    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+    date_str = now.strftime(f"%Y年%-m月%-d日({weekdays[now.weekday()]}) %H:%M JST")
+    system_content += f"\n\n## 現在日時\n{date_str}\n"
+
+    # Inject folder tree
     folder_tree = await _build_folder_tree(db)
     if folder_tree:
         system_content += f"\n\n## フォルダ構造\n以下のフォルダが存在します。検索時にfolder_idで範囲を絞り込んだり、list_documentsでフォルダ内の文書を確認できます。\n{folder_tree}"
@@ -152,14 +162,19 @@ async def run_agent(
 
     conv_messages = [{"role": "system", "content": system_content}]
 
-    # Inject previous turn contexts into conversation
+    # Inject previous turn contexts into conversation (with timestamps)
     for m in messages:
+        created_at = m.get("created_at", "")
+        time_prefix = f"[{created_at}] " if created_at else ""
+
         if m.get("turn_context") and m.get("role") == "assistant":
             augmented = (
-                f"[前回のツール使用結果]\n{m['turn_context']}\n\n"
+                f"{time_prefix}[前回のツール使用結果]\n{m['turn_context']}\n\n"
                 f"[回答]\n{m['content']}"
             )
             conv_messages.append({"role": "assistant", "content": augmented})
+        elif m.get("role") == "user" and time_prefix:
+            conv_messages.append({"role": "user", "content": f"{time_prefix}{m['content']}"})
         else:
             conv_messages.append({"role": m["role"], "content": m["content"]})
 
