@@ -26,6 +26,7 @@ class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
     content: str
     turn_context: str | None = None  # Tool action summary from previous turn
+    created_at: str | None = None  # ISO timestamp for temporal awareness
 
 
 class ContextChunk(BaseModel):
@@ -88,7 +89,11 @@ async def chat_stream(
     LLM inference resources.
     """
     messages = [
-        {"role": m.role, "content": m.content, **({"turn_context": m.turn_context} if m.turn_context else {})}
+        {
+            "role": m.role, "content": m.content,
+            **({"turn_context": m.turn_context} if m.turn_context else {}),
+            **({"created_at": m.created_at} if m.created_at else {}),
+        }
         for m in body.messages
     ]
 

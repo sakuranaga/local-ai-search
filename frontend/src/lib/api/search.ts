@@ -58,6 +58,7 @@ export function streamChat(
         role: m.role,
         content: m.content,
         ...(m.turnContext ? { turn_context: m.turnContext } : {}),
+        ...(m.createdAt ? { created_at: m.createdAt } : {}),
       })),
       context,
     }),

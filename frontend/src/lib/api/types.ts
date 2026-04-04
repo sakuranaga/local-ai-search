@@ -267,6 +267,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   turnContext?: string;
+  createdAt?: string;
 }
 
 export interface ChatSource {

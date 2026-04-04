@@ -655,6 +655,7 @@ async def title_search(
             Document.id,
             Document.title,
             Document.file_type,
+            Document.updated_at,
         )
         .where(Document.deleted_at.is_(None))
         .where(visibility)
@@ -673,6 +674,7 @@ async def title_search(
             "document_id": str(row.id),
             "title": row.title,
             "file_type": row.file_type,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
         for row in rows
     ]
