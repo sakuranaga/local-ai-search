@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sparkles, Send, Trash2, User, Search, FileText, TextSearch, Hash, Loader2, ChevronRight, Bot } from "lucide-react";
+import { Sparkles, Send, Trash2, User, Search, FileText, TextSearch, Hash, Loader2, ChevronRight, Bot, FolderOpen, List } from "lucide-react";
 import {
   streamChat,
   getChatStatus,
@@ -45,6 +45,8 @@ const TOOL_LABELS: Record<string, { label: string; icon: typeof Search }> = {
   search_by_title: { label: "タイトル検索", icon: FileText },
   read_document: { label: "文書読込", icon: FileText },
   count_results: { label: "件数確認", icon: Hash },
+  list_folders: { label: "フォルダ一覧", icon: FolderOpen },
+  list_documents: { label: "文書一覧", icon: List },
 };
 
 function ToolStepLine({ step, isActive }: { step: ToolStepDisplay; isActive: boolean }) {

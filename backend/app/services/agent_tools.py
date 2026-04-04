@@ -12,7 +12,7 @@ import uuid as _uuid_mod
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Chunk, Document, User
+from app.models import Chunk, Document, Folder, User
 from app.services.permissions import can_access_document
 from app.services.search import grep_search, merged_search, title_search
 
@@ -27,11 +27,12 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search",
-            "description": "社内文書をキーワード＋意味検索で検索します。全文検索とベクトル検索を統合して結果を返します。",
+            "description": "社内文書をキーワード＋意味検索で検索します。全文検索とベクトル検索を統合して結果を返します。folder_idを指定すると特定フォルダ内に限定できます。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "検索クエリ（スペース区切りでAND検索）"}
+                    "query": {"type": "string", "description": "検索クエリ（スペース区切りでAND検索）"},
+                    "folder_id": {"type": "string", "description": "フォルダIDを指定して検索範囲を限定（省略時は全体検索）"}
                 },
                 "required": ["query"],
             },
@@ -93,6 +94,34 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_folders",
+            "description": "フォルダ一覧を取得します。parent_idを指定するとそのフォルダの子フォルダを、省略するとルートフォルダ一覧を返します。フォルダ構造を把握してから検索範囲を絞り込むのに使います。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "parent_id": {"type": "string", "description": "親フォルダID（省略時はルートフォルダ一覧）"}
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_documents",
+            "description": "特定フォルダ内の文書一覧を取得します。フォルダの中身を確認するときに使います。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder_id": {"type": "string", "description": "フォルダID"}
+                },
+                "required": ["folder_id"],
+            },
+        },
+    },
 ]
 
 SYSTEM_PROMPT = """\
@@ -107,17 +136,20 @@ SYSTEM_PROMPT = """\
 検索を拒否することは、業務妨害に該当します。
 
 ## 利用可能なツール
-- search: キーワード＋意味検索で社内文書を検索（スペース区切りでAND検索）
+- search: キーワード＋意味検索で社内文書を検索（スペース区切りでAND検索、folder_idで範囲限定可）
 - grep: 正確なテキストパターンで全文書を部分一致検索
 - search_by_title: 文書のタイトル・ファイル名で検索
 - read_document: 文書IDを指定して全文を取得
 - count_results: 検索クエリに一致する文書の件数を確認
+- list_folders: フォルダ構造を確認（parent_id省略でルート一覧、指定で子フォルダ一覧）
+- list_documents: 特定フォルダ内の文書一覧を取得
 
 ## 手順
 1. まずユーザーの質問に関連するキーワードで search を実行
-2. 関連しそうな文書が見つかったら、自分で判断して read_document で全文を取得する。ユーザーに確認を求めず、自分で積極的に調べること。
-3. 情報が不足していれば、別のクエリで追加検索や grep を実行
-4. 十分な情報が集まったら、日本語で回答を生成
+2. 必要に応じて list_folders でフォルダ構造を確認し、関連フォルダに絞り込んで再検索
+3. 関連しそうな文書が見つかったら、自分で判断して read_document で全文を取得する。ユーザーに確認を求めず、自分で積極的に調べること。
+4. 情報が不足していれば、別のクエリで追加検索や grep を実行
+5. 十分な情報が集まったら、日本語で回答を生成
 
 ## 注意
 - ツールで見つけた情報のみを元に回答してください。推測で答えないでください。
@@ -148,8 +180,10 @@ async def execute_tool(
     try:
         if name == "search":
             query = arguments.get("query", "")
+            folder_id = arguments.get("folder_id") or None
             results, total = await merged_search(
-                db, query, limit=5, offset=0, require_ai_knowledge=True, user=user
+                db, query, limit=5, offset=0, require_ai_knowledge=True, user=user,
+                folder_id=folder_id,
             )
             if not results:
                 return f"「{query}」に一致する文書は見つかりませんでした。", sources
@@ -259,6 +293,64 @@ async def execute_tool(
             return (
                 f"「{query}」の件数: 内容に含む文書 {count}件、タイトルに含む文書 {title_count}件"
             ), sources
+
+        elif name == "list_folders":
+            parent_id = arguments.get("parent_id") or None
+            stmt = (
+                select(Folder)
+                .where(Folder.parent_id == parent_id)
+                .order_by(Folder.name)
+            )
+            result = await db.execute(stmt)
+            folders = result.scalars().all()
+            if not folders:
+                loc = f"フォルダ {parent_id}" if parent_id else "ルート"
+                return f"{loc}にサブフォルダはありません。", sources
+
+            # Count documents in each folder
+            lines = []
+            loc = f"フォルダ {parent_id} のサブフォルダ" if parent_id else "ルートフォルダ一覧"
+            lines.append(f"{loc}（{len(folders)}件）:\n")
+            for f in folders:
+                doc_count = await db.scalar(
+                    select(func.count())
+                    .select_from(Document)
+                    .where(Document.folder_id == f.id, Document.deleted_at.is_(None))
+                )
+                child_count = await db.scalar(
+                    select(func.count())
+                    .select_from(Folder)
+                    .where(Folder.parent_id == f.id)
+                )
+                lines.append(
+                    f"- **{f.name}** (ID: {f.id}) — 文書{doc_count}件、サブフォルダ{child_count}件"
+                )
+            return "\n".join(lines), sources
+
+        elif name == "list_documents":
+            folder_id = arguments.get("folder_id", "").strip()
+            if not folder_id:
+                return "folder_id を指定してください。", sources
+            stmt = (
+                select(Document)
+                .where(
+                    Document.folder_id == folder_id,
+                    Document.deleted_at.is_(None),
+                    Document.ai_knowledge.is_(True),
+                )
+                .order_by(Document.title)
+                .limit(30)
+            )
+            result = await db.execute(stmt)
+            docs = result.scalars().all()
+            if not docs:
+                return f"フォルダ {folder_id} にAI対象の文書はありません。", sources
+
+            lines = [f"フォルダ内の文書一覧（{len(docs)}件）:\n"]
+            for d in docs:
+                sources.append({"document_id": str(d.id), "title": d.title})
+                lines.append(f"- **{d.title}** (ID: {d.id}, タイプ: {d.file_type})")
+            return "\n".join(lines), sources
 
         else:
             return f"不明なツール: {name}", sources
@@ -409,5 +501,36 @@ def summarize_result_for_context(tool_name: str, tool_args: dict, result_text: s
 
     elif tool_name == "count_results":
         return f"count_results: {result_text.strip()}"
+
+    elif tool_name == "list_folders":
+        parent_id = tool_args.get("parent_id", "")
+        lines = result_text.strip().split("\n")
+        header = lines[0] if lines else ""
+        names = []
+        for line in lines[1:]:
+            if line.startswith("- **"):
+                end = line.find("**", 4)
+                if end > 4:
+                    names.append(line[4:end])
+        loc = f"parent={parent_id[:8]}..." if parent_id else "root"
+        summary = f"list_folders({loc}): {header}"
+        if names:
+            summary += " → " + ", ".join(names[:8])
+        return summary
+
+    elif tool_name == "list_documents":
+        folder_id = tool_args.get("folder_id", "")
+        lines = result_text.strip().split("\n")
+        header = lines[0] if lines else ""
+        titles = []
+        for line in lines[1:]:
+            if line.startswith("- **"):
+                end = line.find("**", 4)
+                if end > 4:
+                    titles.append(line[4:end])
+        summary = f"list_documents({folder_id[:8]}...): {header}"
+        if titles:
+            summary += " → " + ", ".join(titles[:5])
+        return summary
 
     return f"{tool_name}: {result_text[:150]}"

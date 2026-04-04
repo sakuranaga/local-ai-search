@@ -12,7 +12,10 @@ from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import User
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
+from app.models import Folder, User
 from app.services.agent_tools import (
     SYSTEM_PROMPT,
     TOOLS,
@@ -75,6 +78,44 @@ async def _stream_filtered(
 
 
 # ---------------------------------------------------------------------------
+# Folder tree for system prompt
+# ---------------------------------------------------------------------------
+
+
+async def _build_folder_tree(db: AsyncSession) -> str:
+    """Build a concise folder tree string for the system prompt."""
+    result = await db.execute(
+        select(Folder).options(selectinload(Folder.children)).order_by(Folder.name)
+    )
+    all_folders = result.scalars().all()
+    if not all_folders:
+        return ""
+
+    # Build lookup: parent_id -> list of folders
+    by_parent: dict[str | None, list] = {}
+    for f in all_folders:
+        pid = str(f.parent_id) if f.parent_id else None
+        by_parent.setdefault(pid, []).append(f)
+
+    lines: list[str] = []
+
+    def _walk(parent_id: str | None, indent: int) -> None:
+        children = by_parent.get(parent_id, [])
+        for f in children:
+            fid = str(f.id)
+            prefix = "  " * indent
+            lines.append(f"{prefix}- {f.name} (ID: {fid})")
+            _walk(fid, indent + 1)
+
+    _walk(None, 0)
+    # Cap at ~2000 chars to avoid bloating prompt
+    tree = "\n".join(lines)
+    if len(tree) > 2000:
+        tree = tree[:2000] + "\n  ... (省略)"
+    return tree
+
+
+# ---------------------------------------------------------------------------
 # Agent loop
 # ---------------------------------------------------------------------------
 
@@ -100,8 +141,11 @@ async def run_agent(
     seen_doc_ids: set[str] = set()
     tool_actions: list[str] = []  # Condensed summaries for turn_context
 
-    # Build conversation with system prompt
+    # Build conversation with system prompt + folder tree
     system_content = SYSTEM_PROMPT
+    folder_tree = await _build_folder_tree(db)
+    if folder_tree:
+        system_content += f"\n\n## フォルダ構造\n以下のフォルダが存在します。検索時にfolder_idで範囲を絞り込んだり、list_documentsでフォルダ内の文書を確認できます。\n{folder_tree}"
     if existing_context:
         context_text = "\n\n---\n\n".join(existing_context)
         system_content += f"\n\n## 前回の検索で取得済みのコンテキスト:\n{context_text}"
