@@ -132,7 +132,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
   const currentQueryRef = useRef("");
 
   const sendMessage = useCallback(
-    (userText: string, history: DisplayMessage[], currentContext: ChatContext[]) => {
+    (userText: string, history: DisplayMessage[], currentContext: ChatContext[], forceSearch?: boolean) => {
       const query = currentQueryRef.current;
       const userMsg: DisplayMessage = { role: "user", content: userText, createdAt: new Date().toISOString() };
       const newMessages = [...history, userMsg];
@@ -253,6 +253,8 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
             return updated;
           });
         },
+        // forceSearch
+        forceSearch,
       );
     },
     [],
@@ -291,13 +293,13 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
             // No history — start new conversation
             persistedCountRef.current = 0;
             setLoadingHistory(false);
-            sendMessage(initialQuery, [], []);
+            sendMessage(initialQuery, [], [], true);
           }
         })
         .catch(() => {
           persistedCountRef.current = 0;
           setLoadingHistory(false);
-          sendMessage(initialQuery, [], []);
+          sendMessage(initialQuery, [], [], true);
         });
     }
   }, [initialQuery, sendMessage]);

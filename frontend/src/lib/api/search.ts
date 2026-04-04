@@ -43,6 +43,7 @@ export function streamChat(
   onError: (err: Error) => void,
   onToolEvent?: (step: ToolStep) => void,
   onTurnContext?: (summary: string) => void,
+  forceSearch?: boolean,
 ): AbortController {
   const controller = new AbortController();
   const token = getToken();
@@ -61,6 +62,7 @@ export function streamChat(
         ...(m.createdAt ? { created_at: m.createdAt } : {}),
       })),
       context,
+      ...(forceSearch ? { force_search: true } : {}),
     }),
     signal: controller.signal,
   })
@@ -109,6 +111,8 @@ export function streamChat(
                 onContext([], sources);
               } else if (parsed.type === "turn_context") {
                 onTurnContext?.(parsed.summary);
+              } else if (parsed.type === "intent") {
+                // Intent classification event — currently informational only
               } else if (parsed.type === "context") {
                 const ctx: ChatContext[] = parsed.context;
                 const sources: ChatSource[] = ctx.map((c: ChatContext) => ({
