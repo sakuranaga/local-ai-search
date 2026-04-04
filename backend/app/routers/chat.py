@@ -39,6 +39,7 @@ class ContextChunk(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     context: list[ContextChunk] = []  # Carried-over RAG context from previous turns
+    force_search: bool = False  # True when triggered from search form
 
 
 class SaveMessageRequest(BaseModel):
@@ -118,6 +119,7 @@ async def chat_stream(
             async for event in run_agent(
                 db, messages, existing_context,
                 user=current_user, cancel_event=cancel_event,
+                force_search=body.force_search,
             ):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
