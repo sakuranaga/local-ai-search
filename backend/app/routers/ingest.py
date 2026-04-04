@@ -83,6 +83,7 @@ class IngestResponse(BaseModel):
     processing_status: str
     created: bool  # True = new doc, False = overwritten
     created_at: datetime
+    updated_at: datetime
 
 
 class IngestStatusResponse(BaseModel):
@@ -129,6 +130,9 @@ async def _ingest_single_file(
     user: User,
     db: AsyncSession,
     background_tasks: BackgroundTasks,
+    *,
+    custom_created_at: datetime | None = None,
+    custom_updated_at: datetime | None = None,
 ) -> IngestResponse:
     """Upload and register a single file."""
     if not file.filename:
@@ -198,7 +202,7 @@ async def _ingest_single_file(
         doc.content = ""
         doc.processing_status = "pending"
         doc.updated_by_id = user.id
-        doc.updated_at = func.now()
+        doc.updated_at = custom_updated_at if custom_updated_at is not None else func.now()
         if folder_id is not None:
             doc.folder_id = folder_id
     else:
@@ -241,6 +245,10 @@ async def _ingest_single_file(
             download_prohibited=default_download_prohibited,
             source="api_upload",
         )
+        if custom_created_at is not None:
+            doc.created_at = custom_created_at
+        if custom_updated_at is not None:
+            doc.updated_at = custom_updated_at
         db.add(doc)
 
     await db.flush()
@@ -291,6 +299,7 @@ async def _ingest_single_file(
         processing_status=doc.processing_status,
         created=created,
         created_at=doc.created_at,
+        updated_at=doc.updated_at,
     )
 
 
@@ -303,6 +312,8 @@ async def ingest_upload(
     file: UploadFile,
     background_tasks: BackgroundTasks,
     folder_id: uuid.UUID | None = Query(None),
+    created_at: datetime | None = Query(None, description="Custom created_at timestamp (ISO 8601)"),
+    updated_at: datetime | None = Query(None, description="Custom updated_at timestamp (ISO 8601)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -312,6 +323,8 @@ async def ingest_upload(
     resolved_folder = _resolve_folder_id(api_key, folder_id)
     return await _ingest_single_file(
         file, resolved_folder, api_key, current_user, db, background_tasks,
+        custom_created_at=created_at,
+        custom_updated_at=updated_at,
     )
 
 
@@ -604,6 +617,7 @@ async def ingest_content(
         processing_status=doc.processing_status,
         created=created,
         created_at=doc.created_at,
+        updated_at=doc.updated_at,
     )
 
 
