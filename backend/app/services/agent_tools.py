@@ -106,11 +106,12 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "read_document",
-            "description": "文書のUUID形式のIDを指定して全文を取得します。IDは検索結果の「ID:」に表示されるUUID（例: f0bfec60-5edf-4122-a25a-b44b47ae17b5）です。タイトルやファイル名ではありません。",
+            "description": "文書のUUID形式のIDを指定して内容を取得します。queryを指定すると、その検索語にヒットした箇所の前後のみをスニペットとして返します（効率的・推奨）。queryを省略すると全文を返します（長い文書では切り詰められます）。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "id": {"type": "string", "description": "文書のUUID（例: f0bfec60-5edf-4122-a25a-b44b47ae17b5）。タイトルやファイル名は不可。"}
+                    "id": {"type": "string", "description": "文書のUUID（例: f0bfec60-5edf-4122-a25a-b44b47ae17b5）。タイトルやファイル名は不可。"},
+                    "query": {"type": "string", "description": "検索語（指定するとヒット箇所の前後100文字のスニペットのみ返す。検索結果から読む場合は必ず指定すること）"},
                 },
                 "required": ["id"],
             },
@@ -175,7 +176,7 @@ SYSTEM_PROMPT = """\
 - search: キーワード＋意味検索で社内文書を検索（スペース区切りでAND検索、folder_idで範囲限定可）
 - grep: 正確なテキストパターンで全文書を部分一致検索
 - search_by_title: 文書のタイトル・ファイル名で検索
-- read_document: 文書IDを指定して全文を取得
+- read_document: 文書IDを指定して内容を取得（query指定でヒット箇所のスニペットのみ返す）
 - count_results: 検索クエリに一致する文書の件数を確認
 - list_folders: フォルダ構造を確認（parent_id省略でルート一覧、指定で子フォルダ一覧）
 - list_documents: 特定フォルダ内の文書一覧を取得
@@ -183,7 +184,7 @@ SYSTEM_PROMPT = """\
 ## 手順
 1. まずユーザーの質問に関連するキーワードで search を実行
 2. 必要に応じて list_folders でフォルダ構造を確認し、関連フォルダに絞り込んで再検索
-3. 関連しそうな文書が見つかったら、自分で判断して read_document で全文を取得する。ユーザーに確認を求めず、自分で積極的に調べること。
+3. 関連しそうな文書が見つかったら、read_document で内容を取得する。**queryパラメータに検索語を必ず指定すること**（ヒット箇所のスニペットのみ返すため効率的）。全文が必要な場合のみqueryを省略する。
 4. 情報が不足していれば、別のクエリで追加検索や grep を実行
 5. 十分な情報が集まったら、日本語で回答を生成
 
@@ -208,6 +209,69 @@ SYSTEM_PROMPT = """\
 - 複数の文書で矛盾する情報がある場合、より新しい文書を優先してください
 - 文書の日付と現在日時の差から「この情報は○年前のものです」と明示してください
 """
+
+
+# ---------------------------------------------------------------------------
+# Snippet extraction for focused document reading
+# ---------------------------------------------------------------------------
+
+_SNIPPET_CONTEXT = 100  # chars before/after match
+_SNIPPET_MAX_TOTAL = 2000  # max total chars across all snippets
+
+
+def _extract_snippets(chunks: list, words: list[str]) -> list[str]:
+    """Extract text snippets around matching words from document chunks.
+
+    Returns a list of snippet strings with ±100 chars of context around each hit.
+    Merges overlapping windows and caps total output at ~2000 chars.
+    """
+    snippets: list[str] = []
+    total_len = 0
+
+    for chunk in chunks:
+        text = chunk.content
+        text_lower = text.lower()
+        # Find all match positions
+        positions: list[tuple[int, int]] = []
+        for word in words:
+            wl = word.lower()
+            start = 0
+            while start < len(text_lower):
+                idx = text_lower.find(wl, start)
+                if idx < 0:
+                    break
+                positions.append((idx, idx + len(word)))
+                start = idx + 1
+
+        if not positions:
+            continue
+
+        # Merge overlapping context windows
+        positions.sort()
+        windows: list[tuple[int, int]] = []
+        for p_start, p_end in positions:
+            w_start = max(0, p_start - _SNIPPET_CONTEXT)
+            w_end = min(len(text), p_end + _SNIPPET_CONTEXT)
+            if windows and w_start <= windows[-1][1]:
+                windows[-1] = (windows[-1][0], max(windows[-1][1], w_end))
+            else:
+                windows.append((w_start, w_end))
+
+        for w_start, w_end in windows:
+            excerpt = text[w_start:w_end].replace("\n", " ")
+            prefix = "..." if w_start > 0 else ""
+            suffix = "..." if w_end < len(text) else ""
+            snippet = f"[チャンク{chunk.chunk_index}] {prefix}{excerpt}{suffix}"
+            snippets.append(snippet)
+            total_len += len(snippet)
+            if total_len >= _SNIPPET_MAX_TOTAL:
+                snippets.append("... (他にもヒット箇所があります)")
+                return snippets
+
+        if total_len >= _SNIPPET_MAX_TOTAL:
+            break
+
+    return snippets
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +336,7 @@ async def execute_tool(
 
         elif name == "read_document":
             doc_id = arguments.get("id", "").strip()
+            read_query = arguments.get("query", "").strip()
             # Validate UUID format
             try:
                 _uuid_mod.UUID(doc_id)
@@ -307,6 +372,27 @@ async def execute_tool(
                     folder_name = f" | フォルダ: {fn}"
             meta_header = f"**{doc.title}**\nタイプ: {doc.file_type}{age}{folder_name}\n"
 
+            # --- Snippet mode: query specified → return only matching excerpts ---
+            if read_query:
+                from app.services.tokenizer import tokenize_query as _tq
+                words = _tq(read_query)
+                if words:
+                    chunk_result = await db.execute(
+                        select(Chunk.content, Chunk.chunk_index)
+                        .where(Chunk.document_id == doc_id)
+                        .order_by(Chunk.chunk_index)
+                    )
+                    chunks = chunk_result.all()
+                    snippets = _extract_snippets(chunks, words)
+                    if snippets:
+                        snip_text = "\n\n".join(snippets)
+                        return (
+                            f"{meta_header}\n該当箇所（{len(snippets)}箇所）:\n\n{snip_text}",
+                            sources,
+                        )
+                # No matches or no words — fall through to full text
+
+            # --- Full text mode ---
             content = doc.content or ""
             if not content.strip():
                 return f"{meta_header}\nテキスト情報がありません。", sources

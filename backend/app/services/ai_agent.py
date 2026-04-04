@@ -33,6 +33,7 @@ from app.services.agent_tools import (
     summarize_result,
     summarize_result_for_context,
 )
+from app.services.compaction import compact_messages, should_compact
 from app.services.llm import CancelledByClient, chat_completion, stream_chat_raw
 from app.services.settings import get_setting
 
@@ -324,6 +325,16 @@ async def run_agent(
     # Build conversation messages
     # -----------------------------------------------------------------------
     conv_messages = _build_conv_messages(system_content, messages)
+
+    # -----------------------------------------------------------------------
+    # Conversation compaction
+    # -----------------------------------------------------------------------
+    if should_compact(conv_messages):
+        pre_count = len(conv_messages)
+        conv_messages = compact_messages(conv_messages)
+        logger.info(
+            "Compacted conversation: %d -> %d messages", pre_count, len(conv_messages)
+        )
 
     # -----------------------------------------------------------------------
     # Intent classification
