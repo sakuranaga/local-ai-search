@@ -3,6 +3,10 @@ import logging
 import shutil
 from contextlib import asynccontextmanager
 
+import sentry_sdk
+
+sentry_sdk.init("http://REDACTED_SENTRY_KEY@REDACTED_IP:8000/4")
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select, text
