@@ -430,11 +430,19 @@ export function FileExplorerPage() {
         setSearchTokens([]);
       }
     } catch {
-      toast.error("文書一覧の取得に失敗");
-      setHasMore(false);
+      if (gen === loadGenRef.current) {
+        toast.error("文書一覧の取得に失敗");
+        setHasMore(false);
+      }
     } finally {
-      setLoading(false);
-      loadingRef.current = false;
+      // Only reset loading state if this is still the current generation.
+      // Stale responses must NOT reset loadingRef — doing so lets the
+      // IntersectionObserver fire page-2+ requests before page-1 completes,
+      // which causes ghost rows from the previous view to bleed through.
+      if (gen === loadGenRef.current) {
+        setLoading(false);
+        loadingRef.current = false;
+      }
     }
   }, [perPage, sortBy, sortDir, filterType, filterDateFrom, filterDateTo, filterCreatedBy, filterIncludeUnsearchable, activeFolderId, activeTags, isSearching, urlQ, showFavorites, showRecent]);
 
