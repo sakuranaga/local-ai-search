@@ -19,11 +19,15 @@ export function OverTypeEditor({
     const el = containerRef.current;
     if (!el) return;
 
+    // Use 16px on mobile to prevent iOS Safari auto-zoom on focus
+    const isMobile = window.matchMedia("(max-width: 767px)").matches;
+
     const instances = new OverType(el, {
       value,
       toolbar: !readOnly,
       statsBar: false,
       placeholder: readOnly ? "" : "テキストを編集...",
+      fontSize: isMobile ? "16px" : "14px",
     } as any);
 
     // OverType constructor may return a single instance or array

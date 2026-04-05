@@ -71,7 +71,7 @@ export function CreateTextDocumentDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-4xl w-[95vw] h-[85vh] !max-w-none !w-screen !h-screen !max-h-screen !rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 md:!max-w-4xl md:!w-[95vw] md:!h-[85vh] md:!max-h-[85vh] md:!rounded-lg md:!top-1/2 md:!left-1/2 md:!-translate-x-1/2 md:!-translate-y-1/2 flex flex-col">
+      <DialogContent className="sm:max-w-4xl w-[95vw] h-[85vh] !max-w-none !w-screen !h-[100dvh] !max-h-[100dvh] !rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 md:!max-w-4xl md:!w-[95vw] md:!h-[85vh] md:!max-h-[85vh] md:!rounded-lg md:!top-1/2 md:!left-1/2 md:!-translate-x-1/2 md:!-translate-y-1/2 flex flex-col pb-[env(safe-area-inset-bottom)] md:pb-0">
         <DialogHeader>
           <DialogTitle>新規テキストドキュメント</DialogTitle>
           <DialogDescription>Markdownで記述できます。保存すると .md ファイルとして登録されます。</DialogDescription>
