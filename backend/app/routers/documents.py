@@ -328,13 +328,16 @@ async def create_text_document(
 
     file_size = len(content_bytes)
 
-    # Check for existing document with the same title
-    existing_result = await db.execute(
-        select(Document).where(
-            Document.title == title,
-            Document.deleted_at.is_(None),
-        )
+    # Check for existing document with the same title in the same folder
+    existing_query = select(Document).where(
+        Document.title == title,
+        Document.deleted_at.is_(None),
     )
+    if folder_id:
+        existing_query = existing_query.where(Document.folder_id == folder_id)
+    else:
+        existing_query = existing_query.where(Document.folder_id.is_(None))
+    existing_result = await db.execute(existing_query)
     existing_doc = existing_result.scalars().first()
 
     if existing_doc:
@@ -405,8 +408,12 @@ async def create_text_document(
     db.add(file_record)
 
     await db.flush()
-    from app.services.versioning import create_initial_version
-    await create_initial_version(db, doc, current_user.id)
+    from app.services.versioning import create_initial_version, create_versions_on_edit, save_new_version
+    if existing_doc:
+        next_ver = await create_versions_on_edit(db, doc, current_user.id)
+        await save_new_version(db, doc, next_ver, current_user.id, change_type="text_edit")
+    else:
+        await create_initial_version(db, doc, current_user.id)
 
     await audit_log(db, user=current_user, action="document.create", target_type="document",
                     target_id=str(doc.id), target_name=doc.title, request=request)
