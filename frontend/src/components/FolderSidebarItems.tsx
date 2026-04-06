@@ -182,6 +182,8 @@ export function FolderTreeItem({
   onDrop,
   onFolderDrop,
   onContextMenu,
+  expandedIds,
+  onToggleExpand,
   depth = 0,
 }: {
   node: FolderNode;
@@ -190,9 +192,11 @@ export function FolderTreeItem({
   onDrop: (folderId: string | null, docIds: string[]) => void;
   onFolderDrop?: (draggedFolderId: string, targetFolderId: string | null) => void;
   onContextMenu: (e: React.MouseEvent, node: FolderNode) => void;
+  expandedIds: Set<string>;
+  onToggleExpand: (id: string) => void;
   depth?: number;
 }) {
-  const [expanded, setExpanded] = useState(depth < 2);
+  const expanded = expandedIds.has(node.id);
   const [dragOver, setDragOver] = useState(false);
 
   const isActive = activeFolderId === node.id;
@@ -243,12 +247,12 @@ export function FolderTreeItem({
         style={{ paddingLeft: `${depth * 12 + 2}px` }}
       >
         <button
-          onClick={() => hasChildren && setExpanded(!expanded)}
+          onClick={() => hasChildren && onToggleExpand(node.id)}
           className={`p-0.5 ${hasChildren ? "" : "invisible"}`}
         >
           {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}
         </button>
-        <button onClick={() => onSelect(node.id)} onDoubleClick={() => hasChildren && setExpanded(!expanded)} className="flex items-center gap-1 flex-1 truncate text-left">
+        <button onClick={() => onSelect(node.id)} onDoubleClick={() => hasChildren && onToggleExpand(node.id)} className="flex items-center gap-1 flex-1 truncate text-left">
           {isActive || dragOver ? <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" /> : <FolderIcon className="h-3.5 w-3.5 flex-shrink-0" />}
           <Tooltip content={node.name} onlyWhenTruncated>
             <span className="truncate">{node.name}</span>
@@ -267,6 +271,8 @@ export function FolderTreeItem({
           onDrop={onDrop}
           onFolderDrop={onFolderDrop}
           onContextMenu={onContextMenu}
+          expandedIds={expandedIds}
+          onToggleExpand={onToggleExpand}
           depth={depth + 1}
         />
       ))}

@@ -703,6 +703,24 @@ export function FileExplorerPage() {
 
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
 
+  // Folder expand/collapse state persisted in localStorage
+  const FOLDER_EXPANDED_KEY = "las-folder-expanded";
+  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(FOLDER_EXPANDED_KEY);
+      if (saved) return new Set(JSON.parse(saved) as string[]);
+    } catch { /* ignore */ }
+    return new Set<string>();
+  });
+  const toggleFolderExpand = useCallback((id: string) => {
+    setExpandedFolderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      localStorage.setItem(FOLDER_EXPANDED_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+
   // Build breadcrumb path for active folder (e.g. "親フォルダ > 子フォルダ")
   const folderBreadcrumb = useMemo(() => {
     if (!activeFolderId || activeFolderId === "unfiled") return null;
@@ -1311,6 +1329,8 @@ export function FileExplorerPage() {
                 onDrop={handleDropOnFolder}
                 onFolderDrop={handleDropFolderOnFolder}
                 onContextMenu={handleFolderContextMenu}
+                expandedIds={expandedFolderIds}
+                onToggleExpand={toggleFolderExpand}
               />
             ))}
           </div>}
