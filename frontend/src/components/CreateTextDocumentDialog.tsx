@@ -27,13 +27,13 @@ export function CreateTextDocumentDialog({
 }) {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [folderId, setFolderId] = useState(currentFolderId ?? "");
+  const [folderId, setFolderId] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Sync folderId when dialog opens with a different currentFolderId
   function handleOpenChange(isOpen: boolean) {
     if (isOpen) {
-      setFolderId(currentFolderId ?? "");
+      setFolderId("");
       setTitle("");
       setContent("");
     } else {
@@ -108,7 +108,7 @@ export function CreateTextDocumentDialog({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 shrink-0">
+        <div className="flex justify-end gap-2 shrink-0 mb-2">
           <Button variant="outline" onClick={onClose}>キャンセル</Button>
           <Button onClick={handleSave} disabled={saving || !title.trim()}>
             {saving ? "作成中..." : "保存"}
