@@ -145,6 +145,16 @@ export function buildFolderTree(folders: Folder[]): FolderNode[] {
     for (const n of nodes) sortChildren(n.children);
   };
   sortChildren(roots);
+  // Accumulate child document counts into parent
+  const accumulate = (nodes: FolderNode[]): number => {
+    let total = 0;
+    for (const n of nodes) {
+      n.document_count += accumulate(n.children);
+      total += n.document_count;
+    }
+    return total;
+  };
+  accumulate(roots);
   return roots;
 }
 
