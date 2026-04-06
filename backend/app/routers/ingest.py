@@ -165,6 +165,8 @@ async def _ingest_single_file(
     )
     if folder_id:
         existing_query = existing_query.where(Document.folder_id == folder_id)
+    else:
+        existing_query = existing_query.where(Document.folder_id.is_(None))
 
     existing_result = await db.execute(existing_query)
     existing_doc = existing_result.scalars().first()
@@ -872,13 +874,16 @@ async def tus_hook(
             default_share_prohibited = (await get_setting(db, "default_share_prohibited")).lower() == "true"
             default_download_prohibited = (await get_setting(db, "default_download_prohibited")).lower() == "true"
 
-            # Check for existing document with same title (duplicate handling)
-            existing_result = await db.execute(
-                select(Document).where(
-                    Document.title == filename,
-                    Document.deleted_at.is_(None),
-                )
+            # Check for existing document with same title in the same folder
+            existing_query = select(Document).where(
+                Document.title == filename,
+                Document.deleted_at.is_(None),
             )
+            if folder_uuid:
+                existing_query = existing_query.where(Document.folder_id == folder_uuid)
+            else:
+                existing_query = existing_query.where(Document.folder_id.is_(None))
+            existing_result = await db.execute(existing_query)
             existing_doc = existing_result.scalars().first()
             tus_new_ver = None
 
