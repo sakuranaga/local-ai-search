@@ -56,6 +56,26 @@ export async function deleteUser(id: string): Promise<void> {
   return apiFetch(`/users/${id}`, { method: "DELETE" });
 }
 
+export async function adminUploadAvatar(userId: string, file: File): Promise<User> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/users/${userId}/avatar`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function adminDeleteAvatar(userId: string): Promise<User> {
+  return apiFetch(`/users/${userId}/avatar`, { method: "DELETE" });
+}
+
 // ---------------------------------------------------------------------------
 // Roles
 // ---------------------------------------------------------------------------

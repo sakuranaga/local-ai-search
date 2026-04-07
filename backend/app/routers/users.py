@@ -1,7 +1,10 @@
+import os
+import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -183,6 +186,67 @@ async def update_user(
     await audit_log(db, user=_admin, action="user.update", target_type="user",
                     target_id=str(user.id), target_name=user.username,
                     detail=changed, request=request)
+    return _user_response(user)
+
+
+# ---------------------------------------------------------------------------
+# Admin avatar upload / delete for any user
+# ---------------------------------------------------------------------------
+
+AVATAR_DIR = Path(os.environ.get("STORAGE_PATH", "/app/storage")) / "avatars"
+AVATAR_MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+AVATAR_ALLOWED_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+AVATAR_EXT_MAP = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}
+
+
+@router.post("/{user_id}/avatar", response_model=UserResponse)
+async def admin_upload_avatar(
+    user_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_permission("admin")),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if file.content_type not in AVATAR_ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="JPEG, PNG, GIF, WebPのみ対応しています")
+    data = await file.read()
+    if len(data) > AVATAR_MAX_SIZE:
+        raise HTTPException(status_code=400, detail="ファイルサイズは2MB以下にしてください")
+
+    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+    for old in AVATAR_DIR.glob(f"{user_id}.*"):
+        old.unlink(missing_ok=True)
+
+    ext = AVATAR_EXT_MAP.get(file.content_type, ".png")
+    filename = f"{user_id}{ext}"
+    (AVATAR_DIR / filename).write_bytes(data)
+
+    user.avatar_url = f"/api/auth/avatars/{filename}?v={int(time.time())}"
+    await db.commit()
+    await db.refresh(user)
+    return _user_response(user)
+
+
+@router.delete("/{user_id}/avatar", response_model=UserResponse)
+async def admin_delete_avatar(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_permission("admin")),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    for old in AVATAR_DIR.glob(f"{user_id}.*"):
+        old.unlink(missing_ok=True)
+    user.avatar_url = None
+    await db.commit()
+    await db.refresh(user)
     return _user_response(user)
 
 
