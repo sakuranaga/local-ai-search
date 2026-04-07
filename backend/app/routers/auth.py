@@ -1,7 +1,11 @@
+import os
+import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import redis.asyncio as redis
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -224,3 +228,92 @@ async def change_password(
         target_type="user", target_id=str(current_user.id), request=request,
     )
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Avatar upload / delete / serve
+# ---------------------------------------------------------------------------
+
+AVATAR_DIR = Path(os.environ.get("STORAGE_PATH", "/app/storage")) / "avatars"
+AVATAR_MAX_SIZE = 1 * 1024 * 1024  # 1 MB
+AVATAR_ALLOWED_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+AVATAR_EXT_MAP = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}
+
+
+@router.post("/avatar", response_model=UserResponse)
+async def upload_avatar(
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload avatar image. Filename is user ID; overwrites previous."""
+    if file.content_type not in AVATAR_ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="JPEG, PNG, GIF, WebPのみ対応しています")
+
+    data = await file.read()
+    if len(data) > AVATAR_MAX_SIZE:
+        raise HTTPException(status_code=400, detail="ファイルサイズは1MB以下にしてください")
+
+    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Remove old avatar (any extension)
+    for old in AVATAR_DIR.glob(f"{current_user.id}.*"):
+        old.unlink(missing_ok=True)
+
+    ext = AVATAR_EXT_MAP.get(file.content_type, ".png")
+    filename = f"{current_user.id}{ext}"
+    dest = AVATAR_DIR / filename
+    dest.write_bytes(data)
+
+    current_user.avatar_url = f"/api/auth/avatars/{filename}"
+    await db.commit()
+    await db.refresh(current_user)
+    role_names = [ur.role.name for ur in current_user.roles]
+    return UserResponse(
+        id=str(current_user.id),
+        username=current_user.username,
+        email=current_user.email,
+        display_name=current_user.display_name or "",
+        avatar_url=current_user.avatar_url,
+        is_active=current_user.is_active,
+        roles=role_names,
+        created_at=current_user.created_at,
+    )
+
+
+@router.delete("/avatar", response_model=UserResponse)
+async def delete_avatar(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete avatar image."""
+    for old in AVATAR_DIR.glob(f"{current_user.id}.*"):
+        old.unlink(missing_ok=True)
+
+    current_user.avatar_url = None
+    await db.commit()
+    await db.refresh(current_user)
+    role_names = [ur.role.name for ur in current_user.roles]
+    return UserResponse(
+        id=str(current_user.id),
+        username=current_user.username,
+        email=current_user.email,
+        display_name=current_user.display_name or "",
+        avatar_url=current_user.avatar_url,
+        is_active=current_user.is_active,
+        roles=role_names,
+        created_at=current_user.created_at,
+    )
+
+
+@router.get("/avatars/{filename}")
+async def serve_avatar(filename: str):
+    """Serve avatar image file."""
+    # Sanitize filename to prevent path traversal
+    safe = Path(filename).name
+    path = AVATAR_DIR / safe
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    return FileResponse(path)

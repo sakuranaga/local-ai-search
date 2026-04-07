@@ -1,22 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { getMe, updateProfile, changePassword, type User } from "@/lib/api";
+import { getMe, updateProfile, uploadAvatar, deleteAvatar, changePassword, type User } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { User as UserIcon, Mail, Lock, Image } from "lucide-react";
+import { AvatarCropper } from "@/components/AvatarCropper";
+import { User as UserIcon, Mail, Lock, Image, X } from "lucide-react";
 
 export function UserSettingsPage() {
   const [user, setUser] = useState<User | null>(null);
 
   // Profile form
   const [displayName, setDisplayName] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState("");
   const [email, setEmail] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
+
+  // Avatar state
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [avatarCleared, setAvatarCleared] = useState(false);
+  const [cropperFile, setCropperFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Password form
   const [currentPassword, setCurrentPassword] = useState("");
@@ -28,17 +35,76 @@ export function UserSettingsPage() {
     getMe().then((u) => {
       setUser(u);
       setDisplayName(u.display_name || "");
-      setAvatarUrl(u.avatar_url || "");
       setEmail(u.email || "");
     });
   }, []);
 
+  // Clean up object URL on unmount or change
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 1 * 1024 * 1024) {
+      toast.error("ファイルサイズは1MB以下にしてください");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.type)) {
+      toast.error("JPEG, PNG, GIF, WebPのみ対応しています");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    // Open cropper
+    setCropperFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function handleCropped(blob: Blob) {
+    const file = new File([blob], "avatar.png", { type: "image/png" });
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPendingFile(file);
+    setPreviewUrl(URL.createObjectURL(blob));
+    setAvatarCleared(false);
+    setCropperFile(null);
+  }
+
+  function handleAvatarClear() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPendingFile(null);
+    setPreviewUrl(null);
+    setAvatarCleared(true);
+  }
+
+  // The avatar src to show in preview
+  const displayAvatarSrc = avatarCleared ? null : (previewUrl || user?.avatar_url || null);
+
   async function handleProfileSave() {
     setProfileSaving(true);
     try {
-      const updated = await updateProfile({
+      let updated: User | null = null;
+
+      // Handle avatar upload/delete first
+      if (pendingFile) {
+        updated = await uploadAvatar(pendingFile);
+        setPendingFile(null);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(null);
+        setAvatarCleared(false);
+      } else if (avatarCleared) {
+        updated = await deleteAvatar();
+        setAvatarCleared(false);
+      }
+
+      // Update other profile fields
+      updated = await updateProfile({
         display_name: displayName,
-        avatar_url: avatarUrl,
         email,
       });
       setUser(updated);
@@ -101,7 +167,7 @@ export function UserSettingsPage() {
 
         <div className="flex items-center gap-4">
           <Avatar className="h-16 w-16">
-            {avatarUrl && <AvatarImage src={avatarUrl} alt="" />}
+            {displayAvatarSrc && <AvatarImage src={displayAvatarSrc} alt="" />}
             <AvatarFallback className="text-lg bg-primary text-primary-foreground">
               {(displayName || user.username || "U").charAt(0).toUpperCase()}
             </AvatarFallback>
@@ -114,6 +180,14 @@ export function UserSettingsPage() {
 
         <Separator />
 
+        {/* Avatar cropper overlay */}
+        {cropperFile ? (
+          <AvatarCropper
+            file={cropperFile}
+            onCropped={handleCropped}
+            onCancel={() => setCropperFile(null)}
+          />
+        ) : (
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="displayName" className="flex items-center gap-1.5">
@@ -147,16 +221,42 @@ export function UserSettingsPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="avatarUrl" className="flex items-center gap-1.5">
+            <Label className="flex items-center gap-1.5">
               <Image className="h-3.5 w-3.5" />
-              アイコンURL
+              アイコン
             </Label>
-            <Input
-              id="avatarUrl"
-              value={avatarUrl}
-              onChange={(e) => setAvatarUrl(e.target.value)}
-              placeholder="https://example.com/avatar.png"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                ファイルを選択
+              </Button>
+              {displayAvatarSrc && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleAvatarClear}
+                >
+                  <X className="h-4 w-4 mr-1" />
+                  クリア
+                </Button>
+              )}
+              {pendingFile && (
+                <span className="text-xs text-muted-foreground">切り抜き済み</span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">JPEG, PNG, GIF, WebP（1MB以下）</p>
           </div>
 
           <div className="flex justify-end">
@@ -165,6 +265,7 @@ export function UserSettingsPage() {
             </Button>
           </div>
         </div>
+        )}
       </Card>
 
       {/* Password Section */}
