@@ -465,6 +465,33 @@ async def run_agent(
                     })
                     continue  # Go to next round
 
+                # Answer looks negative and we haven't exhausted retries —
+                # nudge the LLM to search with different keywords
+                _negative_markers = ["見つかりませんでした", "記載されていません", "確認できません", "含まれていません"]
+                if (
+                    content
+                    and not is_last_round
+                    and round_num <= max_rounds - 2
+                    and len(memory.searched_queries) < 3
+                    and any(m in content for m in _negative_markers)
+                ):
+                    logger.info(
+                        "Round %d: negative answer detected, prompting retry search",
+                        round_num,
+                    )
+                    conv_messages.append(
+                        {"role": "assistant", "content": content}
+                    )
+                    conv_messages.append({
+                        "role": "user",
+                        "content": (
+                            "まだ見つかっていません。別のキーワードや言い換えで再度検索してください。"
+                            "grepでの部分一致検索や、search_by_titleでのタイトル検索も試してください。"
+                            "検索結果に含まれる全ての文書を read_document で確認してください。"
+                        ),
+                    })
+                    continue
+
                 # No tool calls (or last round) — generate final answer
                 if content:
                     content = re.sub(

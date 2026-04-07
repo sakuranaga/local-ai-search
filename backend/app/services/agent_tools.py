@@ -183,10 +183,11 @@ SYSTEM_PROMPT = """\
 
 ## 手順
 1. まずユーザーの質問に関連するキーワードで search を実行
-2. 必要に応じて list_folders でフォルダ構造を確認し、関連フォルダに絞り込んで再検索
-3. 関連しそうな文書が見つかったら、read_document で内容を取得する。**queryパラメータに検索語を必ず指定すること**（ヒット箇所のスニペットのみ返すため効率的）。全文が必要な場合のみqueryを省略する。
-4. 情報が不足していれば、別のクエリで追加検索や grep を実行
-5. 十分な情報が集まったら、日本語で回答を生成
+2. **検索結果に返された文書は全件（最大5件）を read_document で必ず確認すること。** タイトルだけで判断して一部の文書をスキップしてはいけない。答えは意外な文書に含まれていることが多い。
+3. read_document では **queryパラメータに検索語を指定すること**（ヒット箇所のスニペットのみ返すため効率的）。全文が必要な場合のみqueryを省略する。
+4. 検索結果の文書を全て読んでも答えが見つからない場合は、**別のキーワードやgrepで最大3回まで再検索すること。** 諦める前に、言い換え・部分一致・関連語で試す。
+5. 必要に応じて list_folders でフォルダ構造を確認し、関連フォルダに絞り込んで再検索
+6. 十分な情報が集まったら、日本語で回答を生成
 
 ## 注意
 - ツールで見つけた情報のみを元に回答してください。推測で答えないでください。
@@ -300,11 +301,24 @@ async def execute_tool(
                 return f"「{query}」に一致する文書は見つかりませんでした。", sources
 
             lines = [f"「{query}」の検索結果（{total}件中上位{len(results)}件）:\n"]
+            # Auto-read: for short documents, include full content inline
+            _AUTO_READ_THRESHOLD = 1000
+            doc_ids = [r["document_id"] for r in results]
+            doc_result = await db.execute(
+                select(Document.id, Document.content).where(Document.id.in_(doc_ids))
+            )
+            doc_contents = {str(row.id): row.content or "" for row in doc_result.all()}
+
             for r in results:
                 sources.append({"document_id": r["document_id"], "title": r["document_title"]})
-                snippet = r["content"][:200].replace("\n", " ")
                 age = _format_age(r.get("updated_at"))
-                lines.append(f"- **{r['document_title']}** (ID: {r['document_id']}{age})\n  {snippet}...")
+                full_content = doc_contents.get(r["document_id"], "")
+                if 0 < len(full_content) <= _AUTO_READ_THRESHOLD:
+                    # Short document: include full content
+                    lines.append(f"- **{r['document_title']}** (ID: {r['document_id']}{age})\n  全文: {full_content}")
+                else:
+                    snippet = r["content"][:200].replace("\n", " ")
+                    lines.append(f"- **{r['document_title']}** (ID: {r['document_id']}{age})\n  {snippet}...")
             return "\n".join(lines), sources
 
         elif name == "grep":
@@ -372,8 +386,12 @@ async def execute_tool(
                     folder_name = f" | フォルダ: {fn}"
             meta_header = f"**{doc.title}**\nタイプ: {doc.file_type}{age}{folder_name}\n"
 
-            # --- Snippet mode: query specified → return only matching excerpts ---
-            if read_query:
+            # --- Full text mode for short documents ---
+            content = doc.content or ""
+            _SHORT_DOC_THRESHOLD = 1000
+
+            # --- Snippet mode: query specified and doc is long enough ---
+            if read_query and len(content) > _SHORT_DOC_THRESHOLD:
                 from app.services.tokenizer import tokenize_query as _tq
                 words = _tq(read_query)
                 if words:
@@ -391,9 +409,6 @@ async def execute_tool(
                             sources,
                         )
                 # No matches or no words — fall through to full text
-
-            # --- Full text mode ---
-            content = doc.content or ""
             if not content.strip():
                 return f"{meta_header}\nテキスト情報がありません。", sources
             if len(content) > 4000:
