@@ -157,7 +157,10 @@ async def restore_version(
         raise ValueError(f"Version {version_number} not found for document {doc.id}")
 
     # Update document content and metadata
-    doc.content = version.content
+    # Only overwrite content if the version actually captured it;
+    # versions created before text extraction completed have empty content.
+    if version.content:
+        doc.content = version.content
     doc.title = version.title
     doc.current_version = version_number
 

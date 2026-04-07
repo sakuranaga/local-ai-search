@@ -57,6 +57,15 @@ export function OverTypeEditor({
     };
   }, []);
 
+  // Sync external value changes (e.g. version restore) into the editor
+  useEffect(() => {
+    const editor = editorRef.current as any;
+    if (!editor) return;
+    if (editor.getValue() !== value) {
+      editor.setValue(value);
+    }
+  }, [value]);
+
   return (
     <div
       ref={containerRef}

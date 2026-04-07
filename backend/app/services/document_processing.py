@@ -300,6 +300,16 @@ async def process_document_job(
                 content=chunk_content,
                 embedding=embedding,
             ))
+        # Backfill empty version content now that text extraction is done
+        from app.models import DocumentVersion
+        await db.execute(
+            DocumentVersion.__table__.update()
+            .where(
+                DocumentVersion.document_id == doc_id,
+                DocumentVersion.content == "",
+            )
+            .values(content=text_content)
+        )
         await db.commit()
 
     # Phase 4: Summary
