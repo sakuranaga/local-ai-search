@@ -53,6 +53,26 @@ export async function updateProfile(data: {
   });
 }
 
+export async function uploadAvatar(file: File): Promise<User> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const token = (await import("./client")).getToken();
+  const res = await fetch(`${API_BASE}/auth/avatar`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function deleteAvatar(): Promise<User> {
+  return apiFetch<User>("/auth/avatar", { method: "DELETE" });
+}
+
 export async function changePassword(data: {
   current_password: string;
   new_password: string;
