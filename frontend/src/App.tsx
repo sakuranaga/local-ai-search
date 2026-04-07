@@ -36,6 +36,13 @@ function NavBar() {
     getMe().then(setCurrentUser).catch(() => {});
   }, []);
 
+  // Refresh user when profile is updated
+  useEffect(() => {
+    const handler = () => getMe().then(setCurrentUser).catch(() => {});
+    window.addEventListener("profile-updated", handler);
+    return () => window.removeEventListener("profile-updated", handler);
+  }, []);
+
   // Sync input with URL query param changes (e.g. browser back)
   useEffect(() => {
     setSearchValue(searchParams.get("q") ?? "");

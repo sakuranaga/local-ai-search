@@ -235,7 +235,7 @@ async def change_password(
 # ---------------------------------------------------------------------------
 
 AVATAR_DIR = Path(os.environ.get("STORAGE_PATH", "/app/storage")) / "avatars"
-AVATAR_MAX_SIZE = 1 * 1024 * 1024  # 1 MB
+AVATAR_MAX_SIZE = 2 * 1024 * 1024  # 2 MB
 AVATAR_ALLOWED_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 AVATAR_EXT_MAP = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}
 
@@ -253,7 +253,7 @@ async def upload_avatar(
 
     data = await file.read()
     if len(data) > AVATAR_MAX_SIZE:
-        raise HTTPException(status_code=400, detail="ファイルサイズは1MB以下にしてください")
+        raise HTTPException(status_code=400, detail="ファイルサイズは2MB以下にしてください")
 
     AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -266,7 +266,8 @@ async def upload_avatar(
     dest = AVATAR_DIR / filename
     dest.write_bytes(data)
 
-    current_user.avatar_url = f"/api/auth/avatars/{filename}"
+    import time
+    current_user.avatar_url = f"/api/auth/avatars/{filename}?v={int(time.time())}"
     await db.commit()
     await db.refresh(current_user)
     role_names = [ur.role.name for ur in current_user.roles]
