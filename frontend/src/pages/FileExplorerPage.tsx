@@ -1954,7 +1954,7 @@ export function FileExplorerPage() {
                 ))}
                 {items.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={showRecent ? 7 : 6} className="text-center py-8 text-muted-foreground">
                       文書がありません
                     </TableCell>
                   </TableRow>
