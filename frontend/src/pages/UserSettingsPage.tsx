@@ -50,8 +50,8 @@ export function UserSettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 1 * 1024 * 1024) {
-      toast.error("ファイルサイズは1MB以下にしてください");
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("ファイルサイズは2MB以下にしてください");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -108,6 +108,7 @@ export function UserSettingsPage() {
         email,
       });
       setUser(updated);
+      window.dispatchEvent(new Event("profile-updated"));
       toast.success("プロフィールを更新しました");
     } catch (e: any) {
       const msg = e?.message || "";
@@ -256,7 +257,7 @@ export function UserSettingsPage() {
                 <span className="text-xs text-muted-foreground">切り抜き済み</span>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">JPEG, PNG, GIF, WebP（1MB以下）</p>
+            <p className="text-xs text-muted-foreground">JPEG, PNG, GIF, WebP（2MB以下）</p>
           </div>
 
           <div className="flex justify-end">
