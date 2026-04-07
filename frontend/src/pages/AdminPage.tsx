@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,8 +68,12 @@ import {
   adminBulkDeleteNotes,
   adminToggleNoteReadonly,
   type AdminNoteItem,
+  adminUploadAvatar,
+  adminDeleteAvatar,
 } from "@/lib/api";
-import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send, Webhook, BookOpenText, Shield, ScrollText, UsersRound, Share2, Upload, Bot } from "lucide-react";
+import { AvatarCropper } from "@/components/AvatarCropper";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send, Webhook, BookOpenText, Shield, ScrollText, UsersRound, Share2, Upload, Bot, X, Image } from "lucide-react";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -86,6 +90,13 @@ function UsersTab() {
   const [editForm, setEditForm] = useState({
     username: "", email: "", display_name: "", avatar_url: "", role: "", password: "", is_active: true, can_share: true, can_download: true,
   });
+
+  // Avatar upload state
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [avatarCleared, setAvatarCleared] = useState(false);
+  const [cropperFile, setCropperFile] = useState<File | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
     getUsers().then(setUsers).catch(() => toast.error("ユーザー取得に失敗"));
@@ -107,6 +118,11 @@ function UsersTab() {
       can_share: u.can_share,
       can_download: u.can_download,
     });
+    setPendingAvatarFile(null);
+    if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+    setAvatarPreviewUrl(null);
+    setAvatarCleared(false);
+    setCropperFile(null);
     setEditOpen(true);
   }
 
@@ -131,12 +147,22 @@ function UsersTab() {
   async function handleUpdate() {
     if (!editUser) return;
     try {
+      // Handle avatar upload/delete
+      if (pendingAvatarFile) {
+        await adminUploadAvatar(editUser.id, pendingAvatarFile);
+        setPendingAvatarFile(null);
+        if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+        setAvatarPreviewUrl(null);
+        setAvatarCleared(false);
+      } else if (avatarCleared) {
+        await adminDeleteAvatar(editUser.id);
+        setAvatarCleared(false);
+      }
+
       const data: Record<string, unknown> = {};
       if (editForm.username !== editUser.username) data.username = editForm.username;
       if (editForm.email !== editUser.email) data.email = editForm.email;
       if (editForm.display_name !== editUser.display_name) data.display_name = editForm.display_name;
-      const newAvatar = editForm.avatar_url || null;
-      if (newAvatar !== editUser.avatar_url) data.avatar_url = newAvatar;
       const currentRole = editUser.roles[0] ?? "";
       if (editForm.role !== currentRole) data.role = editForm.role;
       if (editForm.is_active !== editUser.is_active) data.is_active = editForm.is_active;
@@ -144,11 +170,9 @@ function UsersTab() {
       if (editForm.can_download !== editUser.can_download) data.can_download = editForm.can_download;
       if (editForm.password) data.password = editForm.password;
 
-      if (Object.keys(data).length === 0) {
-        setEditOpen(false);
-        return;
+      if (Object.keys(data).length > 0) {
+        await updateUser(editUser.id, data);
       }
-      await updateUser(editUser.id, data);
       toast.success("ユーザーを更新しました");
       setEditOpen(false);
       load();
@@ -278,20 +302,77 @@ function UsersTab() {
             <DialogTitle>ユーザー編集</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {/* Avatar preview */}
+            {/* Avatar */}
             <div className="flex items-center gap-4">
-              {editForm.avatar_url ? (
-                <img src={editForm.avatar_url} alt="" className="h-16 w-16 rounded-full object-cover border" />
-              ) : (
-                <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center text-xl font-medium text-primary">
-                  {(editForm.display_name || editForm.username).charAt(0).toUpperCase()}
+              <Avatar className="h-16 w-16">
+                {(() => {
+                  const src = avatarCleared ? null : (avatarPreviewUrl || editForm.avatar_url || null);
+                  return src ? <AvatarImage src={src} alt="" /> : null;
+                })()}
+                <AvatarFallback className="text-lg bg-primary text-primary-foreground">
+                  {(editForm.display_name || editForm.username || "U").charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 space-y-1">
+                <Label className="text-xs flex items-center gap-1">
+                  <Image className="h-3.5 w-3.5" />
+                  アイコン
+                </Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 2 * 1024 * 1024) {
+                        toast.error("ファイルサイズは2MB以下にしてください");
+                        if (avatarInputRef.current) avatarInputRef.current.value = "";
+                        return;
+                      }
+                      if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.type)) {
+                        toast.error("JPEG, PNG, GIF, WebPのみ対応しています");
+                        if (avatarInputRef.current) avatarInputRef.current.value = "";
+                        return;
+                      }
+                      setCropperFile(file);
+                      if (avatarInputRef.current) avatarInputRef.current.value = "";
+                    }}
+                    className="hidden"
+                  />
+                  <Button type="button" variant="outline" size="sm" onClick={() => avatarInputRef.current?.click()}>
+                    ファイルを選択
+                  </Button>
+                  {!avatarCleared && (avatarPreviewUrl || editForm.avatar_url) && (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => {
+                      if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+                      setPendingAvatarFile(null);
+                      setAvatarPreviewUrl(null);
+                      setAvatarCleared(true);
+                    }}>
+                      <X className="h-4 w-4 mr-1" />
+                      クリア
+                    </Button>
+                  )}
+                  {pendingAvatarFile && <span className="text-xs text-muted-foreground">切り抜き済み</span>}
                 </div>
-              )}
-              <div className="flex-1">
-                <Label className="text-xs">アバター URL</Label>
-                <Input value={editForm.avatar_url} onChange={(e) => setEditForm({ ...editForm, avatar_url: e.target.value })} placeholder="https://..." />
               </div>
             </div>
+            {cropperFile && (
+              <AvatarCropper
+                file={cropperFile}
+                onCropped={(blob) => {
+                  const file = new File([blob], "avatar.png", { type: "image/png" });
+                  if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+                  setPendingAvatarFile(file);
+                  setAvatarPreviewUrl(URL.createObjectURL(blob));
+                  setAvatarCleared(false);
+                  setCropperFile(null);
+                }}
+                onCancel={() => setCropperFile(null)}
+              />
+            )}
             <div>
               <Label className="text-xs">ユーザー名</Label>
               <Input value={editForm.username} onChange={(e) => setEditForm({ ...editForm, username: e.target.value })} />
