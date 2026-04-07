@@ -12,7 +12,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
-import { Search, Settings, LogOut, Moon, Sun } from "lucide-react";
+import { UserSettingsPage } from "@/pages/UserSettingsPage";
+import { Search, Settings, LogOut, Moon, Sun, UserCog } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { type FormEvent, type ReactNode, useState, useEffect } from "react";
 import { useTheme } from "next-themes";
@@ -96,6 +97,10 @@ function NavBar() {
                 {currentUser.display_name || currentUser.username}
               </div>
             )}
+            <DropdownMenuItem onClick={() => navigate("/user")}>
+              <UserCog className="h-4 w-4 mr-2" />
+              ユーザー設定
+            </DropdownMenuItem>
             {currentUser?.roles.includes("admin") && (
               <DropdownMenuItem onClick={() => navigate("/admin")}>
                 <Settings className="h-4 w-4 mr-2" />
@@ -200,6 +205,16 @@ export default function App() {
             <AuthGuard>
               <AppLayout>
                 <AdminPage />
+              </AppLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/user"
+          element={
+            <AuthGuard>
+              <AppLayout>
+                <UserSettingsPage />
               </AppLayout>
             </AuthGuard>
           }

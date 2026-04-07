@@ -40,3 +40,26 @@ export async function refreshToken(): Promise<{ access_token: string }> {
 export async function getMe(): Promise<User> {
   return apiFetch<User>("/auth/me");
 }
+
+export async function updateProfile(data: {
+  display_name?: string;
+  avatar_url?: string;
+  email?: string;
+}): Promise<User> {
+  return apiFetch<User>("/auth/me", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function changePassword(data: {
+  current_password: string;
+  new_password: string;
+}): Promise<void> {
+  await apiFetch("/auth/change-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
