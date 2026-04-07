@@ -1868,7 +1868,7 @@ export function FileExplorerPage() {
                     data-row-idx={rowIdx}
                     draggable
                     onDragStart={(e) => handleDragStart(e, item.id)}
-                    className={`cursor-pointer select-none ${selected.has(item.id) ? "bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-50 dark:hover:bg-blue-950/30" : ""}`}
+                    className={`cursor-pointer select-none ${selected.has(item.id) ? "bg-blue-50 dark:bg-blue-800/40 hover:bg-blue-50 dark:hover:bg-blue-800/40" : ""}`}
                     onClick={(e) => { handleRowClick(item, e); setFocusedIdx(rowIdx); }}
                     onDoubleClick={() => handleRowDoubleClick(item)}
                     onContextMenu={(e) => handleContextMenu(e, item)}
