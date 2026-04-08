@@ -48,6 +48,7 @@ class UserResponse(BaseModel):
     can_share: bool
     can_download: bool
     roles: list[str]
+    last_login_at: datetime | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -68,6 +69,7 @@ def _user_response(u: User) -> UserResponse:
         can_share=u.can_share,
         can_download=u.can_download,
         roles=[ur.role.name for ur in u.roles],
+        last_login_at=u.last_login_at,
         created_at=u.created_at,
     )
 
