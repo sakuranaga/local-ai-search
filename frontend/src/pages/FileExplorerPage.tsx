@@ -1019,6 +1019,15 @@ export function FileExplorerPage() {
     try {
       // Backend requires "" (empty string) to move to root, not null
       await updateFolder(draggedFolderId, { parent_id: targetFolderId ?? "" });
+      // Auto-expand target so the moved folder is visible
+      if (targetFolderId) {
+        setExpandedFolderIds((prev) => {
+          const next = new Set(prev);
+          next.add(targetFolderId);
+          localStorage.setItem(FOLDER_EXPANDED_KEY, JSON.stringify([...next]));
+          return next;
+        });
+      }
       toast.success("フォルダを移動しました");
       loadFolders();
     } catch {
@@ -1084,6 +1093,15 @@ export function FileExplorerPage() {
     if (!newFolderName.trim()) return;
     try {
       await createFolder({ name: newFolderName.trim(), parent_id: newFolderParent });
+      // Auto-expand parent so the new subfolder is visible
+      if (newFolderParent) {
+        setExpandedFolderIds((prev) => {
+          const next = new Set(prev);
+          next.add(newFolderParent);
+          localStorage.setItem(FOLDER_EXPANDED_KEY, JSON.stringify([...next]));
+          return next;
+        });
+      }
       setNewFolderName("");
       setNewFolderParent(null);
       setNewFolderOpen(false);
