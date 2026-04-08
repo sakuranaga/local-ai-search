@@ -212,6 +212,7 @@ function UsersTab() {
               <TableHead>メール</TableHead>
               <TableHead>ロール</TableHead>
               <TableHead>状態</TableHead>
+              <TableHead>最終ログイン</TableHead>
               <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
@@ -241,6 +242,9 @@ function UsersTab() {
                   <Badge variant={u.is_active ? "default" : "outline"}>
                     {u.is_active ? "有効" : "無効"}
                   </Badge>
+                </TableCell>
+                <TableCell className="text-muted-foreground text-xs">
+                  {u.last_login_at ? new Date(u.last_login_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-1">

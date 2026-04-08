@@ -14,6 +14,7 @@ export interface User {
   can_share: boolean;
   can_download: boolean;
   roles: string[];
+  last_login_at: string | null;
   created_at: string;
 }
 

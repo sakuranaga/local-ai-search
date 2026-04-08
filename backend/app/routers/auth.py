@@ -69,6 +69,8 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
             detail="Invalid username or password",
         )
 
+    user.last_login_at = datetime.now(timezone.utc)
+
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
 
