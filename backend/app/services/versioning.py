@@ -10,6 +10,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Chunk, Document, DocumentVersion, File
+from app.utils.filename import sanitize_filename
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ async def _copy_file_to_version(
 
     version_dir = Path(STORAGE_ROOT) / "versions" / str(doc_id) / str(version_number)
     version_dir.mkdir(parents=True, exist_ok=True)
-    dest_path = version_dir / file_record.filename
+    dest_path = version_dir / sanitize_filename(file_record.filename)
     shutil.copy2(file_record.storage_path, str(dest_path))
     return str(dest_path), file_record.file_size
 

@@ -12,6 +12,7 @@ from sqlalchemy.orm import aliased
 from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user
+from app.utils.filename import sanitize_filename
 from app.models import Chunk, Document, DocumentTag, DocumentVersion, File, Folder, Group, Tag, User, UserFavorite
 from app.schemas.documents import (
     BulkActionRequest,
@@ -400,7 +401,7 @@ async def create_text_document(
 
     file_record = File(
         document_id=doc.id,
-        filename=title,
+        filename=sanitize_filename(title),
         storage_path=str(storage_path),
         file_size=file_size,
         mime_type="text/markdown",
@@ -756,7 +757,7 @@ async def download_document_file(
 
     resp = FileResponse(
         path=file_record.storage_path,
-        filename=file_record.filename if not inline else None,
+        filename=sanitize_filename(file_record.filename) if not inline else None,
         media_type=file_record.mime_type or "application/octet-stream",
     )
     if inline:
@@ -812,7 +813,7 @@ async def download_zip(
                 name = f"{stem} ({seen_names[name]}){suffix}"
             else:
                 seen_names[name] = 0
-            zf.write(fpath, name)
+            zf.write(fpath, sanitize_filename(name))
 
     buf.seek(0)
     return ZipStreamingResponse(
@@ -1048,7 +1049,7 @@ async def update_document(
         file_rec = file_result.scalars().first()
         if file_rec:
             ext = Path(file_rec.filename).suffix or ""
-            file_rec.filename = f"{body.title}{ext}"
+            file_rec.filename = sanitize_filename(f"{body.title}{ext}")
         is_content_change = True
     if body.summary is not None:
         doc.summary = body.summary

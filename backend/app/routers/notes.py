@@ -13,6 +13,7 @@ from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user, require_permission
 from app.models import Chunk, Document, File, Folder, User
+from app.utils.filename import sanitize_filename
 from app.services.audit import audit_log
 from app.services.document_processing import chunk_text, get_embeddings
 from app.services.versioning import create_initial_version, create_versions_on_edit, save_new_version
@@ -446,7 +447,7 @@ async def update_note(
         file_rec = file_result.scalars().first()
         if file_rec:
             ext = Path(file_rec.filename).suffix or ".md"
-            file_rec.filename = f"{body.title}{ext}"
+            file_rec.filename = sanitize_filename(f"{body.title}{ext}")
         changed = True
 
     if body.note_content is not None:
