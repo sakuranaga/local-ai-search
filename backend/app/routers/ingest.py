@@ -29,6 +29,7 @@ from app.services.audit import audit_log
 from app.services.auth import verify_token
 from app.services.document_processing import get_file_type
 from app.services.job_queue import create_job
+from app.utils.filename import sanitize_filename
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +259,7 @@ async def _ingest_single_file(
     # Create file record
     db.add(File(
         document_id=doc.id,
-        filename=file.filename,
+        filename=sanitize_filename(file.filename),
         storage_path=str(storage_path),
         file_size=file_size,
         mime_type=file.content_type,
@@ -548,7 +549,7 @@ async def ingest_content(
     # File record
     db.add(File(
         document_id=doc.id,
-        filename=title,
+        filename=sanitize_filename(title),
         storage_path=str(storage_path),
         file_size=file_size,
         mime_type="text/markdown",
@@ -945,7 +946,7 @@ async def tus_hook(
             # File record
             db.add(File(
                 document_id=doc.id,
-                filename=filename,
+                filename=sanitize_filename(filename),
                 storage_path=file_path,
                 file_size=file_size,
                 mime_type=filetype or None,
