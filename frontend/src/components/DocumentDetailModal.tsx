@@ -235,6 +235,8 @@ export function DocumentDetailModal({
                     await pollJobsProgress([jobId], () => {});
                   }
                   toast.success("再構築完了");
+                  // Refresh modal content and parent list
+                  getDocument(item.id).then(setDoc).catch(() => {});
                   onUpdated();
                 } catch { toast.error("再構築失敗"); } finally { setReindexing(false); }
               }}
