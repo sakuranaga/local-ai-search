@@ -30,8 +30,8 @@ if dsn:
 
 | ファイル | 内容 | 対応 |
 |---------|------|------|
-| `ocr-server/ocr-server.service` | `PLACEHOLDER_HOME/...` がハードコード | パスをプレースホルダーに変更し、READMEで書き換え手順を記載 |
-| `scripts/backup-s3.sh` | `PROJECT_DIR="PLACEHOLDER_HOME/..."` | 同上 |
+| `ocr-server/ocr-server.service` | `/home/user/...` がハードコード | パスをプレースホルダーに変更し、READMEで書き換え手順を記載 |
+| `scripts/backup-s3.sh` | `PROJECT_DIR="/home/user/..."` | 同上 |
 | `scripts/backup-s3.sh` | Wasabi エンドポイント・バケット名 | プレースホルダーに変更 |
 
 ### 1.3 .env ファイルの確認
@@ -113,7 +113,7 @@ git 履歴に以下の機密情報が含まれていることを確認済み:
 
 | 情報 | 深刻度 | 詳細 |
 |------|--------|------|
-| **Sentry DSN** | 高 | `REDACTED_SENTRY_KEY@REDACTED_IP`（Tailscale 内部IP + 認証トークン） |
+| **Sentry DSN** | 高 | `REDACTED@REDACTED_IP`（Tailscale 内部IP + 認証トークン） |
 | **Wasabi バケット名** | 中 | `s3://REDACTED_BUCKET`、Wasabi エンドポイント URL |
 
 .env ファイル（実際のトークン・パスワード）は履歴に含まれていない（確認済み）。
@@ -126,7 +126,7 @@ pip install git-filter-repo
 
 # 2. 置換ルールファイルを作成
 cat > /tmp/replacements.txt << 'EOF'
-REDACTED_SENTRY_KEY==>REDACTED_SENTRY_KEY
+REDACTED==>REDACTED_SENTRY_KEY
 REDACTED_IP==>REDACTED_IP
 REDACTED_BUCKET==>REDACTED_BUCKET
 EOF
@@ -148,7 +148,7 @@ git push --force --tags
 
 ```bash
 # 書き換え後の最終確認
-git log --all -p | grep -i "REDACTED_SENTRY_KEY\|100\.92\.140\.88\|REDACTED_BUCKET" | head -5
+git log --all -p | grep -i "REDACTED\|100\.92\.140\.88\|REDACTED_BUCKET" | head -5
 # → 何も出力されなければOK
 ```
 
@@ -210,11 +210,11 @@ git push && git push --tags
 公開当日に実施する作業:
 
 ### Phase 1: 機密情報対応
-- [ ] Sentry DSN を環境変数化（`backend/app/main.py`, `ocr-server/server.py`）
-- [ ] `ocr-server/ocr-server.service` のパスをプレースホルダー化
-- [ ] `scripts/backup-s3.sh` のパス・バケット名をプレースホルダー化
-- [ ] `discord-las-bot/.env.example` 作成
-- [ ] サブディレクトリの `.gitignore` 強化
+- [x] Sentry DSN を環境変数化（`backend/app/main.py`, `ocr-server/server.py`）
+- [x] `ocr-server/ocr-server.service` のパスをプレースホルダー化
+- [x] `scripts/backup-s3.sh` のパス・バケット名をプレースホルダー化
+- [x] `discord-las-bot/.env.example` 作成
+- [x] サブディレクトリの `.gitignore` 強化
 - [ ] 全クレデンシャルをローテーション
 - [ ] `git filter-repo` で履歴から Sentry DSN・Wasabi バケット名を削除（§4.1）
 - [ ] 書き換え後の最終確認（grep で漏れがないことを検証）
