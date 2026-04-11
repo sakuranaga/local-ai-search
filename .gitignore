@@ -16,6 +16,9 @@ frontend/dist/
 .env
 *.env.local
 
+# Claude Code
+CLAUDE.md
+
 # IDE
 .vscode/
 .idea/
