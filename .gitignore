@@ -12,11 +12,9 @@ venv/
 node_modules/
 frontend/dist/
 
-# Environment
+# Environment — .env is excluded everywhere (root + subdirectories)
 .env
 *.env.local
-discord-las-bot/.env
-integration/**/.env
 
 # Certificates
 *.pem
@@ -38,12 +36,13 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
-# Storage
+# Storage & data
 storage/
 data/
 
 # Logs
 *.log
+logs/
 
 # OCR server
 ocr-server/venv/
