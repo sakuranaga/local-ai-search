@@ -220,10 +220,10 @@ git push && git push --tags
 - [ ] 書き換え後の最終確認（grep で漏れがないことを検証）
 
 ### Phase 2: ドキュメント
-- [ ] CONTRIBUTING.md 作成
-- [ ] SECURITY.md 作成
-- [ ] CODE_OF_CONDUCT.md 作成
-- [ ] GitHub Issue / PR テンプレート作成
+- [x] CONTRIBUTING.md 作成
+- [x] SECURITY.md 作成
+- [x] CODE_OF_CONDUCT.md 作成
+- [x] GitHub Issue / PR テンプレート作成
 
 ### Phase 3: コード品質
 - [ ] GitHub Actions CI ワークフロー作成
