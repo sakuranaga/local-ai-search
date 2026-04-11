@@ -23,6 +23,10 @@ frontend/dist/
 # Claude Code
 CLAUDE.md
 
+# Internal notes
+OPENSOURCE.md
+REFACTOR.md
+
 # IDE
 .vscode/
 .idea/
