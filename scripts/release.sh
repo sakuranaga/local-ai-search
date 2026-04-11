@@ -9,7 +9,6 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 VERSION_FILES=(
   "frontend/package.json"
-  "frontend/src/App.tsx"
   "backend/app/main.py"
 )
 
@@ -71,12 +70,6 @@ fi
 sed -i "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" \
   "$PROJECT_DIR/frontend/package.json"
 
-# Update frontend/src/App.tsx
-sed -i "s/LAS Version $CURRENT_VERSION/LAS Version $NEW_VERSION/" \
-  "$PROJECT_DIR/frontend/App.tsx" 2>/dev/null || \
-sed -i "s/LAS Version $CURRENT_VERSION/LAS Version $NEW_VERSION/" \
-  "$PROJECT_DIR/frontend/src/App.tsx"
-
 # Update backend/app/main.py
 sed -i "s/version=\"$CURRENT_VERSION\"/version=\"$NEW_VERSION\"/" \
   "$PROJECT_DIR/backend/app/main.py"
@@ -85,11 +78,11 @@ echo "Updated files:"
 for f in "${VERSION_FILES[@]}"; do
   echo "  - $f"
 done
+echo "  - frontend/src/App.tsx (auto-injected via vite.config.ts)"
 
 # Commit and tag
 git -C "$PROJECT_DIR" add \
   frontend/package.json \
-  frontend/src/App.tsx \
   backend/app/main.py
 
 git -C "$PROJECT_DIR" commit -m "$(cat <<EOF

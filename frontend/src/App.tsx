@@ -175,7 +175,7 @@ function StatsFooter() {
           ディスク {formatBytes(stats.disk_used_bytes)}/{formatBytes(stats.disk_total_bytes)} ({Math.round(stats.disk_used_bytes / stats.disk_total_bytes * 100)}%)
         </Badge>
       )}
-      <span className="ml-auto">LAS Version 0.9.0</span>
+      <span className="ml-auto">LAS Version {__APP_VERSION__}</span>
     </div>
   );
 }
