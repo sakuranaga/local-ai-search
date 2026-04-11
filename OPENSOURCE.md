@@ -226,9 +226,9 @@ git push && git push --tags
 - [x] GitHub Issue / PR テンプレート作成
 
 ### Phase 3: コード品質
-- [ ] GitHub Actions CI ワークフロー作成
-- [ ] テストが通ることを確認
-- [ ] TypeScript エラーの対応方針決定
+- [ ] GitHub Actions CI ワークフロー作成（公開後に実施。パブリックリポジトリなら無料）
+- [x] テストが通ることを確認（パーミッションテスト39件 all passed）
+- [x] TypeScript エラーの対応方針決定（エラー0件、解決済み）
 
 ### Phase 4: 公開
 - [ ] git 履歴の最終確認（機密情報なし）
