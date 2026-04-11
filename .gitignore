@@ -15,6 +15,12 @@ frontend/dist/
 # Environment
 .env
 *.env.local
+discord-las-bot/.env
+integration/**/.env
+
+# Certificates
+*.pem
+*.key
 
 # Claude Code
 CLAUDE.md

@@ -4,10 +4,11 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=PLACEHOLDER_HOME/local-ai-search/ocr-server
-ExecStart=PLACEHOLDER_HOME/local-ai-search/ocr-server/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8090
+# --- Replace /path/to/local-ai-search with your actual install path ---
+WorkingDirectory=/path/to/local-ai-search/ocr-server
+ExecStart=/path/to/local-ai-search/ocr-server/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8090
 
-# AMD GPU stability
+# AMD GPU stability (adjust or remove for NVIDIA/CPU)
 Environment=HSA_ENABLE_SDMA=0
 Environment=AMD_SERIALIZE_KERNEL=3
 Environment=ROCM_FORCE_DISABLE_LAZY_ALLOC=1
@@ -15,7 +16,7 @@ Environment=TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
 Environment=RECOGNITION_BATCH_SIZE=64
 Environment=DETECTOR_BATCH_SIZE=8
 Environment=TORCH_DEVICE=cuda
-Environment=PATH=PLACEHOLDER_HOME/local-ai-search/ocr-server/venv/bin:/opt/rocm/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/path/to/local-ai-search/ocr-server/venv/bin:/opt/rocm/bin:/usr/local/bin:/usr/bin:/bin
 
 # Auto-restart on crash
 Restart=on-failure

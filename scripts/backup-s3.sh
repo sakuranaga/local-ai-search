@@ -1,14 +1,23 @@
 #!/bin/bash
 # S3 backup script for DB dump + uploaded files (Wasabi)
 # Usage: ./backup-s3.sh
-# Cron example (daily 3AM): 0 3 * * * PLACEHOLDER_HOME/local-ai-search/scripts/backup-s3.sh
+# Cron example (daily 3AM): 0 3 * * * /path/to/local-ai-search/scripts/backup-s3.sh
 
 set -euo pipefail
 
-ENDPOINT="https://s3.ap-northeast-1-ntt.wasabisys.com"
-BUCKET="s3://REDACTED_BUCKET"
-PROFILE="las"
-PROJECT_DIR="PLACEHOLDER_HOME/local-ai-search"
+# Load .env from project root
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/../.env" ]; then
+  set -a
+  source "$SCRIPT_DIR/../.env"
+  set +a
+fi
+
+# --- Configure these for your environment ---
+ENDPOINT="${S3_ENDPOINT:-https://s3.example.com}"
+BUCKET="${S3_BUCKET:-s3://your-bucket-name}"
+PROFILE="${AWS_PROFILE:-default}"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 DATA_DIR="$PROJECT_DIR/data/uploads"
 DUMP_DIR="$PROJECT_DIR/data/dbdump"
 LOG_FILE="$PROJECT_DIR/logs/backup.log"

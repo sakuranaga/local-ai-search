@@ -4,9 +4,12 @@ Accepts image or PDF files and returns extracted text.
 Runs on the host with GPU (ROCm/CUDA) for fast inference.
 """
 
-import sentry_sdk
+import os
 
-sentry_sdk.init("http://REDACTED_SENTRY_KEY@REDACTED_IP:8000/4")
+_sentry_dsn = os.environ.get("SENTRY_DSN")
+if _sentry_dsn:
+    import sentry_sdk
+    sentry_sdk.init(_sentry_dsn)
 
 import io
 import logging
