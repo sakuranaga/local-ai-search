@@ -9,6 +9,9 @@ RUN apt-get update && \
         libffi-dev \
         libreoffice-nogui \
         fonts-noto-cjk \
+        pkg-config \
+        libfuse3-dev \
+        fuse3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies

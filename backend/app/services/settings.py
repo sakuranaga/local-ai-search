@@ -154,6 +154,17 @@ DEFAULTS = {
         "placeholder": "",
         "secret": True,
     },
+    # ── SMB File Sharing ──
+    "smb_enabled": {
+        "value": "false",
+        "description": "SMBファイル共有の有効/無効 (true/false)",
+        "placeholder": "true",
+    },
+    "smb_sync_deletes": {
+        "value": "true",
+        "description": "SMBでファイル削除時にLASからも削除する (true/false)",
+        "placeholder": "true",
+    },
 }
 
 

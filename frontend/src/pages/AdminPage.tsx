@@ -554,6 +554,10 @@ const SETTING_GROUPS: Record<string, { label: string; keys: string[] }> = {
     label: "取り込み設定",
     keys: ["chunk_size", "chunk_overlap"],
   },
+  smb: {
+    label: "SMBファイル共有 (NAS)",
+    keys: ["smb_enabled", "smb_sync_deletes"],
+  },
 };
 
 function SettingsTab() {

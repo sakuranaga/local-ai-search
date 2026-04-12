@@ -57,6 +57,8 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    unix_uid: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
+
     roles: Mapped[list["UserRole"]] = relationship(back_populates="user", lazy="selectin")
     documents: Mapped[list["Document"]] = relationship(back_populates="owner", foreign_keys="[Document.owner_id]")
 
@@ -108,6 +110,7 @@ class Group(Base):
     )
     name: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=True, default="")
+    unix_gid: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

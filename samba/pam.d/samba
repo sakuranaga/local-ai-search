@@ -1,0 +1,3 @@
+auth    required    pam_exec.so expose_authtok /usr/local/bin/pam_las_auth.sh
+account required    pam_permit.so
+session required    pam_permit.so

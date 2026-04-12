@@ -97,6 +97,9 @@ async def init_db():
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_document_tags_document_id ON document_tags(document_id)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_share_links_document_id ON share_links(document_id)"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ"))
+        # SMB feature columns
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS unix_uid INTEGER UNIQUE"))
+        await conn.execute(text("ALTER TABLE groups ADD COLUMN IF NOT EXISTS unix_gid INTEGER UNIQUE"))
         logger.info("Document table migration columns verified")
 
     # Phase 0: Role simplification (Admin/User)

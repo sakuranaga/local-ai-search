@@ -83,6 +83,9 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
     notify_login(_uname, _ip)
     webhook_login(_uname, _ip)
 
+    # Sync password to Samba (file-based, picked up by samba entrypoint loop)
+    _sync_smb_password(user.username, body.password)
+
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
 
@@ -320,3 +323,153 @@ async def serve_avatar(filename: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="Avatar not found")
     return FileResponse(path)
+
+
+# ---------------------------------------------------------------------------
+# SMB Authentication (internal API, not exposed via nginx)
+# ---------------------------------------------------------------------------
+
+_SMB_SYNC_DIR = "/smb-sync"
+
+
+def _sync_smb_password(username: str, password: str):
+    """Write password file for Samba sync loop to pick up."""
+    try:
+        os.makedirs(_SMB_SYNC_DIR, exist_ok=True)
+        path = os.path.join(_SMB_SYNC_DIR, f"{username}.passwd")
+        with open(path, "w") as f:
+            f.write(f"{username}\n{password}")
+        os.chmod(path, 0o600)
+    except OSError:
+        pass  # SMB sync dir not mounted — skip silently
+
+
+_SMB_INTERNAL_KEY = os.environ.get("SMB_INTERNAL_KEY", "")
+
+
+def _verify_internal_key(request: Request):
+    if not _SMB_INTERNAL_KEY:
+        raise HTTPException(503, "SMB_INTERNAL_KEY not configured")
+    key = request.headers.get("X-Internal-Key", "")
+    if key != _SMB_INTERNAL_KEY:
+        raise HTTPException(401, "Invalid internal key")
+
+
+async def _ensure_unix_uid(db: AsyncSession, user: User) -> int:
+    """Assign a unix_uid if not yet set. Returns the uid."""
+    if user.unix_uid is not None:
+        return user.unix_uid
+    from sqlalchemy import select, func as sa_func
+    result = await db.execute(select(sa_func.coalesce(sa_func.max(User.unix_uid), 9999)))
+    max_uid = result.scalar() or 9999
+    user.unix_uid = max_uid + 1
+    await db.flush()
+    return user.unix_uid
+
+
+async def _ensure_unix_gid(db: AsyncSession, group) -> int:
+    """Assign a unix_gid if not yet set. Returns the gid."""
+    from app.models import Group
+    if group.unix_gid is not None:
+        return group.unix_gid
+    from sqlalchemy import select, func as sa_func
+    result = await db.execute(select(sa_func.coalesce(sa_func.max(Group.unix_gid), 19999)))
+    max_gid = result.scalar() or 19999
+    group.unix_gid = max_gid + 1
+    await db.flush()
+    return group.unix_gid
+
+
+@router.post("/smb-verify")
+async def smb_verify(request: Request, db: AsyncSession = Depends(get_db)):
+    """Verify credentials for SMB PAM authentication."""
+    _verify_internal_key(request)
+    form = await request.form()
+    username = form.get("username", "")
+    password = form.get("password", "")
+    if not username or not password:
+        raise HTTPException(401, "Missing credentials")
+
+    user = await authenticate_user(db, str(username), str(password))
+    if user is None:
+        raise HTTPException(401, "Invalid credentials")
+
+    uid = await _ensure_unix_uid(db, user)
+
+    # Gather group info
+    from sqlalchemy import select
+    from app.models import Group, GroupMember
+    from app.services.permissions import is_admin
+
+    gm_result = await db.execute(
+        select(Group).join(GroupMember).where(GroupMember.user_id == user.id)
+    )
+    groups = gm_result.scalars().all()
+    group_info = []
+    primary_gid = 65534  # nogroup
+    for g in groups:
+        gid = await _ensure_unix_gid(db, g)
+        group_info.append({"name": g.name, "gid": gid})
+        if primary_gid == 65534:
+            primary_gid = gid
+
+    await db.commit()
+    return {
+        "uid": uid,
+        "gid": primary_gid,
+        "groups": ",".join(g["name"] for g in group_info),
+        "is_admin": is_admin(user),
+    }
+
+
+@router.get("/smb-users")
+async def smb_users(request: Request, db: AsyncSession = Depends(get_db)):
+    """Return all active users and groups for Samba entrypoint sync."""
+    _verify_internal_key(request)
+
+    from sqlalchemy import select
+    from app.models import Group, GroupMember
+    from app.services.permissions import is_admin
+
+    # Ensure all users have unix_uid
+    user_result = await db.execute(select(User).where(User.is_active.is_(True)))
+    users = user_result.scalars().all()
+    for u in users:
+        await _ensure_unix_uid(db, u)
+
+    # Ensure all groups have unix_gid
+    group_result = await db.execute(select(Group))
+    groups = group_result.scalars().all()
+    for g in groups:
+        await _ensure_unix_gid(db, g)
+
+    # Build membership map
+    gm_result = await db.execute(select(GroupMember))
+    memberships = gm_result.scalars().all()
+    user_groups: dict[str, list[str]] = {}
+    user_primary_gid: dict[str, int] = {}
+    for gm in memberships:
+        uid_str = str(gm.user_id)
+        group = next((g for g in groups if g.id == gm.group_id), None)
+        if group:
+            user_groups.setdefault(uid_str, []).append(group.name)
+            if uid_str not in user_primary_gid:
+                user_primary_gid[uid_str] = group.unix_gid
+
+    await db.commit()
+    return {
+        "users": [
+            {
+                "uid": u.unix_uid,
+                "username": u.username,
+                "primary_gid": user_primary_gid.get(str(u.id), 65534),
+                "groups": ",".join(user_groups.get(str(u.id), [])),
+                "is_admin": is_admin(u),
+            }
+            for u in users
+        ],
+        "groups": [
+            {"gid": g.unix_gid, "name": g.name}
+            for g in groups
+        ],
+    }
