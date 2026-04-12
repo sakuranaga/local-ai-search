@@ -141,17 +141,23 @@ ROOT_INODE = pyfuse3.ROOT_INODE  # 1
 _next_inode = 2
 _inode_to_key: dict[int, tuple[str, str]] = {ROOT_INODE: ("root", "")}
 _key_to_inode: dict[tuple[str, str], int] = {("root", ""): ROOT_INODE}
+_inode_to_parent: dict[int, int] = {}  # child inode -> parent inode (for O(1) cache lookup)
 
 
-def _get_or_alloc_inode(kind: str, db_id: str) -> int:
+def _get_or_alloc_inode(kind: str, db_id: str, parent_inode: int = 0) -> int:
     global _next_inode
     key = (kind, db_id)
     if key in _key_to_inode:
-        return _key_to_inode[key]
+        ino = _key_to_inode[key]
+        if parent_inode:
+            _inode_to_parent[ino] = parent_inode
+        return ino
     ino = _next_inode
     _next_inode += 1
     _inode_to_key[ino] = key
     _key_to_inode[key] = ino
+    if parent_inode:
+        _inode_to_parent[ino] = parent_inode
     return ino
 
 
@@ -206,7 +212,7 @@ def _load_folder_children_sync(parent_inode: int) -> FolderCache:
 
         for f in folders:
             name = _nfc(f.name)
-            ino = _get_or_alloc_inode("folder", str(f.id))
+            ino = _get_or_alloc_inode("folder", str(f.id), parent_inode)
             owner_uid = 0
             owner_gid = 0
             if f.owner_id:
@@ -238,7 +244,7 @@ def _load_folder_children_sync(parent_inode: int) -> FolderCache:
 
         for doc in docs:
             name = _nfc(doc.title or "untitled")
-            ino = _get_or_alloc_inode("doc", str(doc.id))
+            ino = _get_or_alloc_inode("doc", str(doc.id), parent_inode)
             owner_uid = 0
             owner_gid = 0
             if doc.owner_id:
@@ -364,6 +370,17 @@ class LASFuseServer(pyfuse3.Operations):
         self._cache.put(parent_inode, fc)
         return fc
 
+    async def _find_entry_by_inode(self, inode: int) -> CachedEntry | None:
+        """O(1) lookup of a cached entry by inode via parent reverse map."""
+        parent_ino = _inode_to_parent.get(inode)
+        if parent_ino is None:
+            return None
+        fc = await self._get_folder_cache(parent_ino)
+        for entry in fc.entries.values():
+            if entry.inode == inode:
+                return entry
+        return None
+
     async def _lookup_entry(self, parent_inode: int, name: str) -> CachedEntry | None:
         fc = await self._get_folder_cache(parent_inode)
         return fc.entries.get(name)
@@ -410,15 +427,21 @@ class LASFuseServer(pyfuse3.Operations):
         if key is None:
             raise pyfuse3.FUSEError(errno.ENOENT)
 
-        # Search in all cached folders for this inode
-        for _pi, fc in self._cache._folders.items():
-            if fc.is_valid():
+        # O(1) lookup via parent inode reverse map
+        parent_ino = _inode_to_parent.get(inode)
+        if parent_ino is not None:
+            fc = self._cache.get(parent_ino)
+            if fc is not None:
                 for entry in fc.entries.values():
                     if entry.inode == inode:
                         return self._make_attr(entry)
+            # Cache miss — reload parent folder
+            fc = await self._get_folder_cache(parent_ino)
+            for entry in fc.entries.values():
+                if entry.inode == inode:
+                    return self._make_attr(entry)
 
-        # Not in cache — need to find parent and reload
-        # For simplicity, return a generic attr based on inode type
+        # Fallback for inodes without parent mapping
         kind, db_id = key
         if kind == "folder":
             attr = pyfuse3.EntryAttributes()
@@ -535,18 +558,6 @@ class LASFuseServer(pyfuse3.Operations):
 
         kind, db_id = key
 
-        # Permission check: deny access to entries the user can't see
-        if kind == "doc" and ctx is not None:
-            is_admin, caller_gids = await trio.to_thread.run_sync(
-                lambda: _get_user_info_sync(ctx.uid)
-            )
-            for _pi, fc in self._cache._folders.items():
-                for entry in fc.entries.values():
-                    if entry.inode == inode:
-                        if not _can_see_entry(entry, ctx.uid, is_admin, caller_gids):
-                            raise pyfuse3.FUSEError(errno.EACCES)
-                        break
-
         # .healthcheck special file
         if kind == "special" and db_id == "healthcheck":
             fh = self._next_fh
@@ -557,16 +568,18 @@ class LASFuseServer(pyfuse3.Operations):
         if kind != "doc":
             raise pyfuse3.FUSEError(errno.EISDIR)
 
-        # Find storage path
+        # Permission check + find storage path via O(1) parent lookup
+        entry = await self._find_entry_by_inode(inode)
         storage_path = ""
-        # Check cache first
-        for _pi, fc in self._cache._folders.items():
-            for entry in fc.entries.values():
-                if entry.inode == inode and entry.storage_path:
-                    storage_path = entry.storage_path
-                    break
-            if storage_path:
-                break
+
+        if entry is not None:
+            if ctx is not None:
+                is_admin, caller_gids = await trio.to_thread.run_sync(
+                    lambda: _get_user_info_sync(ctx.uid)
+                )
+                if not _can_see_entry(entry, ctx.uid, is_admin, caller_gids):
+                    raise pyfuse3.FUSEError(errno.EACCES)
+            storage_path = entry.storage_path
 
         if not storage_path:
             def _fetch_storage_path():
