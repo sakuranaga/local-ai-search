@@ -1683,11 +1683,18 @@ export function FileExplorerPage() {
                   </TableHeader>
                   <TableBody>
                     {trashItems.map((t) => (
-                      <TableRow key={t.id}>
+                      <TableRow key={t.id} className="cursor-pointer" onClick={() => {
+                        setTrashSelected((prev) => {
+                          const next = new Set(prev);
+                          next.has(t.id) ? next.delete(t.id) : next.add(t.id);
+                          return next;
+                        });
+                      }}>
                         <TableCell>
                           <input
                             type="checkbox"
                             checked={trashSelected.has(t.id)}
+                            onClick={(e) => e.stopPropagation()}
                             onChange={(e) => {
                               setTrashSelected((prev) => {
                                 const next = new Set(prev);
