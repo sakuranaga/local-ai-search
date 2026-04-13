@@ -12,11 +12,15 @@ import argparse
 import errno
 import logging
 import os
+import re
+import shutil
 import stat
 import time
 import unicodedata
+import uuid as _uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pyfuse3
 import trio
@@ -58,6 +62,75 @@ def _nfc(s: str) -> str:
 
 def _nfc_bytes(b: bytes) -> bytes:
     return _nfc(b.decode("utf-8", errors="surrogateescape")).encode("utf-8", errors="surrogateescape")
+
+
+# ---------------------------------------------------------------------------
+# Staging helpers
+# ---------------------------------------------------------------------------
+
+_STORAGE_PATH = os.environ.get("STORAGE_PATH", "/data/storage")
+_STAGING_PATH = os.path.join(_STORAGE_PATH, "smb-staging")
+
+_TEMP_PATTERNS = [
+    re.compile(r"^~\$"), re.compile(r"^\.~lock\."), re.compile(r"\.tmp$", re.I),
+    re.compile(r"^\.DS_Store$"), re.compile(r"^Thumbs\.db$", re.I),
+    re.compile(r"^desktop\.ini$", re.I), re.compile(r"^\._"),
+]
+
+_TEMP_DIR_PATTERNS = [
+    re.compile(r"\.sb-[0-9a-f]+-"),       # macOS TextEdit sandbox
+    re.compile(r"^（.*で保存中の書類）$"),   # Typora
+]
+
+
+def _is_temp_file(name: str) -> bool:
+    return any(p.search(name) for p in _TEMP_PATTERNS)
+
+
+def _is_temp_dir(name: str) -> bool:
+    return any(p.search(name) for p in _TEMP_DIR_PATTERNS)
+
+
+def _get_file_type(filename: str) -> str:
+    ext = Path(filename).suffix.lstrip(".").lower()
+    return ext if ext else "bin"
+
+
+def _staging_dir(parent_inode: int) -> str:
+    """Staging directory for a given parent inode."""
+    key = _inode_key(parent_inode)
+    if key and key[0] == "folder":
+        d = os.path.join(_STAGING_PATH, key[1])
+    else:
+        d = os.path.join(_STAGING_PATH, "_root")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _final_storage_path(filename: str) -> str:
+    """Permanent UUID-based storage path."""
+    file_id = _uuid.uuid4()
+    suffix = Path(filename).suffix
+    max_name = 255 - 37 - len(suffix.encode("utf-8"))
+    base = Path(filename).stem
+    truncated = base.encode("utf-8")[:max_name].decode("utf-8", errors="ignore")
+    stored = f"{file_id}_{truncated}{suffix}"
+    d = os.path.join(_STORAGE_PATH, "uploads", "smb")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, stored)
+
+
+@dataclass
+class PendingFile:
+    """File in staging, not yet synced to DB."""
+    inode: int
+    name: str
+    staging_path: str
+    parent_inode: int
+    caller_uid: int
+    is_temp: bool = False
+    closed: bool = False
+    deleted: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +361,7 @@ def _load_folder_children_sync(parent_inode: int) -> FolderCache:
 
 
 # Import models after helpers are defined
-from app.models import Document, File, Folder, User, Group, GroupMember
+from app.models import Document, File, Folder, User, Group, GroupMember, Job
 
 
 # ---------------------------------------------------------------------------
@@ -355,10 +428,15 @@ class LASFuseServer(pyfuse3.Operations):
     def __init__(self):
         super().__init__()
         self._cache = MetadataCache()
-        self._open_files: dict[int, int] = {}  # fh -> real_fd
+        self._open_files: dict[int, dict] = {}  # fh -> {fd, inode, staging_path?, ...}
         self._next_fh = 1
-        self._dir_handles: dict[int, int] = {}  # dir_fh -> caller_uid
+        self._dir_handles: dict[int, tuple[int, int]] = {}
         self._next_dir_fh = 1_000_000
+        # Pending map: parent_inode -> {name -> PendingFile}
+        self._pending: dict[int, dict[str, PendingFile]] = {}
+        # Sync queue: closed pending files ready for DB commit
+        self._sync_queue: list[PendingFile] = []
+        os.makedirs(_STAGING_PATH, exist_ok=True)
 
     # -- helpers --
 
@@ -443,6 +521,26 @@ class LASFuseServer(pyfuse3.Operations):
 
         # Fallback for inodes without parent mapping
         kind, db_id = key
+        if kind in ("pending", "temp_staging"):
+            # Staging file — find in pending map
+            for _pi, pmap in self._pending.items():
+                for _name, pf in pmap.items():
+                    if pf.inode == inode:
+                        sz = os.path.getsize(pf.staging_path) if os.path.exists(pf.staging_path) else 0
+                        now_ns = int(time.time() * 1e9)
+                        attr = pyfuse3.EntryAttributes()
+                        attr.st_ino = inode
+                        attr.st_mode = stat.S_IFREG | 0o644
+                        attr.st_nlink = 1
+                        attr.st_size = sz
+                        attr.st_uid = pf.caller_uid
+                        attr.st_atime_ns = now_ns
+                        attr.st_mtime_ns = now_ns
+                        attr.st_ctime_ns = now_ns
+                        attr.entry_timeout = 0
+                        attr.attr_timeout = 0
+                        return attr
+            raise pyfuse3.FUSEError(errno.ENOENT)
         if kind == "folder":
             attr = pyfuse3.EntryAttributes()
             attr.st_ino = inode
@@ -502,6 +600,24 @@ class LASFuseServer(pyfuse3.Operations):
             attr.attr_timeout = 300
             return attr
 
+        # Check pending (staging) first
+        pf = self._pending.get(parent_inode, {}).get(sname)
+        if pf and not pf.deleted and not pf.is_temp:
+            sz = os.path.getsize(pf.staging_path) if os.path.exists(pf.staging_path) else 0
+            now_ns = int(time.time() * 1e9)
+            attr = pyfuse3.EntryAttributes()
+            attr.st_ino = pf.inode
+            attr.st_mode = stat.S_IFREG | 0o644
+            attr.st_nlink = 1
+            attr.st_size = sz
+            attr.st_uid = pf.caller_uid
+            attr.st_atime_ns = now_ns
+            attr.st_mtime_ns = now_ns
+            attr.st_ctime_ns = now_ns
+            attr.entry_timeout = 0
+            attr.attr_timeout = 0
+            return attr
+
         entry = await self._lookup_entry(parent_inode, sname)
         if entry is None:
             raise pyfuse3.FUSEError(errno.ENOENT)
@@ -535,9 +651,30 @@ class LASFuseServer(pyfuse3.Operations):
             lambda: _get_user_info_sync(caller_uid)
         )
 
-        entries = sorted(fc.entries.values(), key=lambda e: e.inode)
+        # Merge DB entries with pending (staging) files
+        all_entries: dict[str, CachedEntry] = dict(fc.entries)
+        for name, pf in self._pending.get(inode, {}).items():
+            if pf.deleted:
+                all_entries.pop(name, None)
+                continue
+            if pf.is_temp:
+                continue
+            sz = os.path.getsize(pf.staging_path) if os.path.exists(pf.staging_path) else 0
+            now_ns = int(time.time() * 1e9)
+            all_entries[name] = CachedEntry(
+                inode=pf.inode, name=name, is_dir=False,
+                size=sz, mode=stat.S_IFREG | 0o644,
+                uid=pf.caller_uid, gid=0, mtime_ns=now_ns,
+                storage_path=pf.staging_path,
+                owner_uid=pf.caller_uid, others_read=True,
+            )
+
+        entries = sorted(all_entries.values(), key=lambda e: e.inode)
         for entry in entries:
             if entry.inode <= start_id:
+                continue
+            # Hide temp files/dirs from listing
+            if _is_temp_file(entry.name) or _is_temp_dir(entry.name):
                 continue
             if not _can_see_entry(entry, caller_uid, is_admin, caller_gids):
                 continue
@@ -549,72 +686,105 @@ class LASFuseServer(pyfuse3.Operations):
         self._dir_handles.pop(fh, None)
 
     async def open(self, inode: int, flags: int, ctx):
-        if flags & (os.O_WRONLY | os.O_RDWR):
-            raise pyfuse3.FUSEError(errno.EROFS)
-
         key = _inode_key(inode)
         if key is None:
             raise pyfuse3.FUSEError(errno.ENOENT)
-
         kind, db_id = key
 
-        # .healthcheck special file
+        # .healthcheck
         if kind == "special" and db_id == "healthcheck":
-            fh = self._next_fh
-            self._next_fh += 1
-            self._open_files[fh] = -1  # sentinel for healthcheck
+            fh = self._next_fh; self._next_fh += 1
+            self._open_files[fh] = {"fd": -1, "inode": inode, "kind": "healthcheck"}
             return pyfuse3.FileInfo(fh=fh)
 
-        if kind != "doc":
+        # Pending (staging) file?
+        if kind in ("pending", "temp_staging"):
+            for _pi, pmap in self._pending.items():
+                for _name, pf in pmap.items():
+                    if pf.inode == inode and os.path.exists(pf.staging_path):
+                        oflags = os.O_RDWR if (flags & (os.O_WRONLY | os.O_RDWR)) else os.O_RDONLY
+                        fd = os.open(pf.staging_path, oflags)
+                        fh = self._next_fh; self._next_fh += 1
+                        self._open_files[fh] = {"fd": fd, "inode": inode, "kind": "staging",
+                                                 "pending": pf}
+                        return pyfuse3.FileInfo(fh=fh)
+            raise pyfuse3.FUSEError(errno.ENOENT)
+
+        if kind not in ("doc", "folder", "root"):
+            raise pyfuse3.FUSEError(errno.EISDIR if kind == "folder" else errno.ENOENT)
+        if kind in ("folder", "root"):
             raise pyfuse3.FUSEError(errno.EISDIR)
 
-        # Permission check + find storage path via O(1) parent lookup
+        # DB file — permission check
         entry = await self._find_entry_by_inode(inode)
         storage_path = ""
-
         if entry is not None:
             if ctx is not None:
                 is_admin, caller_gids = await trio.to_thread.run_sync(
-                    lambda: _get_user_info_sync(ctx.uid)
-                )
+                    lambda: _get_user_info_sync(ctx.uid))
                 if not _can_see_entry(entry, ctx.uid, is_admin, caller_gids):
                     raise pyfuse3.FUSEError(errno.EACCES)
             storage_path = entry.storage_path
 
         if not storage_path:
-            def _fetch_storage_path():
+            def _fetch():
                 with _get_session() as db:
-                    file_rec = db.execute(select(File).where(File.document_id == db_id).limit(1)).scalar_one_or_none()
-                    if file_rec:
-                        return file_rec.storage_path
-                    doc = db.get(Document, db_id)
-                    if doc:
-                        return doc.source_path or ""
-                    return ""
-            storage_path = await trio.to_thread.run_sync(_fetch_storage_path)
+                    fr = db.execute(select(File).where(File.document_id == db_id).limit(1)).scalar_one_or_none()
+                    if fr: return fr.storage_path
+                    d = db.get(Document, db_id)
+                    return d.source_path if d else ""
+            storage_path = await trio.to_thread.run_sync(_fetch) or ""
 
         if not storage_path or not os.path.exists(storage_path):
             raise pyfuse3.FUSEError(errno.ENOENT)
 
-        fd = os.open(storage_path, os.O_RDONLY)
-        fh = self._next_fh
-        self._next_fh += 1
-        self._open_files[fh] = fd
+        oflags = os.O_RDWR if (flags & (os.O_WRONLY | os.O_RDWR)) else os.O_RDONLY
+        fd = os.open(storage_path, oflags)
+        fh = self._next_fh; self._next_fh += 1
+        self._open_files[fh] = {"fd": fd, "inode": inode, "kind": "db",
+                                 "doc_id": db_id, "storage_path": storage_path, "dirty": False}
         return pyfuse3.FileInfo(fh=fh)
 
     async def read(self, fh: int, off: int, size: int):
-        fd = self._open_files.get(fh)
-        if fd is None:
+        info = self._open_files.get(fh)
+        if info is None:
             raise pyfuse3.FUSEError(errno.EBADF)
-        if fd == -1:  # healthcheck
-            content = b"ok\n"
-            return content[off:off + size]
+        fd = info["fd"]
+        if fd == -1:
+            return b"ok\n"[off:off + size]
         return os.pread(fd, size, off)
 
+    async def write(self, fh: int, off: int, buf):
+        info = self._open_files.get(fh)
+        if info is None:
+            raise pyfuse3.FUSEError(errno.EBADF)
+        fd = info["fd"]
+        if fd < 0:
+            raise pyfuse3.FUSEError(errno.EBADF)
+        written = os.pwrite(fd, buf, off)
+        info["dirty"] = True
+        return written
+
     async def release(self, fh: int):
-        fd = self._open_files.pop(fh, None)
-        if fd is not None and fd >= 0:
+        info = self._open_files.pop(fh, None)
+        if info is None:
+            return
+        fd = info["fd"]
+        if fd >= 0:
             os.close(fd)
+
+        # Staging file closed → queue for DB sync
+        if info.get("kind") == "staging":
+            pf = info.get("pending")
+            if pf and not pf.is_temp and not pf.deleted:
+                pf.closed = True
+                self._sync_queue.append(pf)
+        # DB file modified → queue for reindex
+        elif info.get("kind") == "db" and info.get("dirty"):
+            doc_id = info.get("doc_id")
+            spath = info.get("storage_path")
+            if doc_id and spath:
+                self._sync_queue.append(("reindex", doc_id, spath))
 
     async def access(self, inode: int, mode, ctx):
         return True
@@ -646,27 +816,357 @@ class LASFuseServer(pyfuse3.Operations):
         s.f_namemax = 255
         return s
 
-    # Reject writes
-    async def write(self, fh, off, buf):
-        raise pyfuse3.FUSEError(errno.EROFS)
+    # ------------------------------------------------------------------ #
+    # create — staging only, no DB
+    # ------------------------------------------------------------------ #
 
     async def create(self, parent_inode, name, mode, flags, ctx):
-        raise pyfuse3.FUSEError(errno.EROFS)
+        sname = _nfc(name.decode("utf-8", errors="surrogateescape"))
+        is_temp = _is_temp_file(sname)
 
-    async def mkdir(self, parent_inode, name, mode, ctx):
-        raise pyfuse3.FUSEError(errno.EROFS)
+        staging_path = os.path.join(_staging_dir(parent_inode), sname)
+        fd = os.open(staging_path, os.O_CREAT | os.O_RDWR | os.O_TRUNC, 0o644)
+
+        kind = "temp_staging" if is_temp else "pending"
+        temp_id = str(_uuid.uuid4())
+        ino = _get_or_alloc_inode(kind, temp_id, parent_inode)
+
+        pf = PendingFile(inode=ino, name=sname, staging_path=staging_path,
+                         parent_inode=parent_inode, caller_uid=ctx.uid if ctx else 0,
+                         is_temp=is_temp)
+        self._pending.setdefault(parent_inode, {})[sname] = pf
+
+        fh = self._next_fh; self._next_fh += 1
+        self._open_files[fh] = {"fd": fd, "inode": ino, "kind": "staging", "pending": pf}
+
+        now_ns = int(time.time() * 1e9)
+        attr = pyfuse3.EntryAttributes()
+        attr.st_ino = ino
+        attr.st_mode = stat.S_IFREG | 0o644
+        attr.st_nlink = 1
+        attr.st_size = 0
+        attr.st_uid = ctx.uid if ctx else 0
+        attr.st_gid = ctx.gid if ctx else 0
+        attr.st_atime_ns = now_ns
+        attr.st_mtime_ns = now_ns
+        attr.st_ctime_ns = now_ns
+        attr.entry_timeout = 0
+        attr.attr_timeout = 0
+        return pyfuse3.FileInfo(fh=fh), attr
+
+    # ------------------------------------------------------------------ #
+    # unlink — staging: delete file. DB: soft-delete.
+    # ------------------------------------------------------------------ #
 
     async def unlink(self, parent_inode, name, ctx):
-        raise pyfuse3.FUSEError(errno.EROFS)
+        sname = _nfc(name.decode("utf-8", errors="surrogateescape"))
 
-    async def rmdir(self, parent_inode, name, ctx):
-        raise pyfuse3.FUSEError(errno.EROFS)
+        # Pending (staging) file?
+        pf = self._pending.get(parent_inode, {}).get(sname)
+        if pf:
+            pf.deleted = True
+            if os.path.exists(pf.staging_path):
+                os.unlink(pf.staging_path)
+            self._pending.get(parent_inode, {}).pop(sname, None)
+            return
+
+        # DB file
+        entry = await self._lookup_entry(parent_inode, sname)
+        if entry is None:
+            return
+        fc = self._cache.get(parent_inode)
+        if fc and sname in fc.entries:
+            del fc.entries[sname]
+        if entry.doc_id:
+            await trio.to_thread.run_sync(lambda: self._soft_delete_sync(entry.doc_id))
+            log.info("Soft-deleted %s (%s)", sname, entry.doc_id)
+
+    def _soft_delete_sync(self, doc_id: str):
+        from datetime import datetime, timezone
+        with _get_session() as db:
+            doc = db.get(Document, doc_id)
+            if doc and doc.deleted_at is None:
+                doc.deleted_at = datetime.now(timezone.utc)
+                db.commit()
+
+    # ------------------------------------------------------------------ #
+    # rename — staging: rename file. DB: update title/folder.
+    # ------------------------------------------------------------------ #
 
     async def rename(self, old_parent, old_name, new_parent, new_name, flags, ctx):
-        raise pyfuse3.FUSEError(errno.EROFS)
+        old_sname = _nfc(old_name.decode("utf-8", errors="surrogateescape"))
+        new_sname = _nfc(new_name.decode("utf-8", errors="surrogateescape"))
+
+        # Source is pending (staging)?
+        pf = self._pending.get(old_parent, {}).get(old_sname)
+        if pf:
+            # Move staging file
+            new_staging = os.path.join(_staging_dir(new_parent), new_sname)
+            if os.path.exists(pf.staging_path):
+                os.makedirs(os.path.dirname(new_staging), exist_ok=True)
+                os.rename(pf.staging_path, new_staging)
+            # Update pending map
+            self._pending.get(old_parent, {}).pop(old_sname, None)
+            pf.name = new_sname
+            pf.staging_path = new_staging
+            pf.parent_inode = new_parent
+            self._pending.setdefault(new_parent, {})[new_sname] = pf
+            self._cache.invalidate(old_parent)
+            if new_parent != old_parent:
+                self._cache.invalidate(new_parent)
+            return
+
+        # Source is DB entry
+        old_entry = await self._lookup_entry(old_parent, old_sname)
+        if old_entry and old_entry.doc_id:
+            new_folder_id = None
+            key = _inode_key(new_parent)
+            if key and key[0] == "folder":
+                new_folder_id = key[1]
+
+            def _do_rename():
+                with _get_session() as db:
+                    doc = db.get(Document, old_entry.doc_id)
+                    if doc:
+                        doc.title = new_sname
+                        if new_parent != old_parent:
+                            doc.folder_id = new_folder_id
+                        db.commit()
+            await trio.to_thread.run_sync(_do_rename)
+            log.info("Renamed document: %s -> %s", old_sname, new_sname)
+        elif old_entry and old_entry.is_dir and old_entry.folder_db_id:
+            def _do_folder_rename():
+                with _get_session() as db:
+                    folder = db.get(Folder, old_entry.folder_db_id)
+                    if folder:
+                        folder.name = new_sname
+                        if new_parent != old_parent:
+                            new_key = _inode_key(new_parent)
+                            folder.parent_id = new_key[1] if new_key and new_key[0] == "folder" else None
+                        db.commit()
+            await trio.to_thread.run_sync(_do_folder_rename)
+            log.info("Renamed folder: %s -> %s", old_sname, new_sname)
+
+        self._cache.invalidate(old_parent)
+        if new_parent != old_parent:
+            self._cache.invalidate(new_parent)
+
+    # ------------------------------------------------------------------ #
+    # mkdir / rmdir — DB operations (folder structure, not file content)
+    # ------------------------------------------------------------------ #
+
+    async def mkdir(self, parent_inode, name, mode, ctx):
+        sname = _nfc(name.decode("utf-8", errors="surrogateescape"))
+        parent_key = _inode_key(parent_inode)
+        parent_folder_id = parent_key[1] if parent_key and parent_key[0] == "folder" else None
+
+        def _do_mkdir():
+            with _get_session() as db:
+                user = db.execute(select(User).where(User.unix_uid == (ctx.uid if ctx else 0))).scalar_one_or_none()
+                user_id = user.id if user else None
+                group_id, group_read, group_write, others_read, others_write = None, False, False, True, False
+                if parent_folder_id:
+                    pf = db.get(Folder, parent_folder_id)
+                    if pf:
+                        group_id = pf.group_id
+                        group_read, group_write = pf.group_read, pf.group_write
+                        others_read, others_write = pf.others_read, pf.others_write
+                folder = Folder(name=sname, parent_id=parent_folder_id, owner_id=user_id,
+                                group_id=group_id, group_read=group_read, group_write=group_write,
+                                others_read=others_read, others_write=others_write)
+                db.add(folder)
+                db.commit()
+                return str(folder.id)
+
+        folder_id = await trio.to_thread.run_sync(_do_mkdir)
+        ino = _get_or_alloc_inode("folder", folder_id, parent_inode)
+        now_ns = int(time.time() * 1e9)
+        attr = pyfuse3.EntryAttributes()
+        attr.st_ino = ino
+        attr.st_mode = stat.S_IFDIR | 0o755
+        attr.st_nlink = 2
+        attr.st_uid = ctx.uid if ctx else 0
+        attr.st_gid = ctx.gid if ctx else 0
+        attr.st_atime_ns = now_ns
+        attr.st_mtime_ns = now_ns
+        attr.st_ctime_ns = now_ns
+        attr.entry_timeout = 0
+        attr.attr_timeout = 0
+        self._cache.invalidate(parent_inode)
+        log.info("Created folder: %s", sname)
+        return attr
+
+    async def rmdir(self, parent_inode, name, ctx):
+        sname = _nfc(name.decode("utf-8", errors="surrogateescape"))
+        entry = await self._lookup_entry(parent_inode, sname)
+        if entry is None or not entry.is_dir:
+            raise pyfuse3.FUSEError(errno.ENOENT)
+        folder_id = entry.folder_db_id
+        if not folder_id:
+            raise pyfuse3.FUSEError(errno.EPERM)
+
+        def _do_rmdir():
+            with _get_session() as db:
+                if db.execute(select(Folder.id).where(Folder.parent_id == folder_id).limit(1)).scalar_one_or_none():
+                    return "ENOTEMPTY"
+                if db.execute(select(Document.id).where(Document.folder_id == folder_id, Document.deleted_at.is_(None)).limit(1)).scalar_one_or_none():
+                    return "ENOTEMPTY"
+                folder = db.get(Folder, folder_id)
+                if folder:
+                    db.delete(folder)
+                    db.commit()
+                return "OK"
+
+        result = await trio.to_thread.run_sync(_do_rmdir)
+        if result == "ENOTEMPTY":
+            raise pyfuse3.FUSEError(errno.ENOTEMPTY)
+        self._cache.invalidate(parent_inode)
+        log.info("Removed folder: %s", sname)
+
+    # ------------------------------------------------------------------ #
+    # setattr — handle truncate + timestamps
+    # ------------------------------------------------------------------ #
 
     async def setattr(self, inode, attr, fields, fh, ctx):
-        raise pyfuse3.FUSEError(errno.EROFS)
+        if fields.update_size and fh is not None:
+            info = self._open_files.get(fh)
+            if info and info["fd"] >= 0:
+                os.ftruncate(info["fd"], attr.st_size)
+                info["dirty"] = True
+        if fields.update_mtime or fields.update_atime:
+            storage_path = None
+            if fh is not None:
+                info = self._open_files.get(fh)
+                if info:
+                    pf = info.get("pending")
+                    storage_path = pf.staging_path if pf else info.get("storage_path")
+            if storage_path and os.path.exists(storage_path):
+                try:
+                    st = os.stat(storage_path)
+                    os.utime(storage_path, ns=(
+                        attr.st_atime_ns if fields.update_atime else st.st_atime_ns,
+                        attr.st_mtime_ns if fields.update_mtime else st.st_mtime_ns,
+                    ))
+                except OSError:
+                    pass
+        return await self.getattr(inode, ctx)
+
+    # ------------------------------------------------------------------ #
+    # Background sync worker
+    # ------------------------------------------------------------------ #
+
+    async def _background_sync(self):
+        """Periodically sync closed staging files to DB."""
+        while True:
+            await trio.sleep(1)
+            to_process = []
+            remaining = []
+            for item in self._sync_queue:
+                if isinstance(item, tuple) and item[0] == "reindex":
+                    to_process.append(item)
+                elif isinstance(item, PendingFile) and item.closed and not item.deleted:
+                    to_process.append(item)
+                else:
+                    remaining.append(item)
+            self._sync_queue = remaining
+
+            for item in to_process:
+                try:
+                    if isinstance(item, tuple) and item[0] == "reindex":
+                        _, doc_id, spath = item
+                        await trio.to_thread.run_sync(lambda: self._reindex_sync(doc_id, spath))
+                    elif isinstance(item, PendingFile):
+                        await trio.to_thread.run_sync(lambda pf=item: self._commit_pending_sync(pf))
+                except Exception:
+                    log.exception("Background sync error")
+
+    def _commit_pending_sync(self, pf: PendingFile):
+        """Move staging file to permanent storage, create Document+File+Job."""
+        if not os.path.exists(pf.staging_path):
+            return
+        # Skip empty files (Finder creates empty then writes in a second pass)
+        if os.path.getsize(pf.staging_path) == 0:
+            os.unlink(pf.staging_path)
+            log.info("Skipped empty staging file: %s", pf.name)
+            return
+
+        key = _inode_key(pf.parent_inode)
+        folder_id = key[1] if key and key[0] == "folder" else None
+
+        # Skip if same-name active document already exists in this folder
+        with _get_session() as db:
+            q = select(Document.id).where(
+                Document.title == pf.name,
+                Document.deleted_at.is_(None),
+            )
+            if folder_id:
+                q = q.where(Document.folder_id == folder_id)
+            else:
+                q = q.where(Document.folder_id.is_(None))
+            existing = db.execute(q.limit(1)).scalar_one_or_none()
+            if existing:
+                os.unlink(pf.staging_path)
+                log.info("Skipped duplicate: %s already exists in folder", pf.name)
+                return
+
+        final_path = _final_storage_path(pf.name)
+        shutil.move(pf.staging_path, final_path)
+        file_type = _get_file_type(pf.name)
+        file_size = os.path.getsize(final_path) if os.path.exists(final_path) else 0
+
+        with _get_session() as db:
+            user = db.execute(select(User).where(User.unix_uid == pf.caller_uid)).scalar_one_or_none()
+            if not user:
+                user = db.execute(select(User).limit(1)).scalar_one_or_none()
+            if not user:
+                log.error("No user for uid %d", pf.caller_uid)
+                return
+            user_id = user.id
+
+            group_id, group_read, group_write, others_read, others_write = None, False, False, True, False
+            if folder_id:
+                folder = db.get(Folder, folder_id)
+                if folder:
+                    group_id = folder.group_id
+                    group_read, group_write = folder.group_read, folder.group_write
+                    others_read, others_write = folder.others_read, folder.others_write
+
+            doc = Document(title=pf.name, source_path=final_path, file_type=file_type,
+                           content="", owner_id=user_id, group_id=group_id,
+                           group_read=group_read, group_write=group_write,
+                           others_read=others_read, others_write=others_write,
+                           created_by_id=user_id, updated_by_id=user_id,
+                           processing_status="pending", folder_id=folder_id, source="smb")
+            db.add(doc)
+            db.flush()
+            db.add(File(document_id=doc.id, filename=pf.name, storage_path=final_path,
+                        file_size=file_size, mime_type=None))
+            db.add(Job(job_type="document_processing", status="pending", max_attempts=3,
+                       payload={"doc_id": str(doc.id), "storage_path": final_path,
+                                "file_type": file_type, "filename": pf.name}))
+            db.commit()
+            log.info("Synced %s -> %s (%s)", pf.name, doc.id, final_path)
+
+        # Remove from pending, invalidate cache
+        p = self._pending.get(pf.parent_inode, {})
+        if pf.name in p and p[pf.name] is pf:
+            del p[pf.name]
+        self._cache.invalidate(pf.parent_inode)
+
+    def _reindex_sync(self, doc_id: str, storage_path: str):
+        with _get_session() as db:
+            doc = db.get(Document, doc_id)
+            if not doc:
+                return
+            doc.processing_status = "pending"
+            fr = db.execute(select(File).where(File.document_id == doc_id).limit(1)).scalar_one_or_none()
+            if fr and os.path.exists(storage_path):
+                fr.file_size = os.path.getsize(storage_path)
+            db.add(Job(job_type="document_processing", status="pending", max_attempts=3,
+                       payload={"doc_id": str(doc.id), "storage_path": storage_path,
+                                "file_type": doc.file_type or "", "filename": doc.title or ""}))
+            db.commit()
+            log.info("Re-indexed %s", doc.title)
 
 
 # ---------------------------------------------------------------------------
@@ -697,8 +1197,13 @@ def main():
 
     log.info("LAS FUSE Server mounted at %s", args.mountpoint)
 
+    async def _run():
+        async with trio.open_nursery() as nursery:
+            nursery.start_soon(pyfuse3.main)
+            nursery.start_soon(fs._background_sync)
+
     try:
-        trio.run(pyfuse3.main)
+        trio.run(_run)
     except KeyboardInterrupt:
         log.info("Shutting down...")
     finally:

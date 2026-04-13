@@ -142,6 +142,7 @@ services:
     volumes:
       - ./data/fuse-mount:/mnt/base:rshared
       - ./data:/data/storage
+      - ./data/smb-staging:/data/smb-staging
     command: >
       sh -c "fusermount3 -uz /mnt/base/fs 2>/dev/null || true;
              rm -rf /mnt/base/fs 2>/dev/null || true;
