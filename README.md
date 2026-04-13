@@ -1,12 +1,10 @@
 # LAS — Local AI Search
 
-**Self-hosted file search server powered by full-text search, vector search, and AI agents. Your data never leaves your network.**
+**The NAS, supercharged. Enterprise-ready, self-hosted file platform with hybrid AI search and local LLM agents. Fully on-prem, zero cloud.**
 
 [日本語版 README](README_ja.md)
 
-As files pile up, finding the right document becomes impossible. Filename matching has its limits, and vague queries like "that report from last week" return nothing.
-
-LAS combines full-text search with vector search (semantic search) so you can find documents even when your keywords don't exactly match. PDFs and images are automatically OCR'd and made searchable. All data stays on your local network — zero cloud dependency.
+A file server that works entirely from the Web UI. Drag & drop uploads, folder organization, permission control, version history, collaborative editing, external sharing — all from your browser. Find documents with full-text + vector search (semantic search), even when your keywords don't exactly match. AI agents autonomously explore and summarize your documents. PDFs and images are automatically OCR'd. Everything runs within your LAN — zero data sent to the cloud. SMB network drive support also available (experimental).
 
 ## Security
 
