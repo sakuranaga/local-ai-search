@@ -55,11 +55,14 @@ LAN (private)                    Internet (public)
 
 ### SMB file sharing (NAS)
 
+Mount LAS as a network drive. Uses a **FUSE + Samba hybrid architecture**: FUSE provides a read-only virtual filesystem view (with DB-backed folder structure and permission filtering), while writes go through a staging directory as pure POSIX operations — no database calls in the write path. A background worker syncs staged files to permanent storage and the search index.
+
 - **SMB/CIFS network share** — Mount LAS as a network drive on Windows/macOS/Linux
-- **FUSE virtual filesystem** — Maps LAS folder/document hierarchy to a standard filesystem. Actual files stored in UUID-based storage
-- **LAS user authentication** — Connect with your LAS username and password
-- **Permission-based visibility** — Owner/group/others permissions and download-prohibited files are enforced at the filesystem level
-- **Staging-based writes** — Create, edit, rename, delete files directly from Finder/Explorer. Changes sync to LAS search index automatically
+- **FUSE virtual view** — Maps LAS folder/document hierarchy to a standard filesystem with permission-based visibility (owner/group/others). Download-prohibited files are hidden
+- **Staging-based writes** — Create, edit, rename, delete files directly from Finder/Explorer. All write operations are pure POSIX on a staging directory — compatible with any editor's save pattern (Office, Typora, TextEdit, etc.)
+- **Background sync** — Staged files are automatically moved to permanent UUID-based storage, registered in the database, and queued for search indexing (1-second sync interval)
+- **LAS user authentication** — Connect with your LAS username and password. Write permissions enforced per owner/group/others
+- **Bidirectional cache sync** — Redis pub/sub keeps FUSE metadata cache and Web UI in sync when files change from either side
 - **macOS compatible** — Apple SMB extensions (vfs_fruit), SMB3 encryption
 
 ### File management
@@ -293,7 +296,10 @@ Log in with your LAS username and password. **You must log in to LAS Web UI at l
 **Firewall:** Port 445 should only be accessible from your LAN/VPN. Do not expose to the internet.
 
 **Limitations:**
+- Folder contents do not auto-refresh in Finder when files are added via Web UI. Use Cmd+R to refresh, or close and reopen the folder.
 - macOS Terminal `ls` may show "Operation not permitted" (TCC restriction). Use Finder instead.
+- Large files (>10MB) may take a few seconds before they can be opened after upload (staging → permanent storage transition).
+- You must log in to LAS Web UI at least once before SMB access works (password sync).
 - `mount --make-shared` setup is lost on host reboot. See `scripts/setup-smb.sh` for `/etc/fstab` instructions.
 
 ### LLM / Embedding configuration
