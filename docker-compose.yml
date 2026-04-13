@@ -170,9 +170,11 @@ services:
     volumes:
       - ./data/fuse-mount:/share-base:rslave
       - ./data/smb-sync:/smb-sync
+      - samba_data:/var/lib/samba
 
 volumes:
   las_db:
   las_redis:
   clamav_data:
   yjs_data:
+  samba_data:

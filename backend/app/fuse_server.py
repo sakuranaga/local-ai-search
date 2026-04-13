@@ -436,6 +436,9 @@ class LASFuseServer(pyfuse3.Operations):
         self._pending: dict[int, dict[str, PendingFile]] = {}
         # Sync queue: closed pending files ready for DB commit
         self._sync_queue: list[PendingFile] = []
+        # Clean up staging remnants from previous crashes
+        if os.path.exists(_STAGING_PATH):
+            shutil.rmtree(_STAGING_PATH, ignore_errors=True)
         os.makedirs(_STAGING_PATH, exist_ok=True)
 
     # -- helpers --
@@ -1111,6 +1114,8 @@ class LASFuseServer(pyfuse3.Operations):
 
         final_path = _final_storage_path(pf.name)
         shutil.move(pf.staging_path, final_path)
+        # Update pending entry to point to final path so open() works during transition
+        pf.staging_path = final_path
         file_type = _get_file_type(pf.name)
         file_size = os.path.getsize(final_path) if os.path.exists(final_path) else 0
 
@@ -1139,8 +1144,10 @@ class LASFuseServer(pyfuse3.Operations):
                            processing_status="pending", folder_id=folder_id, source="smb")
             db.add(doc)
             db.flush()
+            import mimetypes
+            mime = mimetypes.guess_type(pf.name)[0] or "application/octet-stream"
             db.add(File(document_id=doc.id, filename=pf.name, storage_path=final_path,
-                        file_size=file_size, mime_type=None))
+                        file_size=file_size, mime_type=mime))
             db.add(Job(job_type="document_processing", status="pending", max_attempts=3,
                        payload={"doc_id": str(doc.id), "storage_path": final_path,
                                 "file_type": file_type, "filename": pf.name}))
