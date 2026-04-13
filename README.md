@@ -53,6 +53,15 @@ LAN (private)                    Internet (public)
 - **SSE streaming** — Real-time AI responses and tool execution status
 - **Filters** — By file type, date range, uploader
 
+### SMB file sharing (NAS)
+
+- **SMB/CIFS network share** — Mount LAS as a network drive on Windows/macOS/Linux
+- **FUSE virtual filesystem** — Maps LAS folder/document hierarchy to a standard filesystem. Actual files stored in UUID-based storage
+- **LAS user authentication** — Connect with your LAS username and password
+- **Permission-based visibility** — Owner/group/others permissions and download-prohibited files are enforced at the filesystem level
+- **Staging-based writes** — Create, edit, rename, delete files directly from Finder/Explorer. Changes sync to LAS search index automatically
+- **macOS compatible** — Apple SMB extensions (vfs_fruit), SMB3 encryption
+
 ### File management
 
 - **File explorer** — Folder hierarchy, tags, drag & drop organization
@@ -243,6 +252,8 @@ docker compose up -d
 | clamav | ClamAV antivirus scanner | internal 3310 |
 | y-websocket | Yjs WebSocket server (collaboration) | internal 1234 |
 | nginx | Reverse proxy + SPA serving | **3002** |
+| las-fuse | FUSE virtual filesystem for SMB | internal |
+| samba | SMB file sharing server | **445** |
 | ocr-server | Surya OCR (host, systemd recommended) | 8090 |
 
 ### First login
@@ -253,6 +264,37 @@ Access `http://localhost:3002`.
 - Password: `admin`
 
 **Change the password immediately after first login.**
+
+### SMB file sharing setup (optional)
+
+Mount LAS as a network drive on your PC.
+
+```bash
+# 1. Host prerequisites (run once, or after reboot)
+./scripts/setup-smb.sh
+
+# 2. Add SMB_INTERNAL_KEY to .env
+echo "SMB_INTERNAL_KEY=$(openssl rand -hex 16)" >> .env
+
+# 3. Start SMB services
+docker compose up -d --build las-fuse samba
+```
+
+**Connecting from your PC:**
+
+| OS | How |
+|----|-----|
+| macOS | Finder → Go → Connect to Server (Cmd+K) → `smb://<server-ip>/LAS` |
+| Windows | Explorer address bar → `\\<server-ip>\LAS` |
+| Linux | `sudo mount -t cifs //<server-ip>/LAS /mnt/las -o username=<user>,vers=3.0` |
+
+Log in with your LAS username and password. **You must log in to LAS Web UI at least once** before SMB access (for password sync).
+
+**Firewall:** Port 445 should only be accessible from your LAN/VPN. Do not expose to the internet.
+
+**Limitations:**
+- macOS Terminal `ls` may show "Operation not permitted" (TCC restriction). Use Finder instead.
+- `mount --make-shared` setup is lost on host reboot. See `scripts/setup-smb.sh` for `/etc/fstab` instructions.
 
 ### LLM / Embedding configuration
 

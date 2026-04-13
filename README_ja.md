@@ -81,6 +81,15 @@ LAN 内（非公開）              インターネット（公開）
 - **SSE ストリーミング** — AI 回答・ツール実行状況をリアルタイム表示
 - **フィルタ** — ファイルタイプ、更新日範囲、登録者で絞り込み
 
+### SMB ファイル共有 (NAS)
+
+- **SMB/CIFS ネットワーク共有** — Windows/macOS/Linux からネットワークドライブとしてマウント
+- **FUSE 仮想ファイルシステム** — LAS のフォルダ/ドキュメント階層を標準的なファイルシステムとしてマッピング
+- **LAS ユーザー認証** — LAS のユーザー名/パスワードで接続
+- **権限ベースの表示制御** — owner/group/others 権限およびダウンロード禁止ファイルをファイルシステムレベルで適用
+- **ステージング書き込み** — Finder/Explorer から直接ファイルの作成・編集・リネーム・削除が可能。変更は自動的に LAS 検索インデックスに反映
+- **macOS 互換** — Apple SMB 拡張 (vfs_fruit)、SMB3 暗号化
+
 ### ファイル管理
 
 - **ファイルエクスプローラー** — フォルダ階層、タグ、ドラッグ&ドロップ整理
@@ -289,6 +298,8 @@ docker compose up -d
 | y-websocket | Yjs WebSocket サーバー（共同編集） | 内部 1234 |
 | nginx | リバースプロキシ + SPA 配信 | **3002** |
 | queue-worker | バックグラウンドジョブ処理 | 内部 |
+| las-fuse | FUSE 仮想ファイルシステム (SMB 用) | 内部 |
+| samba | SMB ファイル共有サーバー | **445** |
 | ocr-server | Surya OCR（ホスト直接起動、systemd 推奨） | 8090 |
 
 ### 初回ログイン
@@ -299,6 +310,37 @@ docker compose up -d
 - パスワード: `admin`
 
 **初回ログイン後、必ずパスワードを変更してください。**
+
+### SMB ファイル共有のセットアップ (オプション)
+
+LAS を PC のネットワークドライブとしてマウントできます。
+
+```bash
+# 1. ホスト前提条件 (初回のみ、再起動後も必要)
+./scripts/setup-smb.sh
+
+# 2. .env に SMB_INTERNAL_KEY を追加
+echo "SMB_INTERNAL_KEY=$(openssl rand -hex 16)" >> .env
+
+# 3. SMB サービスを起動
+docker compose up -d --build las-fuse samba
+```
+
+**PC からの接続:**
+
+| OS | 接続方法 |
+|----|---------|
+| macOS | Finder → 移動 → サーバへ接続 (Cmd+K) → `smb://<サーバIP>/LAS` |
+| Windows | エクスプローラーのアドレスバー → `\\<サーバIP>\LAS` |
+| Linux | `sudo mount -t cifs //<サーバIP>/LAS /mnt/las -o username=<ユーザー名>,vers=3.0` |
+
+LAS のユーザー名/パスワードでログインしてください。**SMB 接続前に、LAS Web UI に一度ログインする必要があります**（パスワード同期のため）。
+
+**ファイアウォール:** ポート 445 は LAN/VPN 内のみに公開してください。インターネットには絶対に公開しないでください。
+
+**制約事項:**
+- macOS ターミナルの `ls` は "Operation not permitted" と表示される場合があります（TCC 制限）。Finder を使用してください。
+- `mount --make-shared` はホスト再起動で消えます。`scripts/setup-smb.sh` に `/etc/fstab` への追加方法が記載されています。
 
 ### LLM / Embedding 設定
 
