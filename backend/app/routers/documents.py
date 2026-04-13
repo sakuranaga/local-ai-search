@@ -1166,6 +1166,9 @@ async def update_document(
     notify_update(current_user.display_name or current_user.username, [doc.title])
     webhook_update(current_user.display_name or current_user.username, [doc.title])
 
+    from app.services.smb_notify import publish_cache_invalidate
+    await publish_cache_invalidate(str(doc.folder_id) if doc.folder_id else None)
+
     return DocumentListItem(
         id=str(doc.id),
         title=doc.title,
@@ -1239,6 +1242,9 @@ async def delete_document(
     notify_delete(current_user.display_name or current_user.username, [doc.title])
     webhook_delete(current_user.display_name or current_user.username, [doc.title])
 
+    from app.services.smb_notify import publish_cache_invalidate
+    await publish_cache_invalidate(str(doc.folder_id) if doc.folder_id else None)
+
 
 # ---------------------------------------------------------------------------
 # 6. POST /documents/bulk-action — unified bulk operations
@@ -1302,6 +1308,10 @@ async def bulk_action(
             _titles = [d.title for d in docs]
             notify_delete(current_user.display_name or current_user.username, _titles)
             webhook_delete(current_user.display_name or current_user.username, _titles)
+            from app.services.smb_notify import publish_cache_invalidate
+            folder_ids = {str(d.folder_id) if d.folder_id else None for d in docs}
+            for fid in folder_ids:
+                await publish_cache_invalidate(fid)
         return {"action": "delete", "processed": len(docs)}
 
     elif body.action == "reindex":

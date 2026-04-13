@@ -411,6 +411,10 @@ async def update_folder(
         r = await db.execute(select(func.coalesce(User.display_name, User.username)).where(User.id == folder.owner_id))
         owner_name = r.scalar_one_or_none()
 
+    from app.services.smb_notify import publish_cache_invalidate
+    await publish_cache_invalidate(str(folder.parent_id) if folder.parent_id else None)
+    await publish_cache_invalidate(str(folder.id))
+
     return FolderResponse(
         id=str(folder.id),
         name=folder.name,
@@ -469,7 +473,11 @@ async def delete_folder(
         )
 
     # Delete all descendant folders (deepest first), then the target folder
+    parent_id_for_notify = folder.parent_id
     for fid in reversed(all_folder_ids):
         f = await db.get(Folder, fid)
         if f:
             await db.delete(f)
+
+    from app.services.smb_notify import publish_cache_invalidate
+    await publish_cache_invalidate(str(parent_id_for_notify) if parent_id_for_notify else None)

@@ -965,6 +965,9 @@ class LASFuseServer(pyfuse3.Operations):
         if entry.doc_id:
             await trio.to_thread.run_sync(lambda: self._soft_delete_sync(entry.doc_id))
             log.info("Soft-deleted %s (%s)", sname, entry.doc_id)
+            parent_key = _inode_key(parent_inode)
+            fid = parent_key[1] if parent_key and parent_key[0] == "folder" else None
+            self._publish_file_changed(fid)
 
     def _soft_delete_sync(self, doc_id: str):
         from datetime import datetime, timezone
@@ -1172,6 +1175,36 @@ class LASFuseServer(pyfuse3.Operations):
     # Background sync worker
     # ------------------------------------------------------------------ #
 
+    async def _redis_cache_subscriber(self):
+        """Subscribe to Redis for cache invalidation from Web UI."""
+        import redis as sync_redis
+        redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+        while True:
+            try:
+                r = sync_redis.from_url(redis_url, decode_responses=True)
+                pubsub = r.pubsub()
+                pubsub.subscribe("smb:cache_invalidate")
+                log.info("Redis cache subscriber connected")
+
+                def _listen():
+                    while True:
+                        msg = pubsub.get_message(timeout=1)
+                        if msg and msg["type"] == "message":
+                            folder_id = msg["data"]
+                            if folder_id == "_root":
+                                self._cache.invalidate(ROOT_INODE)
+                            else:
+                                key = ("folder", folder_id)
+                                ino = _key_to_inode.get(key)
+                                if ino:
+                                    self._cache.invalidate(ino)
+                            log.debug("Cache invalidated for folder %s", folder_id)
+
+                await trio.to_thread.run_sync(_listen)
+            except Exception:
+                log.warning("Redis subscriber error, retrying in 5s", exc_info=True)
+                await trio.sleep(5)
+
     async def _background_sync(self):
         """Periodically sync closed staging files to DB."""
         while True:
@@ -1274,6 +1307,24 @@ class LASFuseServer(pyfuse3.Operations):
             del p[pf.name]
         self._cache.invalidate(pf.parent_inode)
 
+        # Notify Web UI that files changed
+        self._publish_file_changed(folder_id)
+
+    def _get_redis(self):
+        """Get or create a shared sync Redis connection."""
+        if not hasattr(self, "_redis") or self._redis is None:
+            import redis as sync_redis
+            redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+            self._redis = sync_redis.from_url(redis_url, decode_responses=True)
+        return self._redis
+
+    def _publish_file_changed(self, folder_id: str | None):
+        """Notify Web UI that files changed in a folder."""
+        try:
+            self._get_redis().publish("smb:file_changed", folder_id or "_root")
+        except Exception:
+            self._redis = None  # reset on error
+
     def _reindex_sync(self, doc_id: str, storage_path: str):
         with _get_session() as db:
             doc = db.get(Document, doc_id)
@@ -1322,6 +1373,7 @@ def main():
         async with trio.open_nursery() as nursery:
             nursery.start_soon(pyfuse3.main)
             nursery.start_soon(fs._background_sync)
+            nursery.start_soon(fs._redis_cache_subscriber)
 
     try:
         trio.run(_run)
