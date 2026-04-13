@@ -161,7 +161,9 @@ class CachedEntry:
     owner_uid: int = 0
     group_gid: int = 0
     group_read: bool = False
+    group_write: bool = False
     others_read: bool = True
+    others_write: bool = False
     download_prohibited: bool = False
 
 
@@ -244,13 +246,19 @@ def _inode_key(inode: int) -> tuple[str, str] | None:
 
 def _compute_mode(is_dir: bool, group_read: bool, group_write: bool,
                   others_read: bool, others_write: bool) -> int:
-    # Access control is handled by _can_see_entry (visibility filter).
-    # Samba sees all visible entries as fully readable.
-    # Phase 2 (write support) will add write bits selectively.
     if is_dir:
-        return stat.S_IFDIR | 0o755
+        mode = stat.S_IFDIR | 0o700  # owner always rwx
+        if group_read:  mode |= 0o050
+        if group_write: mode |= 0o020
+        if others_read: mode |= 0o005
+        if others_write: mode |= 0o002
     else:
-        return stat.S_IFREG | 0o644
+        mode = stat.S_IFREG | 0o600  # owner always rw
+        if group_read:  mode |= 0o040
+        if group_write: mode |= 0o020
+        if others_read: mode |= 0o004
+        if others_write: mode |= 0o002
+    return mode
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +313,8 @@ def _load_folder_children_sync(parent_inode: int) -> FolderCache:
                 mode=mode, uid=owner_uid, gid=owner_gid,
                 mtime_ns=mtime_ns, folder_db_id=str(f.id),
                 owner_uid=owner_uid, group_gid=owner_gid,
-                group_read=f.group_read, others_read=f.others_read,
+                group_read=f.group_read, group_write=f.group_write,
+                others_read=f.others_read, others_write=f.others_write,
             )
 
         # Load documents
@@ -345,7 +354,9 @@ def _load_folder_children_sync(parent_inode: int) -> FolderCache:
             )
 
             doc_group_read = getattr(doc, "group_read", False)
+            doc_group_write = getattr(doc, "group_write", False)
             doc_others_read = getattr(doc, "others_read", True)
+            doc_others_write = getattr(doc, "others_write", False)
             doc_dl_prohibited = getattr(doc, "download_prohibited", False)
 
             fc.entries[name] = CachedEntry(
@@ -353,7 +364,8 @@ def _load_folder_children_sync(parent_inode: int) -> FolderCache:
                 size=file_size, mode=mode, uid=owner_uid, gid=owner_gid,
                 mtime_ns=mtime_ns, storage_path=storage_path, doc_id=str(doc.id),
                 owner_uid=owner_uid, group_gid=owner_gid,
-                group_read=doc_group_read, others_read=doc_others_read,
+                group_read=doc_group_read, group_write=doc_group_write,
+                others_read=doc_others_read, others_write=doc_others_write,
                 download_prohibited=doc_dl_prohibited,
             )
 
@@ -394,6 +406,52 @@ def _get_user_info_sync(unix_uid: int) -> tuple[bool, set[int]]:
 
     _user_info_cache[unix_uid] = (is_admin, group_gids, time.monotonic())
     return is_admin, group_gids
+
+
+def _can_write_entry(entry: CachedEntry, caller_uid: int, caller_is_admin: bool,
+                     caller_gids: set[int]) -> bool:
+    """Check if a user can write to this entry."""
+    if caller_is_admin:
+        return True
+    if entry.owner_uid == caller_uid:
+        return True
+    if entry.group_write and entry.group_gid in caller_gids:
+        return True
+    if entry.others_write:
+        return True
+    return False
+
+
+def _can_write_folder_sync(folder_id: str | None, caller_uid: int) -> bool:
+    """Check if a user can create files in this folder (sync DB check)."""
+    is_admin, caller_gids = _get_user_info_sync(caller_uid)
+    if is_admin:
+        return True
+    if folder_id is None:
+        return True  # Root folder: allow all authenticated users
+
+    with _get_session() as db:
+        folder = db.get(Folder, folder_id)
+        if not folder:
+            return True
+        owner_uid = 0
+        if folder.owner_id:
+            owner = db.get(User, folder.owner_id)
+            if owner and owner.unix_uid:
+                owner_uid = owner.unix_uid
+        if owner_uid == caller_uid:
+            return True
+        if folder.group_write:
+            group_gid = 0
+            if folder.group_id:
+                grp = db.get(Group, folder.group_id)
+                if grp and grp.unix_gid:
+                    group_gid = grp.unix_gid
+            if group_gid in caller_gids:
+                return True
+        if folder.others_write:
+            return True
+    return False
 
 
 def _can_see_entry(entry: CachedEntry, caller_uid: int, caller_is_admin: bool,
@@ -741,6 +799,13 @@ class LASFuseServer(pyfuse3.Operations):
         if not storage_path or not os.path.exists(storage_path):
             raise pyfuse3.FUSEError(errno.ENOENT)
 
+        # Write permission check for DB files
+        if (flags & (os.O_WRONLY | os.O_RDWR)) and entry is not None and ctx is not None:
+            is_admin, caller_gids = await trio.to_thread.run_sync(
+                lambda: _get_user_info_sync(ctx.uid))
+            if not _can_write_entry(entry, ctx.uid, is_admin, caller_gids):
+                raise pyfuse3.FUSEError(errno.EACCES)
+
         oflags = os.O_RDWR if (flags & (os.O_WRONLY | os.O_RDWR)) else os.O_RDONLY
         fd = os.open(storage_path, oflags)
         fh = self._next_fh; self._next_fh += 1
@@ -827,6 +892,15 @@ class LASFuseServer(pyfuse3.Operations):
         sname = _nfc(name.decode("utf-8", errors="surrogateescape"))
         is_temp = _is_temp_file(sname)
 
+        # Write permission check on parent folder
+        if not is_temp and ctx is not None:
+            parent_key = _inode_key(parent_inode)
+            folder_id = parent_key[1] if parent_key and parent_key[0] == "folder" else None
+            can_write = await trio.to_thread.run_sync(
+                lambda: _can_write_folder_sync(folder_id, ctx.uid))
+            if not can_write:
+                raise pyfuse3.FUSEError(errno.EACCES)
+
         staging_path = os.path.join(_staging_dir(parent_inode), sname)
         fd = os.open(staging_path, os.O_CREAT | os.O_RDWR | os.O_TRUNC, 0o644)
 
@@ -877,6 +951,14 @@ class LASFuseServer(pyfuse3.Operations):
         entry = await self._lookup_entry(parent_inode, sname)
         if entry is None:
             return
+
+        # Write permission check
+        if ctx is not None and entry.doc_id:
+            is_admin, caller_gids = await trio.to_thread.run_sync(
+                lambda: _get_user_info_sync(ctx.uid))
+            if not _can_write_entry(entry, ctx.uid, is_admin, caller_gids):
+                raise pyfuse3.FUSEError(errno.EACCES)
+
         fc = self._cache.get(parent_inode)
         if fc and sname in fc.entries:
             del fc.entries[sname]
@@ -899,6 +981,22 @@ class LASFuseServer(pyfuse3.Operations):
     async def rename(self, old_parent, old_name, new_parent, new_name, flags, ctx):
         old_sname = _nfc(old_name.decode("utf-8", errors="surrogateescape"))
         new_sname = _nfc(new_name.decode("utf-8", errors="surrogateescape"))
+
+        # Write permission check on source and target parent folders
+        if ctx is not None:
+            old_key = _inode_key(old_parent)
+            old_folder_id = old_key[1] if old_key and old_key[0] == "folder" else None
+            can_write_src = await trio.to_thread.run_sync(
+                lambda: _can_write_folder_sync(old_folder_id, ctx.uid))
+            if not can_write_src:
+                raise pyfuse3.FUSEError(errno.EACCES)
+            if new_parent != old_parent:
+                new_key = _inode_key(new_parent)
+                new_folder_id = new_key[1] if new_key and new_key[0] == "folder" else None
+                can_write_dst = await trio.to_thread.run_sync(
+                    lambda: _can_write_folder_sync(new_folder_id, ctx.uid))
+                if not can_write_dst:
+                    raise pyfuse3.FUSEError(errno.EACCES)
 
         # Source is pending (staging)?
         pf = self._pending.get(old_parent, {}).get(old_sname)
@@ -963,6 +1061,13 @@ class LASFuseServer(pyfuse3.Operations):
         parent_key = _inode_key(parent_inode)
         parent_folder_id = parent_key[1] if parent_key and parent_key[0] == "folder" else None
 
+        # Write permission check on parent folder
+        if ctx is not None:
+            can_write = await trio.to_thread.run_sync(
+                lambda: _can_write_folder_sync(parent_folder_id, ctx.uid))
+            if not can_write:
+                raise pyfuse3.FUSEError(errno.EACCES)
+
         def _do_mkdir():
             with _get_session() as db:
                 user = db.execute(select(User).where(User.unix_uid == (ctx.uid if ctx else 0))).scalar_one_or_none()
@@ -1007,6 +1112,15 @@ class LASFuseServer(pyfuse3.Operations):
         folder_id = entry.folder_db_id
         if not folder_id:
             raise pyfuse3.FUSEError(errno.EPERM)
+
+        # Write permission check on parent folder
+        if ctx is not None:
+            parent_key = _inode_key(parent_inode)
+            parent_folder_id = parent_key[1] if parent_key and parent_key[0] == "folder" else None
+            can_write = await trio.to_thread.run_sync(
+                lambda: _can_write_folder_sync(parent_folder_id, ctx.uid))
+            if not can_write:
+                raise pyfuse3.FUSEError(errno.EACCES)
 
         def _do_rmdir():
             with _get_session() as db:
