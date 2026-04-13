@@ -1,5 +1,5 @@
 """
-LAS FUSE Server — Read-only virtual filesystem backed by the LAS database.
+LAS FUSE Server — Virtual filesystem backed by the LAS database.
 
 Maps LAS Folder/Document hierarchy to a POSIX filesystem that Samba can serve.
 Actual file I/O is redirected to the existing UUID-based storage.
@@ -111,7 +111,7 @@ def _final_storage_path(filename: str) -> str:
     """Permanent UUID-based storage path."""
     file_id = _uuid.uuid4()
     suffix = Path(filename).suffix
-    max_name = 255 - 37 - len(suffix.encode("utf-8"))
+    max_name = max(1, 255 - 37 - len(suffix.encode("utf-8")))
     base = Path(filename).stem
     truncated = base.encode("utf-8")[:max_name].decode("utf-8", errors="ignore")
     stored = f"{file_id}_{truncated}{suffix}"
@@ -1074,7 +1074,7 @@ class LASFuseServer(pyfuse3.Operations):
                 try:
                     if isinstance(item, tuple) and item[0] == "reindex":
                         _, doc_id, spath = item
-                        await trio.to_thread.run_sync(lambda: self._reindex_sync(doc_id, spath))
+                        await trio.to_thread.run_sync(lambda did=doc_id, sp=spath: self._reindex_sync(did, sp))
                     elif isinstance(item, PendingFile):
                         await trio.to_thread.run_sync(lambda pf=item: self._commit_pending_sync(pf))
                 except Exception:
