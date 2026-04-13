@@ -1634,7 +1634,7 @@ export function FileExplorerPage() {
 
         {showTrash && !isSearching ? (
           /* Trash view */
-          <div>
+          <div className="flex-1 min-h-0 overflow-auto">
             {trashItems.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">ゴミ箱は空です</p>
             ) : (
