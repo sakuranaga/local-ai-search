@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { t } from "@/i18n";
 import {
   Pencil,
   Download,
@@ -77,16 +78,16 @@ export function DocumentContextMenu({
         style={{ left: pos.left, top: pos.top }}
       >
         {isMulti && (
-          <div className="px-2 py-1 text-xs text-muted-foreground font-medium">{count}件選択中</div>
+          <div className="px-2 py-1 text-xs text-muted-foreground font-medium">{t("fileExplorer:contextMenu.selected", { count })}</div>
         )}
         {!isMulti && (
           <button className={btn} onClick={() => onAction("rename")}>
-            <Pencil className="h-4 w-4" />名前変更
+            <Pencil className="h-4 w-4" />{t("fileExplorer:contextMenu.rename")}
           </button>
         )}
         {!(menu.item.download_prohibited) && (
           <button className={btn} onClick={() => onAction("download")}>
-            <Download className="h-4 w-4" />ダウンロード{isMulti ? ` (${count}件)` : ""}
+            <Download className="h-4 w-4" />{isMulti ? t("fileExplorer:contextMenu.downloadMulti", { count }) : t("fileExplorer:contextMenu.download")}
           </button>
         )}
         <div className={sep} />
@@ -96,66 +97,66 @@ export function DocumentContextMenu({
           setNewSubPos(rect.right + 170 > window.innerWidth ? "left" : "right");
         }} onMouseLeave={() => setShowNewSub(false)}>
           <button className={`${btn} justify-between`} onClick={() => setShowNewSub((v) => !v)}>
-            <span className="flex items-center gap-2"><Plus className="h-4 w-4" />新規作成</span>
+            <span className="flex items-center gap-2"><Plus className="h-4 w-4" />{t("fileExplorer:contextMenu.newCreate")}</span>
             <ChevronRight className="h-3 w-3 text-muted-foreground" />
           </button>
           {showNewSub && (
             <div className={`absolute top-0 ${newSubPos === "right" ? "left-full" : "right-full"} ml-1 min-w-[170px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 z-50`}>
               <button className={btn} onClick={() => onAction("new_folder")}>
-                <FolderPlus className="h-4 w-4" />フォルダ作成
+                <FolderPlus className="h-4 w-4" />{t("fileExplorer:contextMenu.newFolder")}
               </button>
               <button className={btn} onClick={() => onAction("new_text")}>
-                <FilePlus className="h-4 w-4" />テキスト新規作成
+                <FilePlus className="h-4 w-4" />{t("fileExplorer:contextMenu.newText")}
               </button>
               <button className={btn} onClick={() => onAction("new_upload")}>
-                <Upload className="h-4 w-4" />アップロード
+                <Upload className="h-4 w-4" />{t("fileExplorer:contextMenu.newUpload")}
               </button>
             </div>
           )}
         </div>
         {!isMulti && shareEnabled && !menu.item.share_prohibited && (
           <button className={btn} onClick={() => onAction("share")}>
-            <Link className="h-4 w-4" />共有リンク作成
+            <Link className="h-4 w-4" />{t("fileExplorer:contextMenu.shareLink")}
           </button>
         )}
         <div className={sep} />
         <button className={btn} onClick={() => onAction("move_folder")}>
-          <FolderInput className="h-4 w-4" />フォルダ移動
+          <FolderInput className="h-4 w-4" />{t("fileExplorer:contextMenu.moveFolder")}
         </button>
         <button className={btn} onClick={() => onAction("permissions")}>
-          <Shield className="h-4 w-4" />権限設定
+          <Shield className="h-4 w-4" />{t("fileExplorer:contextMenu.permissions")}
         </button>
         <button className={btn} onClick={() => onAction("add_tags")}>
-          <TagIcon className="h-4 w-4" />タグ編集
+          <TagIcon className="h-4 w-4" />{t("fileExplorer:contextMenu.editTags")}
         </button>
         <button className={btn} onClick={() => onAction("reindex")}>
-          <RefreshCw className="h-4 w-4" />ベクトル再構築
+          <RefreshCw className="h-4 w-4" />{t("fileExplorer:contextMenu.reindex")}
         </button>
         <div className={sep} />
         <button className={btn} onClick={() => onAction("toggle_searchable")}>
-          <SearchIcon className="h-4 w-4" />検索 {menu.item.searchable ? "OFF" : "ON"}
+          <SearchIcon className="h-4 w-4" />{menu.item.searchable ? t("fileExplorer:contextMenu.searchOff") : t("fileExplorer:contextMenu.searchOn")}
         </button>
         <button className={btn} onClick={() => onAction("toggle_ai")}>
-          <Bot className="h-4 w-4" />AI {menu.item.ai_knowledge ? "OFF" : "ON"}
+          <Bot className="h-4 w-4" />{menu.item.ai_knowledge ? t("fileExplorer:contextMenu.aiOff") : t("fileExplorer:contextMenu.aiOn")}
         </button>
         {!isMulti && (
           <button className={btn} onClick={() => onAction("toggle_favorite")}>
-            <Star className={`h-4 w-4 ${isFavorited ? "fill-current" : ""}`} />{isFavorited ? "お気に入り解除" : "お気に入り追加"}
+            <Star className={`h-4 w-4 ${isFavorited ? "fill-current" : ""}`} />{isFavorited ? t("fileExplorer:contextMenu.removeFavorite") : t("fileExplorer:contextMenu.addFavorite")}
           </button>
         )}
         {!isMulti && menu.item.is_note && (
           <button className={btn} onClick={() => onAction("remove_note")}>
-            <FolderOutput className="h-4 w-4" />ノート解除
+            <FolderOutput className="h-4 w-4" />{t("fileExplorer:contextMenu.removeNote")}
           </button>
         )}
         {!isMulti && !menu.item.is_note && menu.item.file_type === "md" && (
           <button className={btn} onClick={() => onAction("convert_to_note")}>
-            <FileText className="h-4 w-4" />ノートに追加
+            <FileText className="h-4 w-4" />{t("fileExplorer:contextMenu.addNote")}
           </button>
         )}
         <div className={sep} />
         <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10" onClick={() => onAction("delete")}>
-          <Trash2 className="h-4 w-4" />ゴミ箱に移動{isMulti ? ` (${count}件)` : ""}
+          <Trash2 className="h-4 w-4" />{isMulti ? t("fileExplorer:contextMenu.moveToTrashMulti", { count }) : t("fileExplorer:contextMenu.moveToTrash")}
         </button>
       </div>
     </>

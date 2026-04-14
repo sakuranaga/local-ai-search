@@ -1,0 +1,16 @@
+{
+  "connecting": "接続中...",
+  "connectionFailed": "同期サーバーに接続できません（読み取り専用）",
+  "reconnect": "再接続",
+  "untitledNote": "無題のノート",
+  "save": "保存",
+  "saved": "保存済み",
+  "editText": "テキストを編集...",
+  "collaboraUnavailable": "Collabora Online が利用できません",
+  "collaboraConnectionFailed": "Collabora Online に接続できません",
+  "noDocumentId": "ドキュメントIDが指定されていません",
+  "unknownDocument": "不明なドキュメント",
+  "searching": "検索中...",
+  "notFound": "見つかりません",
+  "updatedAt": "更新:"
+}

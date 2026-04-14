@@ -1,5 +1,6 @@
 import * as tus from "tus-js-client";
 import { toast } from "sonner";
+import { t } from "@/i18n";
 import { getProcessingStatus, getToken, type Folder } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
@@ -222,7 +223,7 @@ export function uploadWithProgress(
 ): () => void {
   // Dismiss interrupted upload toast if present
   toast.dismiss(`interrupted-${file.name}`);
-  const toastId = toast.loading(`${file.name}: アップロード準備中...`);
+  const toastId = toast.loading(t("fileExplorer:uploadToast.preparing", { name: file.name }));
   const token = getToken() || "";
   let aborted = false;
   let activeUpload: tus.Upload | null = null;
@@ -235,11 +236,11 @@ export function uploadWithProgress(
     if (activeUpload) {
       activeUpload.abort(true).catch(() => {});
     }
-    toast.info(`${file.name}: アップロードを中止しました`, { id: toastId });
+    toast.info(t("fileExplorer:uploadToast.cancelled", { name: file.name }), { id: toastId });
   };
 
   const cancelAction = {
-    label: "中止",
+    label: t("fileExplorer:uploadToast.cancelButton"),
     onClick: cancel,
   };
 
@@ -256,12 +257,12 @@ export function uploadWithProgress(
     onProgress: (loaded, total) => {
       if (aborted) return;
       const pct = Math.round((loaded / total) * 100);
-      toast.loading(`${file.name}: アップロード中... ${pct}%`, { id: toastId, action: cancelAction });
+      toast.loading(t("fileExplorer:uploadToast.uploading", { name: file.name, pct }), { id: toastId, action: cancelAction });
     },
     onSuccess: () => {
       if (aborted) return;
       trackUploadEnd(file.name);
-      toast.loading(`${file.name}: 処理中...`, { id: toastId, action: undefined });
+      toast.loading(t("fileExplorer:uploadToast.processing", { name: file.name }), { id: toastId, action: undefined });
       onUploaded();
       _pollProcessingByTitle(file.name, toastId, onUploaded);
     },
@@ -273,14 +274,14 @@ export function uploadWithProgress(
         const freshUpload = new tus.Upload(file, { ...upload.options });
         activeUpload = freshUpload;
         freshUpload.start();
-        toast.loading(`${file.name}: 再アップロード中...`, { id: toastId, action: cancelAction });
+        toast.loading(t("fileExplorer:uploadToast.resuming", { name: file.name }), { id: toastId, action: cancelAction });
         return;
       }
       trackUploadEnd(file.name);
       const msg = error.message?.includes("403") || error.message?.includes("permission")
-        ? "権限がありません"
+        ? t("common:noPermission")
         : error.message;
-      toast.error(`${file.name}: アップロード失敗 - ${msg}`, { id: toastId });
+      toast.error(t("fileExplorer:uploadToast.uploadFailed", { name: file.name, msg }), { id: toastId });
     },
     removeFingerprintOnSuccess: true,
   });
@@ -291,7 +292,7 @@ export function uploadWithProgress(
   upload.findPreviousUploads().then((prev) => {
     if (aborted) return;
     if (prev.length > 0) {
-      toast.loading(`${file.name}: アップロード再開中...`, { id: toastId, action: cancelAction });
+      toast.loading(t("fileExplorer:uploadToast.resumingTus", { name: file.name }), { id: toastId, action: cancelAction });
       upload.resumeFromPreviousUpload(prev[0]);
     }
     upload.start();
@@ -323,20 +324,20 @@ async function _pollProcessingByTitle(
           try {
             const s = await getProcessingStatus(docId);
             if (s === "done") {
-              toast.success(`${filename}: 処理完了`, { id: toastId, action: undefined });
+              toast.success(t("fileExplorer:uploadToast.processingDone", { name: filename }), { id: toastId, action: undefined });
               onUploaded();
               return;
             }
             if (s === "error") {
-              toast.error(`${filename}: 処理エラー`, { id: toastId, action: undefined });
+              toast.error(t("fileExplorer:uploadToast.processingError", { name: filename }), { id: toastId, action: undefined });
               return;
             }
-            toast.loading(`${filename}: ${STATUS_LABELS[s] ?? s}`, { id: toastId, action: undefined });
+            toast.loading(t("fileExplorer:uploadToast.processingStatus", { name: filename, status: t(`fileExplorer:status.${s}`) || s }), { id: toastId, action: undefined });
           } catch {
             // ignore poll errors
           }
         }
-        toast.error(`${filename}: タイムアウト`, { id: toastId, action: undefined });
+        toast.error(t("fileExplorer:uploadToast.timeout", { name: filename }), { id: toastId, action: undefined });
         return;
       }
     } catch {
@@ -345,7 +346,7 @@ async function _pollProcessingByTitle(
     await new Promise((r) => setTimeout(r, 1000));
   }
   // Couldn't find the document — show success anyway (upload itself succeeded)
-  toast.success(`${filename}: アップロード完了`, { id: toastId, action: undefined });
+  toast.success(t("fileExplorer:uploadToast.uploadDone", { name: filename }), { id: toastId, action: undefined });
   onUploaded();
 }
 

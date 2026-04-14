@@ -75,7 +75,8 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     if (res.status === 403) {
-      throw new Error("権限がありません");
+      const { t } = await import("@/i18n");
+      throw new Error(t("common:noPermission"));
     }
     const body = await res.text();
     throw new Error(`API ${res.status}: ${body}`);

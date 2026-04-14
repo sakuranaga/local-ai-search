@@ -53,6 +53,7 @@ class UserResponse(BaseModel):
     display_name: str
     avatar_url: str | None
     is_active: bool
+    locale: str | None = None
     roles: list[str]
     created_at: datetime
 
@@ -136,6 +137,7 @@ async def me(current_user: User = Depends(get_current_user)):
         display_name=current_user.display_name or "",
         avatar_url=current_user.avatar_url,
         is_active=current_user.is_active,
+        locale=current_user.locale,
         roles=role_names,
         created_at=current_user.created_at,
     )
@@ -150,6 +152,7 @@ class ProfileUpdateRequest(BaseModel):
     display_name: str | None = None
     avatar_url: str | None = None
     email: str | None = None
+    locale: str | None = None
 
 
 @router.put("/me", response_model=UserResponse)
@@ -169,6 +172,9 @@ async def update_profile(
     if body.avatar_url is not None:
         current_user.avatar_url = body.avatar_url if body.avatar_url else None
         changes.append("avatar_url")
+    if body.locale is not None:
+        current_user.locale = body.locale if body.locale else None
+        changes.append("locale")
     if body.email is not None:
         email = body.email.strip()
         if not email:
@@ -200,6 +206,7 @@ async def update_profile(
         display_name=current_user.display_name or "",
         avatar_url=current_user.avatar_url,
         is_active=current_user.is_active,
+        locale=current_user.locale,
         roles=role_names,
         created_at=current_user.created_at,
     )
@@ -283,6 +290,7 @@ async def upload_avatar(
         display_name=current_user.display_name or "",
         avatar_url=current_user.avatar_url,
         is_active=current_user.is_active,
+        locale=current_user.locale,
         roles=role_names,
         created_at=current_user.created_at,
     )
@@ -309,6 +317,7 @@ async def delete_avatar(
         display_name=current_user.display_name or "",
         avatar_url=current_user.avatar_url,
         is_active=current_user.is_active,
+        locale=current_user.locale,
         roles=role_names,
         created_at=current_user.created_at,
     )

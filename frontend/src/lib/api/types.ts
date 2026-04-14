@@ -11,6 +11,7 @@ export interface User {
   display_name: string;
   avatar_url: string | null;
   is_active: boolean;
+  locale: string | null;
   can_share: boolean;
   can_download: boolean;
   roles: string[];

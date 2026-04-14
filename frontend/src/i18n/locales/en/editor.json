@@ -1,0 +1,16 @@
+{
+  "connecting": "Connecting...",
+  "connectionFailed": "Cannot connect to sync server (read-only)",
+  "reconnect": "Reconnect",
+  "untitledNote": "Untitled Note",
+  "save": "Save",
+  "saved": "Saved",
+  "editText": "Edit text...",
+  "collaboraUnavailable": "Collabora Online is not available",
+  "collaboraConnectionFailed": "Cannot connect to Collabora Online",
+  "noDocumentId": "No document ID specified",
+  "unknownDocument": "Unknown document",
+  "searching": "Searching...",
+  "notFound": "Not found",
+  "updatedAt": "Updated:"
+}

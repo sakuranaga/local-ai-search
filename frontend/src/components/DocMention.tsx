@@ -19,6 +19,7 @@ import { createReactInlineContentSpec } from "@blocknote/react";
 import { FileText, BookOpenText, AlertTriangle } from "lucide-react";
 import { getDocuments, resolveTitles } from "@/lib/api";
 import type { DocumentListItem } from "@/lib/api/types";
+import { t } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // 1. Custom inline content spec: "docMention"
@@ -46,7 +47,7 @@ export const DocMention = createReactInlineContentSpec(
           if (cancelled) return;
           const info = map[documentId];
           if (info) setResolved(info);
-          else setResolved({ title: "不明なドキュメント", is_note: false, deleted: true });
+          else setResolved({ title: t("editor:unknownDocument"), is_note: false, deleted: true });
         }).catch(() => {});
         return () => { cancelled = true; };
       }, [documentId, displayText]);
@@ -249,7 +250,7 @@ export function DocMentionMenu({ editor }: { editor: EditorType }) {
       style={{ top: state.top, left: state.left }}
     >
       {loading && items.length === 0 && (
-        <div className="px-3 py-2 text-sm text-muted-foreground">検索中...</div>
+        <div className="px-3 py-2 text-sm text-muted-foreground">{t("editor:searching")}</div>
       )}
       {items.map((doc, idx) => (
         <div
@@ -269,7 +270,7 @@ export function DocMentionMenu({ editor }: { editor: EditorType }) {
         </div>
       ))}
       {items.length === 0 && !loading && (
-        <div className="px-3 py-2 text-sm text-muted-foreground">見つかりません</div>
+        <div className="px-3 py-2 text-sm text-muted-foreground">{t("editor:notFound")}</div>
       )}
     </div>
   );

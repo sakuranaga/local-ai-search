@@ -25,7 +25,7 @@ class SettingUpdate(BaseModel):
 
 
 # Public settings readable by any authenticated user
-PUBLIC_KEYS: set[str] = {"share_enabled"}
+PUBLIC_KEYS: set[str] = {"share_enabled", "system_language"}
 
 
 @router.get("/public/{key}")

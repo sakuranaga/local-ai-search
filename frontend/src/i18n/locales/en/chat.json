@@ -1,0 +1,22 @@
+{
+  "title": "AI Chat",
+  "close": "Close",
+  "searchPrompt": "Search to generate AI answers",
+  "modelNotSet": "(Model not configured)",
+  "sources": "Sources:",
+  "inputPlaceholder": "Type a question... (Enter to send, Shift+Enter for newline)",
+  "completed": "AI response complete",
+  "aiAnswer": "AI Answer",
+  "generating": "Generating answer",
+  "aiSummaryPrompt": "Search to generate AI summary",
+  "toolNames": {
+    "search": "Search",
+    "text_search": "Text Search",
+    "title_search": "Title Search",
+    "read_document": "Read Document",
+    "count_documents": "Count Documents",
+    "list_folders": "List Folders",
+    "list_documents": "List Documents"
+  },
+  "queryLabel": "\"{{query}}\""
+}

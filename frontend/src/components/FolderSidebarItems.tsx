@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import { t } from "@/i18n";
 import {
   ChevronDown,
   ChevronRightIcon,
@@ -54,21 +55,21 @@ export function SidebarTagItem({
             style={{ left: ctxMenu.x, top: ctxMenu.y }}
           >
             <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setCtxMenu(null); onEdit(tag); }}>
-              <Pencil className="h-4 w-4" />編集
+              <Pencil className="h-4 w-4" />{t("common:edit")}
             </button>
             <div className="-mx-1 my-1 h-px bg-border" />
             <button
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
               onClick={async () => {
                 setCtxMenu(null);
-                if (!confirm(`タグ「${tag.name}」を削除しますか？`)) return;
+                if (!confirm(t("fileExplorer:tagDeleteConfirm", { name: tag.name }))) return;
                 try {
                   await deleteTag(tag.id);
                   onDeleted();
-                } catch { toast.error("タグ削除失敗"); }
+                } catch { toast.error(t("fileExplorer:tagDeleteFailed")); }
               }}
             >
-              <Trash2 className="h-4 w-4" />削除
+              <Trash2 className="h-4 w-4" />{t("common:delete")}
             </button>
           </div>
         </>
@@ -165,7 +166,7 @@ export function TrashDropTarget({
         dragOver ? "bg-destructive/20 ring-2 ring-destructive/40" : isActive ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted text-muted-foreground"
       }`}
     >
-      <Trash2 className="h-3.5 w-3.5" />ゴミ箱
+      <Trash2 className="h-3.5 w-3.5" />{t("fileExplorer:trash")}
       {count > 0 && <span className="ml-auto text-xs text-muted-foreground">{count}</span>}
     </button>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
+import { t } from "@/i18n";
 
 declare global {
   interface Window {
@@ -68,7 +69,7 @@ interface DatePickerInputProps {
 export function DatePickerInput({
   value,
   onChange,
-  placeholder = "年/月/日",
+  placeholder = t("common:datePlaceholder"),
   title,
   className = "",
 }: DatePickerInputProps) {

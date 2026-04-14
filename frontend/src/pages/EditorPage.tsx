@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { getToken } from "@/lib/api";
+import { t } from "@/i18n";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
@@ -29,7 +30,7 @@ export function EditorPage() {
           }
         }
         if (!editUrl) {
-          setError("Collabora Online が利用できません");
+          setError(t("editor:collaboraUnavailable"));
           return;
         }
         // Build the full URL — WOPISrc must use Docker-internal URL
@@ -43,12 +44,12 @@ export function EditorPage() {
         const url = baseUrl.toString() + `?WOPISrc=${encodeURIComponent(wopiSrc)}&access_token=${encodeURIComponent(token)}&lang=ja&ui_defaults=${encodeURIComponent("UIMode=compact")}`;
         setDiscoveryUrl(url);
       })
-      .catch(() => setError("Collabora Online に接続できません"));
+      .catch(() => setError(t("editor:collaboraConnectionFailed")));
   }, [docId]);
 
-  if (!docId) return <div className="p-8">ドキュメントIDが指定されていません</div>;
+  if (!docId) return <div className="p-8">{t("editor:noDocumentId")}</div>;
   if (error) return <div className="p-8 text-red-500">{error}</div>;
-  if (!discoveryUrl) return <div className="p-8">読み込み中...</div>;
+  if (!discoveryUrl) return <div className="p-8">{t("common:loading")}</div>;
 
   return (
     <iframe

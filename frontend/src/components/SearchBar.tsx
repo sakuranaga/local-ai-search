@@ -1,6 +1,7 @@
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { type FormEvent, useState } from "react";
+import { t } from "@/i18n";
 
 interface SearchBarProps {
   initialQuery?: string;
@@ -22,7 +23,7 @@ export function SearchBar({ initialQuery = "", onSearch, isLoading }: SearchBarP
       <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
       <Input
         type="text"
-        placeholder="文書を検索..."
+        placeholder={t("common:searchDocuments")}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         disabled={isLoading}

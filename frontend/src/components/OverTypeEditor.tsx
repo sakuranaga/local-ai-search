@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import OverType from "overtype";
+import { t } from "@/i18n";
 
 export function OverTypeEditor({
   value,
@@ -26,7 +27,7 @@ export function OverTypeEditor({
       value,
       toolbar: !readOnly,
       statsBar: false,
-      placeholder: readOnly ? "" : "テキストを編集...",
+      placeholder: readOnly ? "" : t("editor:editText"),
       fontSize: isMobile ? "16px" : "14px",
     } as any);
 

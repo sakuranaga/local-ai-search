@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n";
 import "@videojs/react/video/skin.css";
 import { createPlayer, videoFeatures } from "@videojs/react";
 import { VideoSkin, Video } from "@videojs/react/video";
@@ -80,7 +81,7 @@ export function DocumentPreview({ docId, fileType, content, mode }: DocumentPrev
   if (mode === "raw") {
     return (
       <pre className="whitespace-pre-wrap text-sm font-mono p-4 bg-muted rounded-md overflow-auto">
-        {content || "(テキストなし)"}
+        {content || t("documents:noText")}
       </pre>
     );
   }
@@ -168,11 +169,11 @@ export function DocumentPreview({ docId, fileType, content, mode }: DocumentPrev
   return (
     <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
       <FileIcon className="h-16 w-16" />
-      <p className="text-sm">このファイルのプレビューは利用できません</p>
-      <p className="text-xs">{ft.toUpperCase()} ファイル</p>
+      <p className="text-sm">{t("documents:previewUnavailable")}</p>
+      <p className="text-xs">{t("documents:fileType", { type: ft.toUpperCase() })}</p>
       <a href={downloadUrl(docId)} download>
         <Button variant="outline">
-          <Download className="h-4 w-4 mr-2" />ダウンロード
+          <Download className="h-4 w-4 mr-2" />{t("documents:download")}
         </Button>
       </a>
     </div>

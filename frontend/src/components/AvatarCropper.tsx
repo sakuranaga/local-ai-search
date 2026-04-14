@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ZoomIn, ZoomOut } from "lucide-react";
+import { t } from "@/i18n";
 
 interface AvatarCropperProps {
   file: File;
@@ -164,7 +165,7 @@ export function AvatarCropper({ file, onCropped, onCancel, size = 256 }: AvatarC
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <p className="text-sm text-muted-foreground">ドラッグで位置調整、スクロールでズーム</p>
+      <p className="text-sm text-muted-foreground">{t("common:dragToAdjust")}</p>
       <div
         className="relative rounded-full overflow-hidden bg-muted"
         style={{ width: VIEWPORT, height: VIEWPORT, cursor: dragging ? "grabbing" : "grab", touchAction: "none" }}
@@ -214,10 +215,10 @@ export function AvatarCropper({ file, onCropped, onCancel, size = 256 }: AvatarC
       </div>
       <div className="flex gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
-          キャンセル
+          {t("common:cancel")}
         </Button>
         <Button type="button" onClick={handleCrop}>
-          決定
+          {t("common:cropConfirm")}
         </Button>
       </div>
     </div>

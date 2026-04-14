@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import { t } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -48,7 +49,7 @@ export function ShareLinkDialog({
       });
       setCreated(link);
     } catch (e: any) {
-      toast.error(e.message || "共有リンクの作成に失敗しました");
+      toast.error(e.message || t("fileExplorer:shareLink.createFailed"));
     } finally {
       setSaving(false);
     }
@@ -58,7 +59,7 @@ export function ShareLinkDialog({
     if (created) {
       navigator.clipboard.writeText(created.url);
       setCopied(true);
-      toast.success("URLをコピーしました");
+      toast.success(t("fileExplorer:shareLink.copied"));
       setTimeout(() => setCopied(false), 2000);
     }
   }
@@ -69,7 +70,7 @@ export function ShareLinkDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Link className="h-4 w-4" />
-            {created ? "共有リンクを作成しました" : "共有リンクを作成"}
+            {created ? t("fileExplorer:shareLink.created") : t("fileExplorer:shareLink.title")}
           </DialogTitle>
         </DialogHeader>
 
@@ -83,11 +84,11 @@ export function ShareLinkDialog({
               </Button>
             </div>
             <div className="text-xs text-muted-foreground space-y-1">
-              <p>有効期限: {new Date(created.expires_at).toLocaleDateString("ja-JP")}</p>
-              {created.has_password && <p>パスワード: あり</p>}
+              <p>{t("fileExplorer:shareLink.expiry")} {new Date(created.expires_at).toLocaleDateString("ja-JP")}</p>
+              {created.has_password && <p>{t("fileExplorer:shareLink.hasPassword")}</p>}
             </div>
             <DialogFooter>
-              <Button onClick={() => { reset(); onClose(); }}>閉じる</Button>
+              <Button onClick={() => { reset(); onClose(); }}>{t("common:close")}</Button>
             </DialogFooter>
           </div>
         ) : (
@@ -95,30 +96,30 @@ export function ShareLinkDialog({
             <p className="text-sm text-muted-foreground">{documentTitle}</p>
 
             <div>
-              <label className="text-sm font-medium">有効期限</label>
+              <label className="text-sm font-medium">{t("fileExplorer:shareLink.expiryLabel")}</label>
               <select
                 value={expiresIn}
                 onChange={(e) => setExpiresIn(e.target.value)}
                 className="w-full h-9 rounded-md border bg-background px-3 text-sm mt-1"
               >
-                <option value="1h">1時間</option>
-                <option value="1d">1日</option>
-                <option value="7d">7日間</option>
-                <option value="30d">30日間</option>
+                <option value="1h">{t("fileExplorer:shareLink.hour1")}</option>
+                <option value="1d">{t("fileExplorer:shareLink.day1")}</option>
+                <option value="7d">{t("fileExplorer:shareLink.days7")}</option>
+                <option value="30d">{t("fileExplorer:shareLink.days30")}</option>
               </select>
             </div>
 
             <div>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={usePassword} onChange={(e) => setUsePassword(e.target.checked)} />
-                パスワード保護
+                {t("fileExplorer:shareLink.passwordProtection")}
               </label>
               {usePassword && (
                 <Input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="パスワードを入力"
+                  placeholder={t("fileExplorer:shareLink.passwordPlaceholder")}
                   className="mt-2"
                 />
               )}
@@ -126,7 +127,7 @@ export function ShareLinkDialog({
 
             <DialogFooter showCloseButton>
               <Button onClick={handleCreate} disabled={saving}>
-                {saving ? "作成中..." : "リンクを作成"}
+                {saving ? t("common:creating") : t("fileExplorer:shareLink.createButton")}
               </Button>
             </DialogFooter>
           </div>

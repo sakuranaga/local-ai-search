@@ -20,6 +20,7 @@ import {
   type ChatStatus,
   type ToolStep,
 } from "@/lib/api";
+import { t } from "@/i18n";
 
 interface ToolStepDisplay {
   round: number;
@@ -40,18 +41,32 @@ interface DisplayMessage {
 // clearChatCache kept for backward compat (no-op now, DB handles persistence)
 export function clearChatCache() {}
 
-const TOOL_LABELS: Record<string, { label: string; icon: typeof Search }> = {
-  search: { label: "検索", icon: Search },
-  grep: { label: "テキスト検索", icon: TextSearch },
-  search_by_title: { label: "タイトル検索", icon: FileText },
-  read_document: { label: "文書読込", icon: FileText },
-  count_results: { label: "件数確認", icon: Hash },
-  list_folders: { label: "フォルダ一覧", icon: FolderOpen },
-  list_documents: { label: "文書一覧", icon: List },
+const TOOL_ICONS: Record<string, typeof Search> = {
+  search: Search,
+  grep: TextSearch,
+  search_by_title: FileText,
+  read_document: FileText,
+  count_results: Hash,
+  list_folders: FolderOpen,
+  list_documents: List,
 };
 
+function getToolLabel(name: string): { label: string; icon: typeof Search } {
+  const icon = TOOL_ICONS[name] || Search;
+  const labels: Record<string, string> = {
+    search: t("chat:toolNames.search"),
+    grep: t("chat:toolNames.text_search"),
+    search_by_title: t("chat:toolNames.title_search"),
+    read_document: t("chat:toolNames.read_document"),
+    count_results: t("chat:toolNames.count_documents"),
+    list_folders: t("chat:toolNames.list_folders"),
+    list_documents: t("chat:toolNames.list_documents"),
+  };
+  return { label: labels[name] || name, icon };
+}
+
 function ToolStepLine({ step, isActive }: { step: ToolStepDisplay; isActive: boolean }) {
-  const info = TOOL_LABELS[step.name] || { label: step.name, icon: Search };
+  const info = getToolLabel(step.name);
   const Icon = info.icon;
 
   return (
@@ -206,7 +221,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
             (document.hidden || collapsedRef.current)
           ) {
             const preview = accumulated.slice(0, 100) + (accumulated.length > 100 ? "…" : "");
-            const n = new Notification("AI回答が完了しました", { body: preview, tag: "ai-chat" });
+            const n = new Notification(t("chat:completed"), { body: preview, tag: "ai-chat" });
             n.onclick = () => { window.focus(); n.close(); };
           }
         },
@@ -344,21 +359,21 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
           <div className="flex items-center justify-between px-4 py-1.5 border-b shrink-0">
             <button onClick={onCollapse} className="flex items-center gap-2 text-sm font-medium hover:text-muted-foreground transition-colors">
               <Sparkles className={`h-4 w-4 text-primary ${isStreaming ? "animate-ai-glow" : ""}`} />
-              AI チャット
+              {t("chat:title")}
             </button>
-            <Button variant="ghost" size="sm" onClick={onCollapse} className="h-7 px-2" title="閉じる">
+            <Button variant="ghost" size="sm" onClick={onCollapse} className="h-7 px-2" title={t("chat:close")}>
               <ChevronRight className="h-3.5 w-3.5" />
             </Button>
           </div>
         )}
         <CardContent className="flex flex-col items-center justify-center flex-1 min-h-48 text-muted-foreground gap-2">
           <Sparkles className="h-8 w-8" />
-          <p className="text-sm">検索するとAIが回答を生成します</p>
+          <p className="text-sm">{t("chat:searchPrompt")}</p>
           {chatStatus && (
             chatStatus.available ? (
               <p className="text-xs">({chatStatus.model})</p>
             ) : (
-              <p className="text-xs text-red-500">（モデル未設定）</p>
+              <p className="text-xs text-red-500">{t("chat:modelNotSet")}</p>
             )
           )}
         </CardContent>
@@ -372,12 +387,12 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
       <div className="flex items-center justify-between px-4 py-1.5 border-b shrink-0">
         <button onClick={onCollapse} className="flex items-center gap-2 text-sm font-medium hover:text-muted-foreground transition-colors">
           <Sparkles className={`h-4 w-4 text-primary ${isStreaming ? "animate-ai-glow" : ""}`} />
-          AI チャット
+          {t("chat:title")}
           {chatStatus && (
             chatStatus.available ? (
               <span className="text-xs font-normal text-muted-foreground">({chatStatus.model})</span>
             ) : (
-              <span className="text-xs font-normal text-red-500">（モデル未設定）</span>
+              <span className="text-xs font-normal text-red-500">{t("chat:modelNotSet")}</span>
             )
           )}
         </button>
@@ -388,7 +403,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
             </Button>
           )}
           {onCollapse && (
-            <Button variant="ghost" size="sm" onClick={onCollapse} className="h-7 px-2" title="閉じる">
+            <Button variant="ghost" size="sm" onClick={onCollapse} className="h-7 px-2" title={t("chat:close")}>
               <ChevronRight className="h-3.5 w-3.5" />
             </Button>
           )}
@@ -441,7 +456,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
                 )}
                 {msg.sources && msg.sources.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-border/50">
-                    <p className="text-xs text-muted-foreground mb-1">参照元:</p>
+                    <p className="text-xs text-muted-foreground mb-1">{t("chat:sources")}</p>
                     <div className="flex flex-wrap gap-1">
                       {msg.sources.map((s, i) => (
                         <Badge
@@ -476,7 +491,7 @@ export function ChatPanel({ initialQuery, onSourceClick, onCollapse, onStreaming
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="質問を入力... (Enter で送信、Shift+Enter で改行)"
+            placeholder={t("chat:inputPlaceholder")}
             className="min-h-[40px] max-h-[120px] resize-none text-sm"
             rows={1}
           />

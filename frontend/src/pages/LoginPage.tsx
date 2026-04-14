@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { login } from "@/lib/api";
+import { t } from "@/i18n";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -20,7 +21,7 @@ export function LoginPage() {
       await login(username, password);
       navigate("/", { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ログインに失敗しました");
+      setError(err instanceof Error ? err.message : t("auth:loginFailed"));
     } finally {
       setLoading(false);
     }
@@ -41,7 +42,7 @@ export function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <label htmlFor="username" className="text-sm font-medium">
-                ユーザー名
+                {t("auth:username")}
               </label>
               <Input
                 id="username"
@@ -55,7 +56,7 @@ export function LoginPage() {
             </div>
             <div className="space-y-2">
               <label htmlFor="password" className="text-sm font-medium">
-                パスワード
+                {t("auth:password")}
               </label>
               <Input
                 id="password"
@@ -71,7 +72,7 @@ export function LoginPage() {
               <p className="text-sm text-destructive">{error}</p>
             )}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "ログイン中..." : "ログイン"}
+              {loading ? t("auth:loggingIn") : t("auth:login")}
             </Button>
           </form>
         </CardContent>

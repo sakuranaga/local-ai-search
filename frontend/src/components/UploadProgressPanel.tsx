@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { X, Minimize2, Maximize2, AlertCircle, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/fileExplorerHelpers";
+import { t } from "@/i18n";
 import type { QueueState, QueueItem } from "@/lib/uploadQueue";
 
 interface Props {
@@ -19,8 +20,8 @@ export function UploadProgressPanel({ state, onAbort, onClear }: Props) {
   useEffect(() => {
     const terminal = state.completedCount + state.errorCount + state.cancelledCount;
     if (terminal === state.items.length && state.items.length > 0 && state.errorCount === 0) {
-      const t = setTimeout(onClear, 3000);
-      return () => clearTimeout(t);
+      const timer = setTimeout(onClear, 3000);
+      return () => clearTimeout(timer);
     }
   }, [state, onClear]);
 
@@ -52,7 +53,7 @@ export function UploadProgressPanel({ state, onAbort, onClear }: Props) {
       >
         <Maximize2 className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="text-sm font-medium">
-          {state.completedCount}/{state.items.length} 件
+          {t("fileExplorer:uploadProgress.progress", { completed: state.completedCount, total: state.items.length })}
         </span>
         <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
           <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
@@ -75,14 +76,14 @@ export function UploadProgressPanel({ state, onAbort, onClear }: Props) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-card rounded-lg border shadow-lg p-4 max-w-sm">
             <p className="text-sm font-medium mb-3">
-              アップロードを中止しますか？ 未完了のファイルは中断されます。
+              {t("fileExplorer:uploadProgress.cancelConfirm")}
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setConfirmAbort(false)}>
-                キャンセル
+                {t("common:cancel")}
               </Button>
               <Button variant="destructive" size="sm" onClick={handleConfirmAbort}>
-                中止する
+                {t("fileExplorer:uploadProgress.abort")}
               </Button>
             </div>
           </div>
@@ -93,20 +94,20 @@ export function UploadProgressPanel({ state, onAbort, onClear }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30">
           <span className="text-sm font-medium">
-            アップロード {state.completedCount} / {state.items.length} 件完了
+            {t("fileExplorer:uploadProgress.title", { completed: state.completedCount, total: state.items.length })}
           </span>
           <div className="flex items-center gap-0.5">
             <button
               className="p-1 rounded hover:bg-muted"
               onClick={() => setMinimized(true)}
-              title="最小化"
+              title={t("fileExplorer:uploadProgress.minimize")}
             >
               <Minimize2 className="h-3.5 w-3.5" />
             </button>
             <button
               className="p-1 rounded hover:bg-muted"
               onClick={handleClose}
-              title="閉じる"
+              title={t("common:close")}
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -149,9 +150,9 @@ export function UploadProgressPanel({ state, onAbort, onClear }: Props) {
                 <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
               )}
               <span>
-                {state.completedCount} 件完了
-                {state.errorCount > 0 && `、${state.errorCount} 件エラー`}
-                {state.cancelledCount > 0 && `、${state.cancelledCount} 件中止`}
+                {t("fileExplorer:uploadProgress.completed", { completed: state.completedCount })}
+                {state.errorCount > 0 && t("fileExplorer:uploadProgress.errorSuffix", { count: state.errorCount })}
+                {state.cancelledCount > 0 && t("fileExplorer:uploadProgress.cancelledSuffix", { count: state.cancelledCount })}
               </span>
             </div>
           </div>
@@ -165,7 +166,7 @@ export function UploadProgressPanel({ state, onAbort, onClear }: Props) {
               onClick={() => setShowErrors(!showErrors)}
             >
               <AlertCircle className="h-3 w-3" />
-              エラー: {errors.length} 件 {showErrors ? "▲" : "▼"}
+              {t("fileExplorer:uploadProgress.errorCount", { count: errors.length })} {showErrors ? "▲" : "▼"}
             </button>
             {showErrors && (
               <div className="mt-1 space-y-1 max-h-24 overflow-y-auto">
@@ -187,7 +188,7 @@ export function UploadProgressPanel({ state, onAbort, onClear }: Props) {
         {state.isRunning && (
           <div className="border-t px-3 py-2 flex justify-end">
             <Button variant="outline" size="sm" onClick={() => setConfirmAbort(true)}>
-              一括中止
+              {t("fileExplorer:uploadProgress.cancelAll")}
             </Button>
           </div>
         )}
@@ -211,7 +212,7 @@ function ItemRow({ item }: { item: QueueItem }) {
       <span className="truncate flex-1 min-w-0">{item.filename}</span>
       <span className="text-muted-foreground shrink-0">
         {isUploading && `${item.progress}%`}
-        {isProcessing && (item.processingLabel || "処理中...")}
+        {isProcessing && (item.processingLabel || t("fileExplorer:processingLabel"))}
       </span>
     </div>
   );

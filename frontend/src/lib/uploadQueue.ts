@@ -1,7 +1,8 @@
 import * as tus from "tus-js-client";
+import { t } from "@/i18n";
 import { getToken } from "@/lib/api";
 import { getProcessingStatus, getDocuments } from "@/lib/api/documents";
-import { trackUploadStart, trackUploadEnd, STATUS_LABELS } from "./fileExplorerHelpers";
+import { trackUploadStart, trackUploadEnd } from "./fileExplorerHelpers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -261,8 +262,8 @@ export class UploadQueueManager {
         trackUploadEnd(item.filename);
         item.status = "error";
         item.error = error.message?.includes("403") || error.message?.includes("permission")
-          ? "権限がありません"
-          : error.message || "アップロード失敗";
+          ? t("common:noPermission")
+          : error.message || t("common:failed");
         item.file = null;
         this.activeUploads.delete(item.id);
         this._notify();
@@ -353,7 +354,7 @@ export class UploadQueueManager {
       // Timeout check
       if (item.processingStartedAt && Date.now() - item.processingStartedAt > PROCESSING_TIMEOUT) {
         item.status = "error";
-        item.error = "処理タイムアウト";
+        item.error = t("fileExplorer:processingTimeout");
         this.processingDocIds.delete(item.id);
         changed = true;
         continue;
@@ -365,7 +366,7 @@ export class UploadQueueManager {
       try {
         const s = await getProcessingStatus(docId);
         item.processingStatus = s;
-        item.processingLabel = STATUS_LABELS[s] ?? s;
+        item.processingLabel = t(`fileExplorer:status.${s}`) || s;
 
         if (s === "done") {
           item.status = "done";
@@ -373,7 +374,7 @@ export class UploadQueueManager {
           changed = true;
         } else if (s === "error") {
           item.status = "error";
-          item.error = "処理エラー";
+          item.error = t("fileExplorer:processingError");
           this.processingDocIds.delete(item.id);
           changed = true;
         }

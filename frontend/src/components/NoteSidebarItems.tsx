@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { t } from "@/i18n";
 import {
   BookOpenText,
   Plus,
@@ -264,15 +265,15 @@ export default function NoteSidebarItems({
     <div>
       <div className="flex items-center justify-between mb-1">
         <button onClick={onToggleCollapse} className="text-sm font-semibold text-muted-foreground hover:text-foreground">
-          ノート
+          {t("fileExplorer:notes")}
         </button>
         {collapsed ? (
-          <button onClick={onToggleCollapse} className="text-xs text-muted-foreground hover:text-foreground">展開</button>
+          <button onClick={onToggleCollapse} className="text-xs text-muted-foreground hover:text-foreground">{t("fileExplorer:expand")}</button>
         ) : onCreateNote && (
           <button
             onClick={() => onCreateNote(null)}
             className="p-0.5 hover:bg-muted rounded"
-            title="新規ノート"
+            title={t("fileExplorer:newNote")}
           >
             <Plus className="h-3.5 w-3.5 text-muted-foreground" />
           </button>
@@ -296,7 +297,7 @@ export default function NoteSidebarItems({
         ))}
         {notes.length === 0 && (
           <div className="px-2 py-1 text-xs text-muted-foreground">
-            ノートはありません
+            {t("fileExplorer:noNotes")}
           </div>
         )}
       </div>}

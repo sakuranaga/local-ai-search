@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { t } from "@/i18n";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentDetailModal } from "@/components/DocumentDetailModal";
 import { DocumentContextMenu, type ContextMenuState } from "@/components/DocumentContextMenu";
@@ -269,7 +270,7 @@ export function FileExplorerPage() {
 
   const confirmDiscardNote = useCallback(() => {
     if (!noteDirtyRef.current) return true;
-    return window.confirm("ノートにDBへ未保存の変更があります。保存せずに閉じますか？\n（編集内容は次回開いた時に復元されます）");
+    return window.confirm(t("fileExplorer:noteUnsavedConfirm"));
   }, []);
 
   // Selecting a folder/tag while searching should clear the search query
@@ -368,7 +369,7 @@ export function FileExplorerPage() {
         if (isFav) next.add(docId); else next.delete(docId);
         return next;
       });
-      toast.error("お気に入りの更新に失敗しました");
+      toast.error(t("fileExplorer:favoriteFailed"));
     }
   }
 
@@ -443,7 +444,7 @@ export function FileExplorerPage() {
       }
     } catch {
       if (gen === loadGenRef.current) {
-        toast.error("文書一覧の取得に失敗");
+        toast.error(t("fileExplorer:fetchFailed"));
         setHasMore(false);
       }
     } finally {
@@ -475,7 +476,7 @@ export function FileExplorerPage() {
       setActiveNoteId(detail.id);
       setActiveNote(detail);
     } catch {
-      toast.error("ノートの読み込みに失敗しました");
+      toast.error(t("fileExplorer:noteLoadFailed"));
       setActiveNoteId(null);
       setActiveNote(null);
     }
@@ -486,9 +487,9 @@ export function FileExplorerPage() {
       const note = await createNote(parentId);
       await loadNotes();
       handleSelectNote(note.id);
-      toast.success("ノートを作成しました");
+      toast.success(t("fileExplorer:noteCreated"));
     } catch {
-      toast.error("ノート作成に失敗しました");
+      toast.error(t("fileExplorer:noteCreateFailed"));
     }
   }, [loadNotes, handleSelectNote]);
 
@@ -501,9 +502,9 @@ export function FileExplorerPage() {
       }
       await loadNotes();
       load(true);
-      toast.success("ノートを解除しました");
+      toast.success(t("fileExplorer:noteRemoved"));
     } catch {
-      toast.error("ノート解除に失敗しました");
+      toast.error(t("fileExplorer:noteRemoveFailed"));
     }
   }, [activeNoteId, loadNotes, load]);
 
@@ -517,9 +518,9 @@ export function FileExplorerPage() {
       await loadNotes();
       load(true);
       loadTrash();
-      toast.success("ノートとファイルを削除しました");
+      toast.success(t("fileExplorer:noteDeleted"));
     } catch {
-      toast.error("削除に失敗しました");
+      toast.error(t("fileExplorer:noteDeleteFailed"));
     }
   }, [activeNoteId, loadNotes, load, loadTrash]);
 
@@ -528,7 +529,7 @@ export function FileExplorerPage() {
       await moveNote(noteId, { parent_note_id: parentNoteId ?? "", position });
       await loadNotes();
     } catch {
-      toast.error("移動に失敗しました");
+      toast.error(t("fileExplorer:noteMoveFailed"));
     }
   }, [loadNotes]);
 
@@ -537,9 +538,9 @@ export function FileExplorerPage() {
       await convertToNote(docId);
       await loadNotes();
       load(true);
-      toast.success("ノートに変換しました");
+      toast.success(t("fileExplorer:noteConverted"));
     } catch {
-      toast.error("ノート変換に失敗しました");
+      toast.error(t("fileExplorer:noteConvertFailed"));
     }
   }, [loadNotes, load]);
 
@@ -553,12 +554,12 @@ export function FileExplorerPage() {
     // Check for uploads interrupted by page reload
     const interrupted = checkInterruptedUploads();
     for (const filename of interrupted) {
-      toast.warning(`中断: ${filename}`, {
+      toast.warning(t("fileExplorer:interrupted", { filename }), {
         id: `interrupted-${filename}`,
-        description: "同じファイルを再度ドロップすると再開できます",
+        description: t("fileExplorer:interruptedHint"),
         duration: Infinity,
         action: {
-          label: "取り消し",
+          label: t("fileExplorer:dismiss"),
           onClick: () => clearInterruptedUpload(filename),
         },
       });
@@ -579,7 +580,7 @@ export function FileExplorerPage() {
       } else {
         getDocument(documentId).then((doc) => {
           setDetailDoc(doc as unknown as DocumentListItem);
-        }).catch(() => toast.error("ドキュメントが見つかりません"));
+        }).catch(() => toast.error(t("fileExplorer:docNotFound")));
       }
     };
     window.addEventListener("doc-mention-click", handler);
@@ -694,9 +695,9 @@ export function FileExplorerPage() {
       if ((e.key === "Delete" || e.key === "Backspace") && selected.size > 0) {
         e.preventDefault();
         const ids = [...selected];
-        const tid = toast.loading(`${ids.length}件をゴミ箱に移動中...`);
+        const tid = toast.loading(t("fileExplorer:movingToTrash", { count: ids.length }));
         bulkAction(ids, "delete").then((res) => {
-          toast.success(`${res.processed}件をゴミ箱に移動しました`, { id: tid });
+          toast.success(t("fileExplorer:movedToTrash", { count: res.processed }), { id: tid });
           setSelected(new Set());
           setFocusedIdx(null);
           setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
@@ -704,7 +705,7 @@ export function FileExplorerPage() {
           loadFolders();
           loadTrash();
           loadNotes();
-        }).catch(() => toast.error("削除に失敗しました", { id: tid }));
+        }).catch(() => toast.error(t("fileExplorer:deleteFailed"), { id: tid }));
         return;
       }
     }
@@ -810,7 +811,7 @@ export function FileExplorerPage() {
     try {
       await updateDocument(item.id, { [field]: !item[field] });
       setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, [field]: !i[field] } : i)));
-    } catch { toast.error("更新に失敗"); }
+    } catch { toast.error(t("fileExplorer:updateFailed")); }
   }
 
   function handleContextMenu(e: React.MouseEvent, item: DocumentListItem) {
@@ -849,23 +850,23 @@ export function FileExplorerPage() {
           const token = localStorage.getItem("las_token");
           if (targets.length === 1) {
             // Single file download
-            const t = targets[0];
+            const target = targets[0];
             (async () => {
               try {
-                const res = await fetch(`/api/documents/${t.id}/download`, {
+                const res = await fetch(`/api/documents/${target.id}/download`, {
                   headers: token ? { Authorization: `Bearer ${token}` } : {},
                 });
                 if (!res.ok) throw new Error();
                 const blob = await res.blob();
                 const disposition = res.headers.get("content-disposition");
                 const filenameMatch = disposition?.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
-                const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : t.title;
+                const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : target.title;
                 const a = document.createElement("a");
                 a.href = URL.createObjectURL(blob);
                 a.download = filename;
                 a.click();
                 URL.revokeObjectURL(a.href);
-              } catch { toast.error(`ダウンロード失敗: ${t.title}`); }
+              } catch { toast.error(t("fileExplorer:downloadFailed", { title: target.title })); }
             })();
           } else {
             // Multiple files: download as zip
@@ -886,8 +887,8 @@ export function FileExplorerPage() {
                 a.download = "documents.zip";
                 a.click();
                 URL.revokeObjectURL(a.href);
-                toast.success(`${targets.length}件をZipでダウンロードしました`);
-              } catch { toast.error("Zipダウンロードに失敗しました"); }
+                toast.success(t("fileExplorer:zipDownloaded", { count: targets.length }));
+              } catch { toast.error(t("fileExplorer:zipDownloadFailed")); }
             })();
           }
         }
@@ -946,11 +947,10 @@ export function FileExplorerPage() {
 
   async function handleBulkAction(action: string, extra?: Record<string, unknown>) {
     const ids = [...selected];
-    const label = action === "delete" ? "ゴミ箱に移動" : "処理";
-    const tid = ids.length >= 10 ? toast.loading(`${ids.length}件を${label}中...`) : undefined;
+    const tid = ids.length >= 10 ? toast.loading(action === "delete" ? t("fileExplorer:movingToTrash", { count: ids.length }) : `${ids.length}...`) : undefined;
     try {
       const res = await bulkAction(ids, action, extra);
-      const msg = `${res.processed}件${action === "delete" ? "ゴミ箱に移動しました" : "処理しました"}`;
+      const msg = action === "delete" ? t("fileExplorer:movedToTrash", { count: res.processed }) : t("fileExplorer:processed", { count: res.processed });
       tid ? toast.success(msg, { id: tid }) : toast.success(msg);
       setBulkActionOpen(null);
 
@@ -976,7 +976,7 @@ export function FileExplorerPage() {
         loadFolders();
         loadTags();
       }
-    } catch { toast.error("処理に失敗しました"); }
+    } catch { toast.error(t("fileExplorer:processFailed")); }
   }
 
   // Drag & drop / bulk move: move documents to folders
@@ -1027,13 +1027,13 @@ export function FileExplorerPage() {
 
     try {
       const res = await bulkAction(docIds, "move_to_folder", { folder_id: folderId, overwrite });
-      toast.success(`${res.processed}件を移動しました`);
+      toast.success(t("fileExplorer:moved", { count: res.processed }));
       setSelected(new Set());
       // Reload to get accurate data from server
       load(true);
       loadFolders();
     } catch {
-      toast.error("移動に失敗しました");
+      toast.error(t("fileExplorer:moveFailed"));
       // Revert on error
       load(true);
       loadFolders();
@@ -1053,7 +1053,7 @@ export function FileExplorerPage() {
   async function handleDropFolderOnFolder(draggedFolderId: string, targetFolderId: string | null) {
     if (draggedFolderId === targetFolderId) return;
     if (targetFolderId && isDescendant(draggedFolderId, targetFolderId)) {
-      toast.error("サブフォルダへの循環移動はできません");
+      toast.error(t("fileExplorer:circularMoveError"));
       return;
     }
     try {
@@ -1068,10 +1068,10 @@ export function FileExplorerPage() {
           return next;
         });
       }
-      toast.success("フォルダを移動しました");
+      toast.success(t("fileExplorer:folderMoved"));
       loadFolders();
     } catch {
-      toast.error("フォルダの移動に失敗しました");
+      toast.error(t("fileExplorer:folderMoveFailed"));
     }
   }
 
@@ -1084,10 +1084,10 @@ export function FileExplorerPage() {
 
   async function handleDropOnTrash(docIds: string[]) {
     if (docIds.length === 0) return;
-    const tid = docIds.length >= 10 ? toast.loading(`${docIds.length}件をゴミ箱に移動中...`) : undefined;
+    const tid = docIds.length >= 10 ? toast.loading(t("fileExplorer:movingToTrash", { count: docIds.length })) : undefined;
     try {
       const res = await bulkAction(docIds, "delete");
-      const msg = `${res.processed}件をゴミ箱に移動しました`;
+      const msg = t("fileExplorer:movedToTrash", { count: res.processed });
       tid ? toast.success(msg, { id: tid }) : toast.success(msg);
       setSelected(new Set());
       load(true);
@@ -1095,7 +1095,7 @@ export function FileExplorerPage() {
       loadTrash();
       loadNotes();
     } catch {
-      tid ? toast.error("ゴミ箱への移動に失敗しました", { id: tid }) : toast.error("ゴミ箱への移動に失敗しました");
+      tid ? toast.error(t("fileExplorer:moveToTrashFailed"), { id: tid }) : toast.error(t("fileExplorer:moveToTrashFailed"));
     }
   }
 
@@ -1110,21 +1110,21 @@ export function FileExplorerPage() {
       await updateFolder(folderRenameTarget.id, { name: folderRenameValue.trim() });
       setFolderRenameTarget(null);
       loadFolders();
-      toast.success("フォルダ名を変更しました");
-    } catch { toast.error("フォルダ名変更に失敗"); }
+      toast.success(t("fileExplorer:folderRenamed"));
+    } catch { toast.error(t("fileExplorer:folderRenameFailed")); }
   }
 
   async function handleFolderDelete(node: FolderNode) {
-    if (!confirm(`フォルダ「${node.name}」を削除しますか？\n中のファイルはすべてゴミ箱に移動します。`)) return;
+    if (!confirm(t("fileExplorer:folderDeleteConfirm", { name: node.name }))) return;
     try {
       await deleteFolder(node.id);
       if (activeFolderId === node.id) selectFolder(null);
       loadFolders();
       load(true);
       loadTrash();
-      toast.success("フォルダを削除しました");
+      toast.success(t("fileExplorer:folderDeleted"));
     } catch (e: any) {
-      const msg = e?.message?.includes("403") ? "権限がありません" : "フォルダ削除に失敗";
+      const msg = e?.message?.includes("403") ? t("common:noPermission") : t("fileExplorer:folderDeleteFailed");
       toast.error(msg);
     }
   }
@@ -1146,7 +1146,7 @@ export function FileExplorerPage() {
       setNewFolderParent(null);
       setNewFolderOpen(false);
       loadFolders();
-    } catch { toast.error("フォルダ作成失敗"); }
+    } catch { toast.error(t("fileExplorer:folderCreateFailed")); }
   }
 
   async function handleCreateTag() {
@@ -1156,7 +1156,7 @@ export function FileExplorerPage() {
       setAllTags((prev) => [...prev, { ...tag, document_count: 0 } as TagInfo & { document_count?: number }].sort((a, b) => a.name.localeCompare(b.name)));
       setNewTagName("");
       setNewTagOpen(false);
-    } catch { toast.error("タグ作成失敗"); }
+    } catch { toast.error(t("fileExplorer:tagCreateFailed")); }
   }
 
   function hasFiles(e: React.DragEvent) {
@@ -1193,7 +1193,7 @@ export function FileExplorerPage() {
 
   async function startUploadWithCheck(files: globalThis.File[]) {
     if (files.length > MAX_UPLOAD_FILES) {
-      toast.error(`ファイル数が上限 (${MAX_UPLOAD_FILES}件) を超えています (${files.length.toLocaleString()}件)。分割してください。`);
+      toast.error(t("fileExplorer:maxFilesExceeded", { max: MAX_UPLOAD_FILES, count: files.length }));
       return;
     }
     const dupTitles = await checkDuplicates(files.map((f) => f.name), uploadFolderId);
@@ -1261,32 +1261,32 @@ export function FileExplorerPage() {
   }
 
   async function handleFolderUpload(dataTransfer: DataTransfer) {
-    const toastId = toast.loading("フォルダを読み取り中...");
+    const toastId = toast.loading(t("fileExplorer:readingFolder"));
     try {
       const result = await traverseDataTransferItems(dataTransfer, MAX_UPLOAD_FILES);
       if (result.truncated) {
-        toast.error(`ファイル数が上限 (${MAX_UPLOAD_FILES}件) を超えています。分割してください。`, { id: toastId });
+        toast.error(t("fileExplorer:maxFilesError", { max: MAX_UPLOAD_FILES }), { id: toastId });
         return;
       }
       if (result.files.length === 0) {
-        toast.info("アップロード可能なファイルがありません", { id: toastId });
+        toast.info(t("fileExplorer:noUploadableFiles"), { id: toastId });
         return;
       }
       toast.dismiss(toastId);
       await handleFolderUploadEntries(result.files);
     } catch (err) {
-      toast.error(`フォルダアップロード準備に失敗: ${err instanceof Error ? err.message : "不明なエラー"}`, { id: toastId });
+      toast.error(t("fileExplorer:folderUploadFailed", { error: err instanceof Error ? err.message : t("fileExplorer:unknownError") }), { id: toastId });
     }
   }
 
   async function handleFolderUploadEntries(entries: FileWithPath[]) {
-    const toastId = toast.loading("フォルダを作成中...");
+    const toastId = toast.loading(t("fileExplorer:creatingFolders"));
     try {
       const folderPaths = [...new Set(entries.map((e) => e.folderPath).filter(Boolean))];
 
       let pathToFolderId: Record<string, string> = {};
       if (folderPaths.length > 0) {
-        toast.loading(`${folderPaths.length} フォルダを作成中...`, { id: toastId });
+        toast.loading(t("fileExplorer:creatingFoldersCount", { count: folderPaths.length }), { id: toastId });
         const result = await createFoldersBulk(folderPaths, uploadFolderId);
         for (const { path, id } of result.folders) {
           pathToFolderId[path] = id;
@@ -1299,10 +1299,10 @@ export function FileExplorerPage() {
         folderId: entry.folderPath ? (pathToFolderId[entry.folderPath] ?? uploadFolderId) : uploadFolderId,
       }));
 
-      toast.success(`${entries.length} ファイルをキューに追加`, { id: toastId });
+      toast.success(t("fileExplorer:filesQueued", { count: entries.length }), { id: toastId });
       queueManager.enqueue(queueItems);
     } catch (err) {
-      toast.error(`フォルダアップロード準備に失敗: ${err instanceof Error ? err.message : "不明なエラー"}`, { id: toastId });
+      toast.error(t("fileExplorer:folderUploadFailed", { error: err instanceof Error ? err.message : t("fileExplorer:unknownError") }), { id: toastId });
     }
   }
 
@@ -1378,8 +1378,8 @@ export function FileExplorerPage() {
         >
           <div className="text-center">
             <Upload className="h-12 w-12 text-primary mx-auto mb-3" />
-            <p className="text-lg font-medium">ファイル/フォルダをドロップしてアップロード</p>
-            <p className="text-sm text-muted-foreground mt-1">フォルダの場合は階層を自動作成します</p>
+            <p className="text-lg font-medium">{t("fileExplorer:dropToUpload")}</p>
+            <p className="text-sm text-muted-foreground mt-1">{t("fileExplorer:dropFolderHint")}</p>
           </div>
         </div>
       )}
@@ -1398,12 +1398,12 @@ export function FileExplorerPage() {
         <div>
           <div className="flex items-center justify-between mb-1">
             <button onClick={() => toggleSection("folders")} className="text-sm font-semibold text-muted-foreground hover:text-foreground">
-              フォルダ
+              {t("fileExplorer:folders")}
             </button>
             {sidebarCollapsed.folders ? (
-              <button onClick={() => toggleSection("folders")} className="text-xs text-muted-foreground hover:text-foreground">展開</button>
+              <button onClick={() => toggleSection("folders")} className="text-xs text-muted-foreground hover:text-foreground">{t("fileExplorer:expand")}</button>
             ) : (
-              <button onClick={() => setNewFolderOpen(true)} className="p-0.5 hover:bg-muted rounded" title="新しいフォルダ">
+              <button onClick={() => setNewFolderOpen(true)} className="p-0.5 hover:bg-muted rounded" title={t("fileExplorer:newFolder")}>
                 <FolderPlus className="h-3.5 w-3.5 text-muted-foreground" />
               </button>
             )}
@@ -1414,18 +1414,18 @@ export function FileExplorerPage() {
               className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${showRecent ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
             >
               <Clock className={`h-3.5 w-3.5`} />
-              <span className="truncate">最近の項目</span>
+              <span className="truncate">{t("fileExplorer:recentItems")}</span>
             </button>
             <button
               onClick={() => { setShowFavorites(true); setShowRecent(false); setShowTrash(false); setActiveFolderId(null); setSidebarOpen(false); if (isSearching) navigate("/", { replace: true }); }}
               className={`w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5 ${showFavorites ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
             >
               <Star className={`h-3.5 w-3.5 ${showFavorites ? "fill-primary" : ""}`} />
-              <span className="truncate">お気に入り</span>
+              <span className="truncate">{t("fileExplorer:favorites")}</span>
               {favoriteIds.size > 0 && <span className="ml-auto text-xs text-muted-foreground">{favoriteIds.size}</span>}
             </button>
-            <DropTarget folderId={null} onDrop={handleDropOnFolder} onFolderDrop={handleDropFolderOnFolder} label="すべて" count={allDocCount} isActive={activeFolderId === null && !showTrash && !showFavorites && !showRecent} onClick={() => selectFolder(null)} icon={<FolderIcon className="h-3.5 w-3.5" />} />
-            <DropTarget folderId={null} onDrop={handleDropOnFolder} onFolderDrop={handleDropFolderOnFolder} label="未整理" count={unfiledCount} isActive={activeFolderId === "unfiled" && !showTrash} onClick={() => selectFolder("unfiled")} icon={<FileText className="h-3.5 w-3.5" />} />
+            <DropTarget folderId={null} onDrop={handleDropOnFolder} onFolderDrop={handleDropFolderOnFolder} label={t("fileExplorer:all")} count={allDocCount} isActive={activeFolderId === null && !showTrash && !showFavorites && !showRecent} onClick={() => selectFolder(null)} icon={<FolderIcon className="h-3.5 w-3.5" />} />
+            <DropTarget folderId={null} onDrop={handleDropOnFolder} onFolderDrop={handleDropFolderOnFolder} label={t("fileExplorer:unfiled")} count={unfiledCount} isActive={activeFolderId === "unfiled" && !showTrash} onClick={() => selectFolder("unfiled")} icon={<FileText className="h-3.5 w-3.5" />} />
             {folderTree.map((node) => (
               <FolderTreeItem
                 key={node.id}
@@ -1448,12 +1448,12 @@ export function FileExplorerPage() {
         <div>
           <div className="flex items-center justify-between mb-1">
             <button onClick={() => toggleSection("tags")} className="text-sm font-semibold text-muted-foreground hover:text-foreground">
-              タグ
+              {t("fileExplorer:tags")}
             </button>
             {sidebarCollapsed.tags ? (
-              <button onClick={() => toggleSection("tags")} className="text-xs text-muted-foreground hover:text-foreground">展開</button>
+              <button onClick={() => toggleSection("tags")} className="text-xs text-muted-foreground hover:text-foreground">{t("fileExplorer:expand")}</button>
             ) : (
-              <button onClick={() => setNewTagOpen(true)} className="p-0.5 hover:bg-muted rounded" title="新しいタグ">
+              <button onClick={() => setNewTagOpen(true)} className="p-0.5 hover:bg-muted rounded" title={t("fileExplorer:newTag")}>
                 <Plus className="h-3.5 w-3.5 text-muted-foreground" />
               </button>
             )}
@@ -1507,15 +1507,15 @@ export function FileExplorerPage() {
             <div>
               <div className="flex items-center justify-between mb-1">
                 <button onClick={() => toggleSection("history")} className="text-sm font-semibold text-muted-foreground hover:text-foreground">
-                  検索履歴
+                  {t("fileExplorer:searchHistory")}
                 </button>
                 {sidebarCollapsed.history ? (
-                  <button onClick={() => toggleSection("history")} className="text-xs text-muted-foreground hover:text-foreground">展開</button>
+                  <button onClick={() => toggleSection("history")} className="text-xs text-muted-foreground hover:text-foreground">{t("fileExplorer:expand")}</button>
                 ) : (
                   <button
-                    onClick={() => { if (confirm("検索履歴を削除しますか？（ピン留めは残ります）")) { searchHistory.filter((e) => !e.pinned).forEach((e) => deleteConversation(e.query).catch(() => {})); setSearchHistory(clearUnpinnedSearchHistory()); } }}
+                    onClick={() => { if (confirm(t("fileExplorer:deleteSearchHistory"))) { searchHistory.filter((e) => !e.pinned).forEach((e) => deleteConversation(e.query).catch(() => {})); setSearchHistory(clearUnpinnedSearchHistory()); } }}
                     className="p-0.5 hover:bg-muted rounded text-muted-foreground"
-                    title="ピン留め以外を一括削除"
+                    title={t("fileExplorer:deleteUnpinnedTooltip")}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -1543,14 +1543,14 @@ export function FileExplorerPage() {
                       <button
                         onClick={(e) => { e.stopPropagation(); setSearchHistory(togglePinSearchHistory(entry.query)); }}
                         className="p-0.5 hover:bg-muted rounded"
-                        title={entry.pinned ? "ピン解除" : "ピン留め"}
+                        title={entry.pinned ? t("fileExplorer:unpin") : t("fileExplorer:pin")}
                       >
                         {entry.pinned ? <PinOff className="h-3 w-3 text-muted-foreground" /> : <Pin className="h-3 w-3 text-muted-foreground" />}
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); deleteConversation(entry.query).catch(() => {}); setSearchHistory(removeSearchHistory(entry.query)); }}
                         className="p-0.5 hover:bg-muted rounded"
-                        title="削除"
+                        title={t("common:delete")}
                       >
                         <X className="h-3 w-3 text-muted-foreground" />
                       </button>
@@ -1593,7 +1593,7 @@ export function FileExplorerPage() {
                 <Menu className="h-8 w-8" strokeWidth={2.5} />
               </Button>
               <Button variant="outline" size="sm" onClick={() => { if (!confirmDiscardNote()) return; noteDirtyRef.current = false; setActiveNoteId(null); setActiveNote(null); }}>
-                <ChevronLeft className="h-4 w-4 mr-1" />ドキュメント一覧
+                <ChevronLeft className="h-4 w-4 mr-1" />{t("common:documentList")}
               </Button>
             </div>
             <Card className="flex-1 min-h-0 overflow-hidden !py-0 !gap-0">
@@ -1601,11 +1601,11 @@ export function FileExplorerPage() {
                 <div className="flex flex-col h-full">
                   <div className="flex items-center gap-2 px-4 py-2">
                     <h2 className="text-lg font-semibold">{activeNote.title}</h2>
-                    <Badge variant="secondary" className="ml-auto text-xs">読み取り専用</Badge>
+                    <Badge variant="secondary" className="ml-auto text-xs">{t("common:readOnly")}</Badge>
                   </div>
                   {activeNote.updated_at && (
                     <div className="flex items-center gap-3 px-4 py-1 text-xs text-muted-foreground border-b">
-                      <span>更新: {new Date(activeNote.updated_at).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                      <span>{t("common:updated")}: {new Date(activeNote.updated_at).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
                       {activeNote.updated_by_name && <span>by {activeNote.updated_by_name}</span>}
                       {activeNote.current_version != null && <span>v{activeNote.current_version}</span>}
                       <button
@@ -1621,13 +1621,13 @@ export function FileExplorerPage() {
                     </div>
                   )}
                   <div className="flex-1 overflow-auto">
-                    <Suspense fallback={<div className="flex items-center justify-center h-32 text-muted-foreground">読み込み中...</div>}>
+                    <Suspense fallback={<div className="flex items-center justify-center h-32 text-muted-foreground">{t("common:loading")}</div>}>
                       <NoteReadonlyView initialContent={activeNote.note_content} />
                     </Suspense>
                   </div>
                 </div>
               ) : (
-                <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">読み込み中...</div>}>
+                <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">{t("common:loading")}</div>}>
                   <NoteEditor
                     key={activeNoteId}
                     noteId={activeNoteId}
@@ -1662,9 +1662,9 @@ export function FileExplorerPage() {
             <Menu className="h-8 w-8" strokeWidth={2.5} />
           </Button>
           <h1 className="text-lg md:text-xl font-bold min-w-0 flex items-center overflow-hidden">
-            {isSearching ? <span className="truncate">{`検索結果: ${urlQ}`}</span> : showTrash ? "ゴミ箱" : showRecent ? "最近の項目" : showFavorites ? "お気に入り" : activeTags.length > 0 ? (
+            {isSearching ? <span className="truncate">{t("fileExplorer:searchResult", { query: urlQ })}</span> : showTrash ? t("fileExplorer:trash") : showRecent ? t("fileExplorer:recentItems") : showFavorites ? t("fileExplorer:favorites") : activeTags.length > 0 ? (
               <span className="flex items-center gap-1.5">
-                <span className="text-muted-foreground font-normal">タグ:</span>
+                <span className="text-muted-foreground font-normal">{t("fileExplorer:tagLabel")}</span>
                 {activeTags.map((t) => {
                   const tagInfo = allTags.find((at) => at.name === t);
                   return (
@@ -1687,34 +1687,34 @@ export function FileExplorerPage() {
                   </button>
                 </span>
               ))
-            ) : activeFolderId === "unfiled" ? "未整理" : "ドキュメント"}
+            ) : activeFolderId === "unfiled" ? t("fileExplorer:unfiled") : t("fileExplorer:documents")}
           </h1>
           {showTrash && !isSearching ? (
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => { setShowTrash(false); setTrashSelected(new Set()); }}>
-                <ChevronLeft className="h-4 w-4 mr-1" />戻る
+                <ChevronLeft className="h-4 w-4 mr-1" />{t("common:back")}
               </Button>
               {trashItems.length > 0 && (
                 <Button variant="destructive" size="sm" onClick={async () => {
-                  if (!confirm("ゴミ箱を空にしますか？この操作は取り消せません。")) return;
-                  const tid = toast.loading(`${trashItems.length}件を削除中...`);
+                  if (!confirm(t("fileExplorer:emptyTrashConfirm"))) return;
+                  const tid = toast.loading(t("fileExplorer:deleting", { count: trashItems.length }));
                   try {
                     const res = await emptyTrash();
-                    toast.success(`${res.purged}件を完全に削除しました`, { id: tid });
+                    toast.success(t("fileExplorer:purged", { count: res.purged }), { id: tid });
                     loadTrash();
-                  } catch { toast.error("削除に失敗しました", { id: tid }); }
+                  } catch { toast.error(t("fileExplorer:deleteFailed"), { id: tid }); }
                 }}>
-                  <Trash2 className="h-4 w-4 mr-1" />ゴミ箱を空にする
+                  <Trash2 className="h-4 w-4 mr-1" />{t("fileExplorer:emptyTrash")}
                 </Button>
               )}
             </div>
           ) : (
             <div className="flex items-center gap-2">
               <Button variant="outline" onClick={() => setCreateTextOpen(true)}>
-                <FilePlus className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">新規作成</span>
+                <FilePlus className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">{t("fileExplorer:newCreate")}</span>
               </Button>
               <Button onClick={() => setUploadOpen(true)}>
-                <Upload className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">アップロード</span>
+                <Upload className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">{t("fileExplorer:upload")}</span>
               </Button>
             </div>
           )}
@@ -1724,34 +1724,34 @@ export function FileExplorerPage() {
           /* Trash view */
           <div className="flex-1 min-h-0 overflow-auto">
             {trashItems.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">ゴミ箱は空です</p>
+              <p className="text-sm text-muted-foreground py-8 text-center">{t("fileExplorer:trashEmpty")}</p>
             ) : (
               <>
                 <div className="flex items-center gap-2 p-2 bg-muted rounded-lg mb-3">
-                  <span className="text-sm font-medium w-20">{trashSelected.size > 0 ? `${trashSelected.size}件選択中` : "\u00A0"}</span>
+                  <span className="text-sm font-medium w-20">{trashSelected.size > 0 ? t("fileExplorer:selected", { count: trashSelected.size }) : "\u00A0"}</span>
                   <Button variant="outline" size="sm" disabled={trashSelected.size === 0} onClick={async () => {
                     try {
                       const res = await restoreFromTrash([...trashSelected]);
-                      toast.success(`${res.restored}件を復元しました`);
+                      toast.success(t("fileExplorer:restored", { count: res.restored }));
                       setTrashSelected(new Set());
                       loadTrash();
                       load(true);
                       loadFolders();
-                    } catch { toast.error("復元に失敗しました"); }
+                    } catch { toast.error(t("fileExplorer:restoreFailed")); }
                   }}>
-                    <Undo2 className="h-3.5 w-3.5 mr-1" />復元
+                    <Undo2 className="h-3.5 w-3.5 mr-1" />{t("fileExplorer:restore")}
                   </Button>
                   <Button variant="destructive" size="sm" disabled={trashSelected.size === 0} onClick={async () => {
-                    if (!confirm("選択した文書を完全に削除しますか？この操作は取り消せません。")) return;
-                    const tid = toast.loading(`${trashSelected.size}件を削除中...`);
+                    if (!confirm(t("fileExplorer:purgeConfirm"))) return;
+                    const tid = toast.loading(t("fileExplorer:deleting", { count: trashSelected.size }));
                     try {
                       const res = await purgeFromTrash([...trashSelected]);
-                      toast.success(`${res.purged}件を完全に削除しました`, { id: tid });
+                      toast.success(t("fileExplorer:purged", { count: res.purged }), { id: tid });
                       setTrashSelected(new Set());
                       loadTrash();
-                    } catch { toast.error("削除に失敗しました", { id: tid }); }
+                    } catch { toast.error(t("fileExplorer:deleteFailed"), { id: tid }); }
                   }}>
-                    <Trash2 className="h-3.5 w-3.5 mr-1" />完全に削除
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />{t("fileExplorer:permanentDelete")}
                   </Button>
                 </div>
                 <Table>
@@ -1764,9 +1764,9 @@ export function FileExplorerPage() {
                           onChange={(e) => setTrashSelected(e.target.checked ? new Set(trashItems.map((t) => t.id)) : new Set())}
                         />
                       </TableHead>
-                      <TableHead>タイトル</TableHead>
-                      <TableHead className="w-20">種別</TableHead>
-                      <TableHead className="w-36">削除日時</TableHead>
+                      <TableHead>{t("fileExplorer:title")}</TableHead>
+                      <TableHead className="w-20">{t("fileExplorer:type")}</TableHead>
+                      <TableHead className="w-36">{t("fileExplorer:deleteTrashDate")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1808,7 +1808,7 @@ export function FileExplorerPage() {
         <div className="flex items-center gap-2 flex-wrap">
           {isSearching && searchTokens.length > 0 && searchTokens.join(" ") !== urlQ && (
             <div className="flex items-center gap-1">
-              <span className="text-xs text-muted-foreground">検索語:</span>
+              <span className="text-xs text-muted-foreground">{t("fileExplorer:searchTokens")}</span>
               {searchTokens.map((t) => (
                 <Badge key={t} variant="secondary" className="text-xs font-normal">{t}</Badge>
               ))}
@@ -1819,7 +1819,7 @@ export function FileExplorerPage() {
             onChange={(e) => { setFilterType(e.target.value); }}
             className="h-8 rounded-md border bg-background px-2 text-xs"
           >
-            <option value="">種別</option>
+            <option value="">{t("fileExplorer:typeFilter")}</option>
             {filterOptions.file_types.map((t) => (
               <option key={t} value={t}>{t.toUpperCase()}</option>
             ))}
@@ -1829,7 +1829,7 @@ export function FileExplorerPage() {
             onChange={(e) => { setFilterCreatedBy(e.target.value); }}
             className="h-8 rounded-md border bg-background px-2 text-xs"
           >
-            <option value="">登録者</option>
+            <option value="">{t("fileExplorer:creatorFilter")}</option>
             {filterOptions.creators.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
@@ -1838,13 +1838,13 @@ export function FileExplorerPage() {
             <DatePickerInput
               value={filterDateFrom}
               onChange={setFilterDateFrom}
-              title="更新日From"
+              title={t("fileExplorer:dateFrom")}
             />
             <span className="text-xs text-muted-foreground">〜</span>
             <DatePickerInput
               value={filterDateTo}
               onChange={setFilterDateTo}
-              title="更新日To"
+              title={t("fileExplorer:dateTo")}
             />
           </div>
           {isSearching && (
@@ -1855,7 +1855,7 @@ export function FileExplorerPage() {
                 onChange={(e) => setFilterIncludeUnsearchable(e.target.checked)}
                 className="rounded border-gray-300"
               />
-              <span className="text-muted-foreground">検索OFF含む</span>
+              <span className="text-muted-foreground">{t("fileExplorer:includeUnsearchable")}</span>
             </label>
           )}
           {(filterType || filterDateFrom || filterDateTo || filterCreatedBy || filterIncludeUnsearchable) && (
@@ -1863,17 +1863,17 @@ export function FileExplorerPage() {
               onClick={() => { setFilterType(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterCreatedBy(""); setFilterIncludeUnsearchable(false); }}
               className="text-xs text-muted-foreground hover:text-foreground underline"
             >
-              クリア
+              {t("fileExplorer:clearFilters")}
             </button>
           )}
-          <span className="text-sm text-muted-foreground ml-auto">{total.toLocaleString()}件</span>
+          <span className="text-sm text-muted-foreground ml-auto">{t("fileExplorer:totalCount", { count: total.toLocaleString() })}</span>
           {/* AI chat toggle */}
           {!chatOpen && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => setChatOpen(true)}
-              title="AIチャットを開く"
+              title={t("fileExplorer:openAiChat")}
             >
               <Sparkles className={`h-4 w-4 ${aiStreaming ? "animate-ai-glow text-primary" : ""}`} />
             </Button>
@@ -1931,28 +1931,28 @@ export function FileExplorerPage() {
               <TableRow className="hover:bg-transparent">
                 <TableHead className={`pl-4 ${isSearching ? "" : "cursor-pointer select-none"}`} onClick={isSearching ? undefined : () => handleSort("title")}>
                   <span className="flex items-center gap-2">
-                    タイトル {!isSearching && <SortIcon col="title" />}
+                    {t("fileExplorer:title")} {!isSearching && <SortIcon col="title" />}
                     {selected.size > 0 && (
                       <>
-                        <span className="text-xs font-normal text-muted-foreground">{selected.size}件選択中</span>
+                        <span className="text-xs font-normal text-muted-foreground">{t("fileExplorer:selected", { count: selected.size })}</span>
                         <button
                           className="text-xs font-normal text-muted-foreground hover:text-foreground underline"
                           onClick={(e) => { e.stopPropagation(); setSelected(new Set()); }}
                         >
-                          選択解除
+                          {t("fileExplorer:deselect")}
                         </button>
                       </>
                     )}
                   </span>
                 </TableHead>
-                <TableHead>種別</TableHead>
-                <TableHead className="!text-right">サイズ</TableHead>
-                <TableHead>登録者</TableHead>
+                <TableHead>{t("fileExplorer:type")}</TableHead>
+                <TableHead className="!text-right">{t("fileExplorer:size")}</TableHead>
+                <TableHead>{t("fileExplorer:creator")}</TableHead>
                 <TableHead className={isSearching ? "" : "cursor-pointer select-none"} onClick={isSearching ? undefined : () => handleSort("updated_at")}>
-                  <span className="flex items-center">更新日 {!isSearching && <SortIcon col="updated_at" />}</span>
+                  <span className="flex items-center">{t("fileExplorer:updatedDate")} {!isSearching && <SortIcon col="updated_at" />}</span>
                 </TableHead>
-                {showRecent && <TableHead>最終閲覧</TableHead>}
-                <TableHead className="text-center">検索 / AI</TableHead>
+                {showRecent && <TableHead>{t("fileExplorer:lastViewed")}</TableHead>}
+                <TableHead className="text-center">{t("fileExplorer:searchAi")}</TableHead>
               </TableRow>
             </TableHeader>
               <TableBody className="[&_tr:last-child]:border-b">
@@ -1994,10 +1994,10 @@ export function FileExplorerPage() {
                       </Tooltip>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-xs">フォルダ</Badge>
+                      <Badge variant="outline" className="text-xs">{t("fileExplorer:folderBadge")}</Badge>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground !text-right tabular-nums">
-                      {folder.document_count > 0 ? `${folder.document_count}件` : "-"}
+                      {folder.document_count > 0 ? t("fileExplorer:itemsCount", { count: folder.document_count }) : "-"}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {folder.owner_name ?? "-"}
@@ -2037,7 +2037,7 @@ export function FileExplorerPage() {
                     <TableCell className="pl-4 overflow-hidden max-w-0">
                       <div className="font-medium text-sm truncate flex items-center gap-1">
                         <Tooltip content={item.title}><span className="truncate">{item.title}</span></Tooltip>
-                        {item.is_note && <Tooltip content="ノート"><BookOpenText className="h-3 w-3 text-primary flex-shrink-0" /></Tooltip>}
+                        {item.is_note && <Tooltip content={t("fileExplorer:noteTooltip")}><BookOpenText className="h-3 w-3 text-primary flex-shrink-0" /></Tooltip>}
                         {favoriteIds.has(item.id) && <Star className="h-3 w-3 fill-muted-foreground text-muted-foreground flex-shrink-0" />}
                         {isSearching && (item as any).rrf_score != null && (
                           <span className={`ml-2 text-xs font-normal ${(item as any).rrf_score >= 0.5 ? "text-green-600" : "text-orange-500"}`}>{((item as any).rrf_score as number).toFixed(4)}</span>
@@ -2045,7 +2045,7 @@ export function FileExplorerPage() {
                       </div>
                       <div className="flex items-center gap-1 mt-0.5 flex-wrap truncate">
                         {(item as any).share_count > 0 && (
-                          <span title={`共有中（${(item as any).share_count}件）`}><Link className="h-3 w-3 text-primary flex-shrink-0" /></span>
+                          <span title={t("fileExplorer:sharedCount", { count: (item as any).share_count })}><Link className="h-3 w-3 text-primary flex-shrink-0" /></span>
                         )}
                         {item.folder_name && (
                           <span className="text-xs text-muted-foreground flex items-center gap-0.5">
@@ -2082,14 +2082,14 @@ export function FileExplorerPage() {
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-2">
                         <button
-                          title={item.searchable ? "検索対象" : "検索除外"}
+                          title={item.searchable ? t("fileExplorer:searchTarget") : t("fileExplorer:searchExcluded")}
                           className={`p-1 rounded transition-colors ${item.searchable ? "text-primary" : "text-muted-foreground/30 hover:text-muted-foreground"}`}
                           onClick={() => handleToggleFlag(item, "searchable")}
                         >
                           <SearchIcon className="h-4 w-4" />
                         </button>
                         <button
-                          title={item.ai_knowledge ? "AIナレッジ対象" : "AIナレッジ除外"}
+                          title={item.ai_knowledge ? t("fileExplorer:aiKnowledgeTarget") : t("fileExplorer:aiKnowledgeExcluded")}
                           className={`p-1 rounded transition-colors ${item.ai_knowledge ? "text-primary" : "text-muted-foreground/30 hover:text-muted-foreground"}`}
                           onClick={() => handleToggleFlag(item, "ai_knowledge")}
                         >
@@ -2102,7 +2102,7 @@ export function FileExplorerPage() {
                 {items.length === 0 && !loading && (
                   <TableRow>
                     <TableCell colSpan={showRecent ? 7 : 6} className="text-center py-8 text-muted-foreground">
-                      文書がありません
+                      {t("fileExplorer:noDocuments")}
                     </TableCell>
                   </TableRow>
                 )}
@@ -2111,7 +2111,7 @@ export function FileExplorerPage() {
             {/* Infinite scroll sentinel */}
             {hasMore && <div ref={sentinelRef} className="h-4" />}
             {loading && items.length > 0 && (
-              <div className="flex justify-center py-2 text-sm text-muted-foreground">読み込み中…</div>
+              <div className="flex justify-center py-2 text-sm text-muted-foreground">{t("common:loading")}</div>
             )}
           </div>
         </Card>
@@ -2137,13 +2137,13 @@ export function FileExplorerPage() {
               style={{ left: blankCtx.x, top: blankCtx.y }}
             >
               <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setNewFolderParent(activeFolderId && activeFolderId !== "unfiled" ? activeFolderId : null); setNewFolderOpen(true); setBlankCtx(null); }}>
-                <FolderPlus className="h-4 w-4" />フォルダ作成
+                <FolderPlus className="h-4 w-4" />{t("fileExplorer:contextMenu.newFolder")}
               </button>
               <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setCreateTextOpen(true); setBlankCtx(null); }}>
-                <FilePlus className="h-4 w-4" />テキスト新規作成
+                <FilePlus className="h-4 w-4" />{t("fileExplorer:contextMenu.newText")}
               </button>
               <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setUploadOpen(true); setBlankCtx(null); }}>
-                <Upload className="h-4 w-4" />アップロード
+                <Upload className="h-4 w-4" />{t("fileExplorer:contextMenu.newUpload")}
               </button>
             </div>
           </>
@@ -2228,11 +2228,11 @@ export function FileExplorerPage() {
       <Dialog open={bulkActionOpen === "delete"} onOpenChange={() => setBulkActionOpen(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ゴミ箱に移動</DialogTitle>
-            <DialogDescription>{selected.size}件の文書をゴミ箱に移動します。ゴミ箱から復元できます。</DialogDescription>
+            <DialogTitle>{t("fileExplorer:deleteConfirmTitle")}</DialogTitle>
+            <DialogDescription>{t("fileExplorer:deleteConfirmDescription", { count: selected.size })}</DialogDescription>
           </DialogHeader>
           <DialogFooter showCloseButton>
-            <Button variant="destructive" onClick={() => { handleBulkAction("delete"); loadTrash(); }}>ゴミ箱に移動</Button>
+            <Button variant="destructive" onClick={() => { handleBulkAction("delete"); loadTrash(); }}>{t("fileExplorer:deleteConfirmButton")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2240,36 +2240,36 @@ export function FileExplorerPage() {
       <Dialog open={bulkActionOpen === "reindex"} onOpenChange={(o) => setBulkActionOpen(o ? "reindex" : null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>一括ベクトル再構築</DialogTitle>
-            <DialogDescription>{selected.size}件の文書のベクトルデータを再構築します。</DialogDescription>
+            <DialogTitle>{t("fileExplorer:reindexTitle")}</DialogTitle>
+            <DialogDescription>{t("fileExplorer:reindexDescription", { count: selected.size })}</DialogDescription>
           </DialogHeader>
           <DialogFooter showCloseButton>
             <Button
               onClick={async () => {
                 const ids = [...selected];
                 setBulkActionOpen(null);
-                const tid = toast.loading(`再構築中... 0/${ids.length}`);
+                const tid = toast.loading(t("fileExplorer:reindexing", { done: 0, total: ids.length }));
                 try {
                   const res = await bulkAction(ids, "reindex");
                   const jobIds = res.job_ids ?? [];
                   if (jobIds.length === 0) {
-                    toast.error("再構築対象がありません", { id: tid });
+                    toast.error(t("fileExplorer:reindexNoTarget"), { id: tid });
                   } else {
                     const result = await pollJobsProgress(jobIds, (done, total) => {
-                      toast.loading(`再構築中... ${done}/${total}`, { id: tid });
+                      toast.loading(t("fileExplorer:reindexing", { done, total }), { id: tid });
                     });
                     const msg = result.errors > 0
-                      ? `再構築完了: ${result.done}件成功, ${result.errors}件エラー`
-                      : `再構築完了: ${result.done}件`;
+                      ? t("fileExplorer:reindexDoneWithErrors", { done: result.done, errors: result.errors })
+                      : t("fileExplorer:reindexDone", { done: result.done });
                     toast.success(msg, { id: tid });
                   }
                   load(true);
                 } catch {
-                  toast.error("再構築に失敗しました", { id: tid });
+                  toast.error(t("fileExplorer:reindexFailed"), { id: tid });
                 }
               }}
             >
-              再構築する
+              {t("fileExplorer:reindexButton")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2307,7 +2307,7 @@ export function FileExplorerPage() {
       <Dialog open={!!renameTarget} onOpenChange={(open) => { if (!open) setRenameTarget(null); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>名前変更</DialogTitle>
+            <DialogTitle>{t("fileExplorer:rename")}</DialogTitle>
           </DialogHeader>
           <Input
             value={renameValue}
@@ -2315,24 +2315,24 @@ export function FileExplorerPage() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && renameValue.trim() && renameTarget) {
                 updateDocument(renameTarget.id, { title: renameValue.trim() })
-                  .then(() => { setRenameTarget(null); setItems((prev) => prev.map((i) => i.id === renameTarget!.id ? { ...i, title: renameValue.trim() } : i)); if (renameTarget!.is_note) loadNotes(); toast.success("名前を変更しました"); })
-                  .catch(() => toast.error("名前変更に失敗"));
+                  .then(() => { setRenameTarget(null); setItems((prev) => prev.map((i) => i.id === renameTarget!.id ? { ...i, title: renameValue.trim() } : i)); if (renameTarget!.is_note) loadNotes(); toast.success(t("fileExplorer:renamed")); })
+                  .catch(() => toast.error(t("fileExplorer:renameFailed")));
               }
             }}
             autoFocus
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameTarget(null)}>キャンセル</Button>
+            <Button variant="outline" onClick={() => setRenameTarget(null)}>{t("common:cancel")}</Button>
             <Button
               disabled={!renameValue.trim()}
               onClick={() => {
                 if (!renameTarget) return;
                 updateDocument(renameTarget.id, { title: renameValue.trim() })
-                  .then(() => { setRenameTarget(null); setItems((prev) => prev.map((i) => i.id === renameTarget!.id ? { ...i, title: renameValue.trim() } : i)); if (renameTarget!.is_note) loadNotes(); toast.success("名前を変更しました"); })
-                  .catch(() => toast.error("名前変更に失敗"));
+                  .then(() => { setRenameTarget(null); setItems((prev) => prev.map((i) => i.id === renameTarget!.id ? { ...i, title: renameValue.trim() } : i)); if (renameTarget!.is_note) loadNotes(); toast.success(t("fileExplorer:renamed")); })
+                  .catch(() => toast.error(t("fileExplorer:renameFailed")));
               }}
             >
-              変更
+              {t("fileExplorer:change")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2342,23 +2342,23 @@ export function FileExplorerPage() {
       <Dialog open={newFolderOpen} onOpenChange={() => setNewFolderOpen(false)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>新しいフォルダ</DialogTitle>
+            <DialogTitle>{t("fileExplorer:newFolder")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <Input placeholder="フォルダ名" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} autoFocus />
+            <Input placeholder={t("fileExplorer:newFolderName")} value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} autoFocus />
             <select
               value={newFolderParent ?? ""}
               onChange={(e) => setNewFolderParent(e.target.value || null)}
               className="w-full h-9 rounded-md border bg-background px-3 text-sm"
             >
-              <option value="">ルート（トップレベル）</option>
+              <option value="">{t("fileExplorer:rootLevel")}</option>
               {folders.map((f) => (
                 <option key={f.id} value={f.id}>{f.name}</option>
               ))}
             </select>
           </div>
           <DialogFooter showCloseButton>
-            <Button onClick={handleCreateFolder} disabled={!newFolderName.trim()}>作成</Button>
+            <Button onClick={handleCreateFolder} disabled={!newFolderName.trim()}>{t("common:create")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2367,12 +2367,12 @@ export function FileExplorerPage() {
       <Dialog open={newTagOpen} onOpenChange={() => setNewTagOpen(false)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>新しいタグ</DialogTitle>
+            <DialogTitle>{t("fileExplorer:newTag")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <Input placeholder="タグ名" value={newTagName} onChange={(e) => setNewTagName(e.target.value)} autoFocus />
+            <Input placeholder={t("fileExplorer:tagName")} value={newTagName} onChange={(e) => setNewTagName(e.target.value)} autoFocus />
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm text-muted-foreground">色:</span>
+              <span className="text-sm text-muted-foreground">{t("fileExplorer:tagColor")}</span>
               {TAG_COLORS.map((c) => (
                 <button
                   key={c}
@@ -2386,12 +2386,12 @@ export function FileExplorerPage() {
                 value={newTagColor}
                 onChange={(e) => setNewTagColor(e.target.value)}
                 className="w-6 h-6 rounded-full border-0 p-0 cursor-pointer"
-                title="カスタム色"
+                title={t("fileExplorer:customColor")}
               />
             </div>
           </div>
           <DialogFooter showCloseButton>
-            <Button onClick={handleCreateTag} disabled={!newTagName.trim()}>作成</Button>
+            <Button onClick={handleCreateTag} disabled={!newTagName.trim()}>{t("common:create")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2400,11 +2400,11 @@ export function FileExplorerPage() {
       <Dialog open={!!editingTag} onOpenChange={(open) => { if (!open) setEditingTag(null); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>タグ編集</DialogTitle>
+            <DialogTitle>{t("fileExplorer:tagEdit")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <Input
-              placeholder="タグ名"
+              placeholder={t("fileExplorer:tagName")}
               value={editTagName}
               onChange={(e) => setEditTagName(e.target.value)}
               onKeyDown={(e) => {
@@ -2415,15 +2415,15 @@ export function FileExplorerPage() {
                       setActiveTags((prev) => prev.map((t) => t === editingTag!.name ? updated.name : t));
                       setEditingTag(null);
                       load(true);
-                      toast.success("タグを更新しました");
+                      toast.success(t("fileExplorer:tagUpdated"));
                     })
-                    .catch(() => toast.error("タグ更新失敗"));
+                    .catch(() => toast.error(t("fileExplorer:tagUpdateFailed")));
                 }
               }}
               autoFocus
             />
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm text-muted-foreground">色:</span>
+              <span className="text-sm text-muted-foreground">{t("fileExplorer:tagColor")}</span>
               {TAG_COLORS.map((c) => (
                 <button
                   key={c}
@@ -2437,12 +2437,12 @@ export function FileExplorerPage() {
                 value={editTagColor}
                 onChange={(e) => setEditTagColor(e.target.value)}
                 className="w-6 h-6 rounded-full border-0 p-0 cursor-pointer"
-                title="カスタム色"
+                title={t("fileExplorer:customColor")}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingTag(null)}>キャンセル</Button>
+            <Button variant="outline" onClick={() => setEditingTag(null)}>{t("common:cancel")}</Button>
             <Button
               disabled={!editTagName.trim()}
               onClick={() => {
@@ -2453,12 +2453,12 @@ export function FileExplorerPage() {
                     setActiveTags((prev) => prev.map((t) => t === editingTag!.name ? updated.name : t));
                     setEditingTag(null);
                     load(true);
-                    toast.success("タグを更新しました");
+                    toast.success(t("fileExplorer:tagUpdated"));
                   })
-                  .catch(() => toast.error("タグ更新失敗"));
+                  .catch(() => toast.error(t("fileExplorer:tagUpdateFailed")));
               }}
             >
-              保存
+              {t("common:save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2468,9 +2468,9 @@ export function FileExplorerPage() {
       <Dialog open={overwriteQueue.length > 0} onOpenChange={() => handleOverwriteCancel()}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>上書き確認</DialogTitle>
+            <DialogTitle>{t("fileExplorer:overwriteConfirmTitle")}</DialogTitle>
             <DialogDescription>
-              同名のファイルが既に存在します{overwriteQueue.length > 1 ? `（残り ${overwriteQueue.length} 件）` : ""}
+              {overwriteQueue.length > 1 ? t("fileExplorer:overwriteConfirmDescriptionMulti", { count: overwriteQueue.length }) : t("fileExplorer:overwriteConfirmDescription")}
             </DialogDescription>
           </DialogHeader>
           {overwriteQueue[0] && (
@@ -2482,12 +2482,12 @@ export function FileExplorerPage() {
           <div className="flex gap-2 justify-end flex-wrap">
             {overwriteQueue.length > 1 && (
               <>
-                <Button variant="outline" onClick={handleOverwriteSkipAll}>すべてスキップ</Button>
-                <Button variant="outline" className="text-destructive border-destructive/50 hover:text-destructive" onClick={handleOverwriteAll}>すべて上書き</Button>
+                <Button variant="outline" onClick={handleOverwriteSkipAll}>{t("fileExplorer:overwrite.skipAll")}</Button>
+                <Button variant="outline" className="text-destructive border-destructive/50 hover:text-destructive" onClick={handleOverwriteAll}>{t("fileExplorer:overwrite.overwriteAll")}</Button>
               </>
             )}
-            <Button variant="outline" onClick={handleOverwriteSkip}>スキップ</Button>
-            <Button variant="destructive" onClick={handleOverwriteConfirm}>上書き</Button>
+            <Button variant="outline" onClick={handleOverwriteSkip}>{t("fileExplorer:overwrite.skip")}</Button>
+            <Button variant="destructive" onClick={handleOverwriteConfirm}>{t("fileExplorer:overwrite.overwrite")}</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -2496,9 +2496,9 @@ export function FileExplorerPage() {
       <Dialog open={!!pendingMove} onOpenChange={() => handleMoveCancel()}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>移動先に同名ファイルが存在します</DialogTitle>
+            <DialogTitle>{t("fileExplorer:moveDuplicate.title")}</DialogTitle>
             <DialogDescription>
-              {pendingMove?.duplicateNames.length}件のファイルが移動先フォルダに既に存在します。
+              {t("fileExplorer:moveDuplicateDescription", { count: pendingMove?.duplicateNames.length })}
             </DialogDescription>
           </DialogHeader>
           {pendingMove && (
@@ -2509,9 +2509,9 @@ export function FileExplorerPage() {
             </div>
           )}
           <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={handleMoveCancel}>キャンセル</Button>
-            <Button variant="outline" onClick={handleMoveSkip}>スキップ</Button>
-            <Button variant="destructive" onClick={handleMoveOverwrite}>上書き</Button>
+            <Button variant="outline" onClick={handleMoveCancel}>{t("common:cancel")}</Button>
+            <Button variant="outline" onClick={handleMoveSkip}>{t("fileExplorer:moveDuplicate.skip")}</Button>
+            <Button variant="destructive" onClick={handleMoveOverwrite}>{t("fileExplorer:moveDuplicate.overwrite")}</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -2528,14 +2528,14 @@ export function FileExplorerPage() {
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
               onClick={() => { handleCreateNote(noteCtxMenu.noteId); setNoteCtxMenu(null); }}
             >
-              <Plus className="h-4 w-4" />サブノート作成
+              <Plus className="h-4 w-4" />{t("fileExplorer:noteCtx.createSub")}
             </button>
             <div className="-mx-1 my-1 h-px bg-border" />
             <button
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
               onClick={() => { setNoteDeleteTarget({ noteId: noteCtxMenu.noteId, title: noteCtxMenu.title }); setNoteCtxMenu(null); }}
             >
-              <Trash2 className="h-4 w-4" />削除
+              <Trash2 className="h-4 w-4" />{t("common:delete")}
             </button>
           </div>
         </>
@@ -2550,17 +2550,17 @@ export function FileExplorerPage() {
             style={{ left: folderCtx.x, top: folderCtx.y }}
           >
             <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setFolderRenameTarget(folderCtx.node); setFolderRenameValue(folderCtx.node.name); setFolderCtx(null); }}>
-              <Pencil className="h-4 w-4" />名前変更
+              <Pencil className="h-4 w-4" />{t("fileExplorer:folderCtx.rename")}
             </button>
             <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setFolderPermsTarget(folderCtx.node); setFolderCtx(null); }}>
-              <Shield className="h-4 w-4" />権限設定
+              <Shield className="h-4 w-4" />{t("fileExplorer:folderCtx.permissions")}
             </button>
             <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setNewFolderParent(folderCtx.node.id); setNewFolderOpen(true); setFolderCtx(null); }}>
-              <FolderPlus className="h-4 w-4" />サブフォルダ作成
+              <FolderPlus className="h-4 w-4" />{t("fileExplorer:folderCtx.createSub")}
             </button>
             <div className="-mx-1 my-1 h-px bg-border" />
             <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10" onClick={() => { handleFolderDelete(folderCtx.node); setFolderCtx(null); }}>
-              <Trash2 className="h-4 w-4" />削除
+              <Trash2 className="h-4 w-4" />{t("common:delete")}
             </button>
           </div>
         </>
@@ -2570,7 +2570,7 @@ export function FileExplorerPage() {
       <Dialog open={!!folderRenameTarget} onOpenChange={(open) => { if (!open) setFolderRenameTarget(null); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>フォルダ名変更</DialogTitle>
+            <DialogTitle>{t("fileExplorer:folderRenameTitle")}</DialogTitle>
           </DialogHeader>
           <Input
             value={folderRenameValue}
@@ -2579,8 +2579,8 @@ export function FileExplorerPage() {
             autoFocus
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setFolderRenameTarget(null)}>キャンセル</Button>
-            <Button disabled={!folderRenameValue.trim()} onClick={handleFolderRename}>変更</Button>
+            <Button variant="outline" onClick={() => setFolderRenameTarget(null)}>{t("common:cancel")}</Button>
+            <Button disabled={!folderRenameValue.trim()} onClick={handleFolderRename}>{t("fileExplorer:change")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2632,29 +2632,29 @@ export function FileExplorerPage() {
       <Dialog open={!!noteDeleteTarget} onOpenChange={(open) => { if (!open) setNoteDeleteTarget(null); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>ノートを削除</DialogTitle>
+            <DialogTitle>{t("fileExplorer:noteDeleteTitle")}</DialogTitle>
             <DialogDescription>
-              「{noteDeleteTarget?.title}」のノートを削除します。
+              {t("fileExplorer:noteDeleteDescription", { title: noteDeleteTarget?.title })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${noteDeleteMode === "remove" ? "border-primary bg-primary/5" : "hover:bg-muted"}`}>
               <input type="radio" name="noteDeleteMode" checked={noteDeleteMode === "remove"} onChange={() => setNoteDeleteMode("remove")} className="mt-0.5" />
               <div>
-                <div className="text-sm font-medium">ノートのみ削除</div>
-                <div className="text-xs text-muted-foreground">ファイルは残ります</div>
+                <div className="text-sm font-medium">{t("fileExplorer:noteDeleteRemove")}</div>
+                <div className="text-xs text-muted-foreground">{t("fileExplorer:noteDeleteRemoveHint")}</div>
               </div>
             </label>
             <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${noteDeleteMode === "delete" ? "border-destructive bg-destructive/5" : "hover:bg-muted"}`}>
               <input type="radio" name="noteDeleteMode" checked={noteDeleteMode === "delete"} onChange={() => setNoteDeleteMode("delete")} className="mt-0.5" />
               <div>
-                <div className="text-sm font-medium">ファイルごと削除</div>
-                <div className="text-xs text-muted-foreground">ゴミ箱に移動します</div>
+                <div className="text-sm font-medium">{t("fileExplorer:noteDeleteFile")}</div>
+                <div className="text-xs text-muted-foreground">{t("fileExplorer:noteDeleteFileHint")}</div>
               </div>
             </label>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setNoteDeleteTarget(null)}>キャンセル</Button>
+            <Button variant="outline" onClick={() => setNoteDeleteTarget(null)}>{t("common:cancel")}</Button>
             <Button
               variant="destructive"
               onClick={async () => {
@@ -2668,7 +2668,7 @@ export function FileExplorerPage() {
                 }
               }}
             >
-              削除
+              {t("common:delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

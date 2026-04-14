@@ -5,6 +5,11 @@ from app.models import SystemSetting
 
 # Default values (single source of truth)
 DEFAULTS = {
+    "system_language": {
+        "value": "ja",
+        "description": "システムデフォルト言語 (ja / en)",
+        "placeholder": "ja",
+    },
     "llm_url": {
         "value": "http://host.docker.internal:8081/v1",
         "description": "LLM推論サーバーURL (OpenAI互換)",

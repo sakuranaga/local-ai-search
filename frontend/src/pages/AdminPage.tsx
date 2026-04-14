@@ -75,6 +75,7 @@ import { AvatarCropper } from "@/components/AvatarCropper";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Plus, Trash2, Settings, Save, Pencil, Users, Key, Copy, Check, Download, Search, ChevronLeft, ChevronRight, Mail, Send, Webhook, BookOpenText, Shield, ScrollText, UsersRound, Share2, Upload, Bot, X, Image } from "lucide-react";
 import { toast } from "sonner";
+import { t } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // User Management Tab
@@ -99,7 +100,7 @@ function UsersTab() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
-    getUsers().then(setUsers).catch(() => toast.error("ユーザー取得に失敗"));
+    getUsers().then(setUsers).catch(() => toast.error(t("admin:users.fetchFailed")));
     getRoles().then(setRoles).catch(() => {});
   }, []);
 
@@ -135,12 +136,12 @@ function UsersTab() {
         display_name: createForm.display_name || undefined,
         role: createForm.role || undefined,
       });
-      toast.success("ユーザーを作成しました");
+      toast.success(t("admin:users.created"));
       setCreateOpen(false);
       setCreateForm({ username: "", password: "", email: "", display_name: "", role: "user" });
       load();
     } catch {
-      toast.error("作成に失敗しました");
+      toast.error(t("common:createFailed"));
     }
   }
 
@@ -173,22 +174,22 @@ function UsersTab() {
       if (Object.keys(data).length > 0) {
         await updateUser(editUser.id, data);
       }
-      toast.success("ユーザーを更新しました");
+      toast.success(t("admin:users.updated"));
       setEditOpen(false);
       load();
     } catch {
-      toast.error("更新に失敗しました");
+      toast.error(t("common:updateFailed"));
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("本当に削除しますか？")) return;
+    if (!confirm(t("common:confirmDelete"))) return;
     try {
       await deleteUser(id);
-      toast.success("削除しました");
+      toast.success(t("admin:users.deleted"));
       load();
     } catch {
-      toast.error("削除に失敗しました");
+      toast.error(t("common:deleteFailed"));
     }
   }
 
@@ -197,9 +198,9 @@ function UsersTab() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base">ユーザー一覧</CardTitle>
+        <CardTitle className="text-base">{t("admin:users.title")}</CardTitle>
         <Button size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" /> 追加
+          <Plus className="h-4 w-4 mr-1" /> {t("common:add")}
         </Button>
       </CardHeader>
       <CardContent>
@@ -207,12 +208,12 @@ function UsersTab() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-10" />
-              <TableHead>ユーザー名</TableHead>
-              <TableHead>表示名</TableHead>
-              <TableHead>メール</TableHead>
-              <TableHead>ロール</TableHead>
-              <TableHead>状態</TableHead>
-              <TableHead>最終ログイン</TableHead>
+              <TableHead>{t("admin:users.username")}</TableHead>
+              <TableHead>{t("admin:users.displayName")}</TableHead>
+              <TableHead>{t("admin:users.email")}</TableHead>
+              <TableHead>{t("admin:users.role")}</TableHead>
+              <TableHead>{t("admin:users.status")}</TableHead>
+              <TableHead>{t("admin:users.lastLogin")}</TableHead>
               <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
@@ -240,7 +241,7 @@ function UsersTab() {
                 </TableCell>
                 <TableCell>
                   <Badge variant={u.is_active ? "default" : "outline"}>
-                    {u.is_active ? "有効" : "無効"}
+                    {u.is_active ? t("admin:users.active") : t("admin:users.inactive")}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-muted-foreground text-xs">
@@ -266,35 +267,35 @@ function UsersTab() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ユーザー追加</DialogTitle>
+            <DialogTitle>{t("admin:users.createTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label className="text-xs">ユーザー名 *</Label>
+              <Label className="text-xs">{t("admin:users.usernameRequired")}</Label>
               <Input value={createForm.username} onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">パスワード *</Label>
+              <Label className="text-xs">{t("admin:users.passwordRequired")}</Label>
               <Input type="password" value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">メールアドレス</Label>
-              <Input value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} placeholder="空欄の場合 username@local" />
+              <Label className="text-xs">{t("admin:users.emailLabel")}</Label>
+              <Input value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} placeholder={t("admin:users.emailPlaceholder")} />
             </div>
             <div>
-              <Label className="text-xs">表示名</Label>
+              <Label className="text-xs">{t("admin:users.displayName")}</Label>
               <Input value={createForm.display_name} onChange={(e) => setCreateForm({ ...createForm, display_name: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">ロール</Label>
+              <Label className="text-xs">{t("admin:users.role")}</Label>
               <select value={createForm.role} onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })} className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
                 {roleNames.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>キャンセル</Button>
-            <Button onClick={handleCreate} disabled={!createForm.username || !createForm.password}>作成</Button>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>{t("common:cancel")}</Button>
+            <Button onClick={handleCreate} disabled={!createForm.username || !createForm.password}>{t("common:create")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -303,7 +304,7 @@ function UsersTab() {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>ユーザー編集</DialogTitle>
+            <DialogTitle>{t("admin:users.editTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             {/* Avatar */}
@@ -320,7 +321,7 @@ function UsersTab() {
               <div className="flex-1 space-y-1">
                 <Label className="text-xs flex items-center gap-1">
                   <Image className="h-3.5 w-3.5" />
-                  アイコン
+                  {t("admin:users.avatar")}
                 </Label>
                 <div className="flex items-center gap-2">
                   <input
@@ -331,12 +332,12 @@ function UsersTab() {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       if (file.size > 2 * 1024 * 1024) {
-                        toast.error("ファイルサイズは2MB以下にしてください");
+                        toast.error(t("common:fileSizeLimit"));
                         if (avatarInputRef.current) avatarInputRef.current.value = "";
                         return;
                       }
                       if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.type)) {
-                        toast.error("JPEG, PNG, GIF, WebPのみ対応しています");
+                        toast.error(t("common:imageTypesOnly"));
                         if (avatarInputRef.current) avatarInputRef.current.value = "";
                         return;
                       }
@@ -346,7 +347,7 @@ function UsersTab() {
                     className="hidden"
                   />
                   <Button type="button" variant="outline" size="sm" onClick={() => avatarInputRef.current?.click()}>
-                    ファイルを選択
+                    {t("common:selectFile")}
                   </Button>
                   {!avatarCleared && (avatarPreviewUrl || editForm.avatar_url) && (
                     <Button type="button" variant="ghost" size="sm" onClick={() => {
@@ -356,10 +357,10 @@ function UsersTab() {
                       setAvatarCleared(true);
                     }}>
                       <X className="h-4 w-4 mr-1" />
-                      クリア
+                      {t("common:clear")}
                     </Button>
                   )}
-                  {pendingAvatarFile && <span className="text-xs text-muted-foreground">切り抜き済み</span>}
+                  {pendingAvatarFile && <span className="text-xs text-muted-foreground">{t("common:cropped")}</span>}
                 </div>
               </div>
             </div>
@@ -378,43 +379,43 @@ function UsersTab() {
               />
             )}
             <div>
-              <Label className="text-xs">ユーザー名</Label>
+              <Label className="text-xs">{t("admin:users.username")}</Label>
               <Input value={editForm.username} onChange={(e) => setEditForm({ ...editForm, username: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">メールアドレス</Label>
+              <Label className="text-xs">{t("admin:users.emailLabel")}</Label>
               <Input value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">表示名</Label>
+              <Label className="text-xs">{t("admin:users.displayName")}</Label>
               <Input value={editForm.display_name} onChange={(e) => setEditForm({ ...editForm, display_name: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">新しいパスワード (変更する場合のみ)</Label>
-              <Input type="password" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} placeholder="変更しない場合は空欄" />
+              <Label className="text-xs">{t("admin:users.newPassword")}</Label>
+              <Input type="password" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} placeholder={t("admin:users.newPasswordPlaceholder")} />
             </div>
             <div>
-              <Label className="text-xs">ロール</Label>
+              <Label className="text-xs">{t("admin:users.role")}</Label>
               <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
                 {roleNames.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
             <div className="flex items-center justify-between">
-              <Label className="text-sm">アカウント有効</Label>
+              <Label className="text-sm">{t("admin:users.accountActive")}</Label>
               <Switch checked={editForm.is_active} onCheckedChange={(v) => setEditForm({ ...editForm, is_active: v })} />
             </div>
             <div className="flex items-center justify-between">
-              <Label className="text-sm">共有許可</Label>
+              <Label className="text-sm">{t("admin:users.shareAllowed")}</Label>
               <Switch checked={editForm.can_share} onCheckedChange={(v) => setEditForm({ ...editForm, can_share: v })} />
             </div>
             <div className="flex items-center justify-between">
-              <Label className="text-sm">ダウンロード許可</Label>
+              <Label className="text-sm">{t("admin:users.downloadAllowed")}</Label>
               <Switch checked={editForm.can_download} onCheckedChange={(v) => setEditForm({ ...editForm, can_download: v })} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>キャンセル</Button>
-            <Button onClick={handleUpdate}>保存</Button>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>{t("common:cancel")}</Button>
+            <Button onClick={handleUpdate}>{t("common:save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -432,7 +433,7 @@ function RolesTab() {
   const [form, setForm] = useState({ name: "", permissions: "" });
 
   const load = useCallback(() => {
-    getRoles().then(setRoles).catch(() => toast.error("ロール取得に失敗"));
+    getRoles().then(setRoles).catch(() => toast.error(t("admin:roles.fetchFailed")));
   }, []);
 
   useEffect(load, [load]);
@@ -443,40 +444,40 @@ function RolesTab() {
         name: form.name,
         permissions: form.permissions.split(",").map((s) => s.trim()).filter(Boolean),
       });
-      toast.success("ロールを作成しました");
+      toast.success(t("admin:roles.created"));
       setDialogOpen(false);
       setForm({ name: "", permissions: "" });
       load();
     } catch {
-      toast.error("作成に失敗しました");
+      toast.error(t("common:createFailed"));
     }
   }
 
   async function handleDelete(id: number) {
-    if (!confirm("本当に削除しますか？")) return;
+    if (!confirm(t("common:confirmDelete"))) return;
     try {
       await deleteRole(id);
-      toast.success("削除しました");
+      toast.success(t("common:deleted"));
       load();
     } catch {
-      toast.error("削除に失敗しました");
+      toast.error(t("common:deleteFailed"));
     }
   }
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base">ロール一覧</CardTitle>
+        <CardTitle className="text-base">{t("admin:roles.title")}</CardTitle>
         <Button size="sm" onClick={() => setDialogOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" /> 追加
+          <Plus className="h-4 w-4 mr-1" /> {t("common:add")}
         </Button>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>ロール名</TableHead>
-              <TableHead>権限</TableHead>
+              <TableHead>{t("admin:roles.roleName")}</TableHead>
+              <TableHead>{t("admin:roles.permissions")}</TableHead>
               <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
@@ -507,25 +508,25 @@ function RolesTab() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ロール追加</DialogTitle>
+            <DialogTitle>{t("admin:roles.createTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <Input
-              placeholder="ロール名"
+              placeholder={t("admin:roles.roleName")}
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
             <Input
-              placeholder="権限 (カンマ区切り: search, admin, ingest)"
+              placeholder={t("admin:roles.permissionsPlaceholder")}
               value={form.permissions}
               onChange={(e) => setForm({ ...form, permissions: e.target.value })}
             />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              キャンセル
+              {t("common:cancel")}
             </Button>
-            <Button onClick={handleCreate}>作成</Button>
+            <Button onClick={handleCreate}>{t("common:create")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -534,28 +535,95 @@ function RolesTab() {
 }
 
 // ---------------------------------------------------------------------------
+// General Tab
+// ---------------------------------------------------------------------------
+
+function GeneralTab() {
+  const [lang, setLang] = useState("");
+  const [original, setOriginal] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    getSettings()
+      .then((s) => {
+        const v = s.find((x) => x.key === "system_language")?.value ?? "ja";
+        setLang(v);
+        setOriginal(v);
+      })
+      .catch(() => toast.error(t("admin:settings.fetchFailed")));
+  }, []);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await updateSetting("system_language", lang);
+      setOriginal(lang);
+      toast.success(t("admin:settings.saved"));
+    } catch {
+      toast.error(t("common:saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Settings className="h-4 w-4" />
+            {t("admin:settings.systemLanguage")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-muted-foreground mb-2">{t("admin:settings.systemLanguageDescription")}</p>
+          <div className="flex items-center gap-2">
+            <select
+              value={lang}
+              onChange={(e) => setLang(e.target.value)}
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+            >
+              <option value="ja">{t("common:japanese")}</option>
+              <option value="en">{t("common:english")}</option>
+            </select>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={lang === original || saving}
+            >
+              <Save className="h-4 w-4 mr-1" />
+              {t("common:save")}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Settings Tab
 // ---------------------------------------------------------------------------
 
-const SETTING_GROUPS: Record<string, { label: string; keys: string[] }> = {
+const SETTING_GROUPS: Record<string, { labelKey: string; keys: string[] }> = {
   llm: {
-    label: "LLM (チャット/回答生成)",
+    labelKey: "admin:settings.groups.llm",
     keys: ["llm_url", "llm_model", "llm_api_key"],
   },
   embed: {
-    label: "Embedding (ベクトル検索)",
+    labelKey: "admin:settings.groups.embed",
     keys: ["embed_url", "embed_model", "embed_api_key", "embed_dimensions"],
   },
   search: {
-    label: "検索設定",
+    labelKey: "admin:settings.groups.search",
     keys: ["search_top_k", "vector_similarity_threshold", "ai_max_search_rounds"],
   },
   ingest: {
-    label: "取り込み設定",
+    labelKey: "admin:settings.groups.ingest",
     keys: ["chunk_size", "chunk_overlap"],
   },
   smb: {
-    label: "SMBファイル共有 (NAS)",
+    labelKey: "admin:settings.groups.smb",
     keys: ["smb_enabled", "smb_sync_deletes"],
   },
 };
@@ -571,7 +639,7 @@ function SettingsTab() {
         setSettings(s);
         setEdited({});
       })
-      .catch(() => toast.error("設定の取得に失敗"));
+      .catch(() => toast.error(t("admin:settings.fetchFailed")));
   }, []);
 
   useEffect(load, [load]);
@@ -590,7 +658,7 @@ function SettingsTab() {
     setSaving(key);
     try {
       await updateSetting(key, getValue(key));
-      toast.success("保存しました");
+      toast.success(t("admin:settings.saved"));
       setEdited((prev) => {
         const next = { ...prev };
         delete next[key];
@@ -598,7 +666,7 @@ function SettingsTab() {
       });
       load();
     } catch {
-      toast.error("保存に失敗しました");
+      toast.error(t("common:saveFailed"));
     } finally {
       setSaving(null);
     }
@@ -612,11 +680,11 @@ function SettingsTab() {
       for (const key of keys) {
         await updateSetting(key, edited[key]);
       }
-      toast.success(`${keys.length}件の設定を保存しました`);
+      toast.success(t("admin:settings.savedCount", { count: keys.length }));
       setEdited({});
       load();
     } catch {
-      toast.error("保存に失敗しました");
+      toast.error(t("common:saveFailed"));
     } finally {
       setSaving(null);
     }
@@ -629,7 +697,7 @@ function SettingsTab() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Settings className="h-4 w-4" />
-              {group.label}
+              {t(group.labelKey)}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -670,7 +738,7 @@ function SettingsTab() {
         <div className="flex justify-end">
           <Button onClick={handleSaveAll} disabled={saving === "all"}>
             <Save className="h-4 w-4 mr-2" />
-            変更を一括保存 ({Object.keys(edited).length}件)
+            {t("admin:settings.saveAll", { count: Object.keys(edited).length })}
           </Button>
         </div>
       )}
@@ -695,7 +763,7 @@ function ShareTab() {
         setSettings(s.filter((st) => SHARE_KEYS.includes(st.key)));
         setEdited({});
       })
-      .catch(() => toast.error("設定の取得に失敗"));
+      .catch(() => toast.error(t("admin:settings.fetchFailed")));
   }, []);
 
   useEffect(load, [load]);
@@ -716,17 +784,17 @@ function ShareTab() {
       const result = await testShareConnection();
       if (result.ok) {
         await updateSetting("share_enabled", "true");
-        toast.success("Share Server 接続OK — 共有機能を有効にしました");
+        toast.success(t("admin:share.connectionOk"));
         load();
         return true;
       } else {
         await updateSetting("share_enabled", "false");
-        toast.error(`Share Server 接続失敗: ${result.error}`);
+        toast.error(t("admin:share.connectionFailed", { error: result.error }));
         load();
         return false;
       }
     } catch {
-      toast.error("Share Server 接続テストに失敗しました");
+      toast.error(t("admin:share.connectionTestFailed"));
       return false;
     }
   }
@@ -739,11 +807,11 @@ function ShareTab() {
       for (const key of keys) {
         await updateSetting(key, edited[key]);
       }
-      toast.success("保存しました");
+      toast.success(t("admin:settings.saved"));
       setEdited({});
       load();
     } catch {
-      toast.error("保存に失敗しました");
+      toast.error(t("common:saveFailed"));
     } finally {
       setSaving(null);
     }
@@ -757,10 +825,10 @@ function ShareTab() {
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base flex items-center gap-2">
           <Share2 className="h-4 w-4" />
-          共有リンク (Share Server)
+          {t("admin:share.title")}
         </CardTitle>
         <Button variant="outline" size="sm" onClick={checkShareConnection}>
-          接続テスト
+          {t("admin:share.connectionTest")}
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -786,8 +854,8 @@ function ShareTab() {
         })}
         <div className="flex items-center gap-3 pt-2 border-t">
           <div className="min-w-[180px]">
-            <label className="text-sm font-medium">共有機能</label>
-            <p className="text-xs text-muted-foreground">接続テスト成功で有効化</p>
+            <label className="text-sm font-medium">{t("admin:share.shareFeature")}</label>
+            <p className="text-xs text-muted-foreground">{t("admin:share.shareFeatureHint")}</p>
           </div>
           <button
             onClick={async () => {
@@ -795,10 +863,10 @@ function ShareTab() {
                 const ok = await checkShareConnection();
                 if (!ok) return;
                 await updateSetting("share_enabled", "true");
-                toast.success("共有機能を有効にしました");
+                toast.success(t("admin:share.shareEnabled"));
               } else {
                 await updateSetting("share_enabled", "false");
-                toast.success("共有機能を無効にしました");
+                toast.success(t("admin:share.shareDisabled"));
               }
               load();
             }}
@@ -807,13 +875,13 @@ function ShareTab() {
             <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${isOn ? "translate-x-6" : "translate-x-1"}`} />
           </button>
           <span className={`text-sm ${isOn ? "text-primary font-medium" : "text-muted-foreground"}`}>
-            {isOn ? "有効" : "無効"}
+            {isOn ? t("common:enabled") : t("common:disabled")}
           </span>
         </div>
         <div className="flex justify-end pt-2 border-t">
           <Button onClick={handleSaveAll} disabled={!hasEdits || saving === "all"}>
             <Save className="h-4 w-4 mr-2" />
-            保存
+            {t("common:save")}
           </Button>
         </div>
       </CardContent>
@@ -840,7 +908,7 @@ function UploadTab() {
         setSettings(s.filter((st) => UPLOAD_KEYS.includes(st.key)));
         setEdited({});
       })
-      .catch(() => toast.error("設定の取得に失敗"));
+      .catch(() => toast.error(t("admin:settings.fetchFailed")));
   }, []);
 
   useEffect(load, [load]);
@@ -863,11 +931,11 @@ function UploadTab() {
       for (const key of keys) {
         await updateSetting(key, edited[key]);
       }
-      toast.success("保存しました");
+      toast.success(t("admin:settings.saved"));
       setEdited({});
       load();
     } catch {
-      toast.error("保存に失敗しました");
+      toast.error(t("common:saveFailed"));
     } finally {
       setSaving(null);
     }
@@ -881,14 +949,14 @@ function UploadTab() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Upload className="h-4 w-4" />
-            アップロード制限
+            {t("admin:uploadSettings.limits")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2">
             <div className="min-w-[200px]">
-              <label className="text-sm font-medium">最大ファイルサイズ</label>
-              <p className="text-xs text-muted-foreground">1ファイルあたりの上限</p>
+              <label className="text-sm font-medium">{t("admin:uploadSettings.maxFileSize")}</label>
+              <p className="text-xs text-muted-foreground">{t("admin:uploadSettings.maxFileSizeHint")}</p>
             </div>
             <Input
               type="number"
@@ -898,12 +966,12 @@ function UploadTab() {
               disabled
             />
             <span className="text-sm text-muted-foreground">MB</span>
-            <Badge variant="outline" className="ml-2 text-xs">未実装</Badge>
+            <Badge variant="outline" className="ml-2 text-xs">{t("admin:uploadSettings.notImplemented")}</Badge>
           </div>
           <div className="flex items-center gap-2">
             <div className="min-w-[200px]">
-              <label className="text-sm font-medium">最大アップロードサイズ</label>
-              <p className="text-xs text-muted-foreground">1回のアップロード合計上限</p>
+              <label className="text-sm font-medium">{t("admin:uploadSettings.maxTotalSize")}</label>
+              <p className="text-xs text-muted-foreground">{t("admin:uploadSettings.maxTotalSizeHint")}</p>
             </div>
             <Input
               type="number"
@@ -913,7 +981,7 @@ function UploadTab() {
               disabled
             />
             <span className="text-sm text-muted-foreground">MB</span>
-            <Badge variant="outline" className="ml-2 text-xs">未実装</Badge>
+            <Badge variant="outline" className="ml-2 text-xs">{t("admin:uploadSettings.notImplemented")}</Badge>
           </div>
         </CardContent>
       </Card>
@@ -922,7 +990,7 @@ function UploadTab() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Shield className="h-4 w-4" />
-            アップロードデフォルト
+            {t("admin:uploadSettings.defaults")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -948,7 +1016,7 @@ function UploadTab() {
           <div className="flex justify-end pt-2 border-t">
             <Button onClick={handleSaveAll} disabled={!hasEdits || saving === "all"}>
               <Save className="h-4 w-4 mr-2" />
-              保存
+              {t("common:save")}
             </Button>
           </div>
         </CardContent>
@@ -972,7 +1040,7 @@ function GroupsTab() {
   const [addUserId, setAddUserId] = useState("");
 
   const load = useCallback(() => {
-    getGroups().then(setGroups).catch(() => toast.error("グループ取得に失敗"));
+    getGroups().then(setGroups).catch(() => toast.error(t("admin:groups.fetchFailed")));
     getUsers().then(setUsers).catch(() => {});
   }, []);
 
@@ -984,23 +1052,23 @@ function GroupsTab() {
         name: createForm.name,
         description: createForm.description || undefined,
       });
-      toast.success("グループを作成しました");
+      toast.success(t("admin:groups.created"));
       setCreateOpen(false);
       setCreateForm({ name: "", description: "" });
       load();
     } catch {
-      toast.error("作成に失敗しました");
+      toast.error(t("common:createFailed"));
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("本当に削除しますか？関連するドキュメント・フォルダのグループ設定が解除されます。")) return;
+    if (!confirm(t("admin:groups.deleteConfirm"))) return;
     try {
       await deleteGroup(id);
-      toast.success("削除しました");
+      toast.success(t("common:deleted"));
       load();
     } catch {
-      toast.error("削除に失敗しました");
+      toast.error(t("common:deleteFailed"));
     }
   }
 
@@ -1011,7 +1079,7 @@ function GroupsTab() {
       const m = await getGroupMembers(g.id);
       setMembers(m);
     } catch {
-      toast.error("メンバー取得に失敗");
+      toast.error(t("admin:groups.membersFetchFailed"));
     }
   }
 
@@ -1019,13 +1087,13 @@ function GroupsTab() {
     if (!selectedGroup || !addUserId) return;
     try {
       await addGroupMember(selectedGroup.id, addUserId);
-      toast.success("メンバーを追加しました");
+      toast.success(t("admin:groups.memberAdded"));
       setAddUserId("");
       const m = await getGroupMembers(selectedGroup.id);
       setMembers(m);
       load();
     } catch {
-      toast.error("追加に失敗しました");
+      toast.error(t("common:createFailed"));
     }
   }
 
@@ -1033,12 +1101,12 @@ function GroupsTab() {
     if (!selectedGroup) return;
     try {
       await removeGroupMember(selectedGroup.id, userId);
-      toast.success("メンバーを削除しました");
+      toast.success(t("admin:groups.memberRemoved"));
       const m = await getGroupMembers(selectedGroup.id);
       setMembers(m);
       load();
     } catch {
-      toast.error("削除に失敗しました");
+      toast.error(t("common:deleteFailed"));
     }
   }
 
@@ -1047,18 +1115,18 @@ function GroupsTab() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base">グループ一覧</CardTitle>
+        <CardTitle className="text-base">{t("admin:groups.title")}</CardTitle>
         <Button size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" /> 追加
+          <Plus className="h-4 w-4 mr-1" /> {t("common:add")}
         </Button>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>グループ名</TableHead>
-              <TableHead>説明</TableHead>
-              <TableHead className="w-24 text-center">メンバー数</TableHead>
+              <TableHead>{t("admin:groups.groupName")}</TableHead>
+              <TableHead>{t("admin:groups.description")}</TableHead>
+              <TableHead className="w-24 text-center">{t("admin:groups.memberCount")}</TableHead>
               <TableHead className="w-24" />
             </TableRow>
           </TableHeader>
@@ -1090,21 +1158,21 @@ function GroupsTab() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>グループ追加</DialogTitle>
+            <DialogTitle>{t("admin:groups.createTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label className="text-xs">グループ名 *</Label>
+              <Label className="text-xs">{t("admin:groups.groupNameRequired")}</Label>
               <Input value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">説明</Label>
+              <Label className="text-xs">{t("admin:groups.description")}</Label>
               <Input value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>キャンセル</Button>
-            <Button onClick={handleCreate} disabled={!createForm.name.trim()}>作成</Button>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>{t("common:cancel")}</Button>
+            <Button onClick={handleCreate} disabled={!createForm.name.trim()}>{t("common:create")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1113,15 +1181,15 @@ function GroupsTab() {
       <Dialog open={membersOpen} onOpenChange={setMembersOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{selectedGroup?.name} - メンバー管理</DialogTitle>
+            <DialogTitle>{t("admin:groups.memberManagement", { name: selectedGroup?.name ?? "" })}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             {members.length > 0 ? (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ユーザー名</TableHead>
-                    <TableHead>表示名</TableHead>
+                    <TableHead>{t("admin:users.username")}</TableHead>
+                    <TableHead>{t("admin:users.displayName")}</TableHead>
                     <TableHead className="w-12" />
                   </TableRow>
                 </TableHeader>
@@ -1140,7 +1208,7 @@ function GroupsTab() {
                 </TableBody>
               </Table>
             ) : (
-              <p className="text-sm text-muted-foreground">メンバーがいません</p>
+              <p className="text-sm text-muted-foreground">{t("admin:groups.noMembers")}</p>
             )}
             {availableUsers.length > 0 && (
               <div className="flex items-center gap-2">
@@ -1149,12 +1217,12 @@ function GroupsTab() {
                   onChange={(e) => setAddUserId(e.target.value)}
                   className="h-9 flex-1 rounded-md border bg-background px-3 text-sm"
                 >
-                  <option value="">ユーザーを追加...</option>
+                  <option value="">{t("admin:groups.addUser")}</option>
                   {availableUsers.map((u) => (
                     <option key={u.id} value={u.id}>{u.username} ({u.display_name || u.email})</option>
                   ))}
                 </select>
-                <Button size="sm" onClick={handleAddMember} disabled={!addUserId}>追加</Button>
+                <Button size="sm" onClick={handleAddMember} disabled={!addUserId}>{t("common:add")}</Button>
               </div>
             )}
           </div>
@@ -1187,7 +1255,7 @@ function ApiKeysTab() {
   });
 
   const load = useCallback(() => {
-    getApiKeys().then(setKeys).catch(() => toast.error("API キーの取得に失敗"));
+    getApiKeys().then(setKeys).catch(() => toast.error(t("common:fetchFailed")));
   }, []);
 
   useEffect(() => {
@@ -1209,7 +1277,7 @@ function ApiKeysTab() {
       setCreatedKey(res.plaintext_key);
       load();
     } catch {
-      toast.error("作成に失敗しました");
+      toast.error(t("common:createFailed"));
     }
   };
 
@@ -1218,7 +1286,7 @@ function ApiKeysTab() {
       await updateApiKey(key.id, { is_active: !key.is_active });
       load();
     } catch {
-      toast.error("更新に失敗しました");
+      toast.error(t("common:updateFailed"));
     }
   };
 
@@ -1227,7 +1295,7 @@ function ApiKeysTab() {
       await deleteApiKey(id);
       load();
     } catch {
-      toast.error("削除に失敗しました");
+      toast.error(t("common:deleteFailed"));
     }
   };
 
@@ -1257,21 +1325,21 @@ function ApiKeysTab() {
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2"><Key className="h-5 w-5" />API キー管理</CardTitle>
-        <Button size="sm" onClick={() => { resetForm(); setCreateOpen(true); }}><Plus className="h-4 w-4 mr-1" />新規作成</Button>
+        <CardTitle className="flex items-center gap-2"><Key className="h-5 w-5" />{t("admin:apiKeys.title")}</CardTitle>
+        <Button size="sm" onClick={() => { resetForm(); setCreateOpen(true); }}><Plus className="h-4 w-4 mr-1" />{t("admin:apiKeys.newKey")}</Button>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>名前</TableHead>
-              <TableHead>プレフィックス</TableHead>
-              <TableHead>ユーザー</TableHead>
-              <TableHead>フォルダ</TableHead>
-              <TableHead>権限</TableHead>
-              <TableHead>上書き</TableHead>
-              <TableHead>有効</TableHead>
-              <TableHead>最終使用</TableHead>
+              <TableHead>{t("admin:apiKeys.name")}</TableHead>
+              <TableHead>{t("admin:apiKeys.prefix")}</TableHead>
+              <TableHead>{t("admin:apiKeys.user")}</TableHead>
+              <TableHead>{t("admin:apiKeys.folder")}</TableHead>
+              <TableHead>{t("admin:apiKeys.permissions")}</TableHead>
+              <TableHead>{t("admin:apiKeys.overwrite")}</TableHead>
+              <TableHead>{t("admin:apiKeys.active")}</TableHead>
+              <TableHead>{t("admin:apiKeys.lastUsed")}</TableHead>
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>
@@ -1292,7 +1360,7 @@ function ApiKeysTab() {
                   <Switch checked={k.is_active} onCheckedChange={() => handleToggleActive(k)} />
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
-                  {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString("ja-JP") : "未使用"}
+                  {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString("ja-JP") : t("admin:apiKeys.unused")}
                 </TableCell>
                 <TableCell>
                   <Button variant="ghost" size="sm" onClick={() => handleDelete(k.id)}>
@@ -1302,7 +1370,7 @@ function ApiKeysTab() {
               </TableRow>
             ))}
             {keys.length === 0 && (
-              <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">API キーがありません</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">{t("admin:apiKeys.noKeys")}</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
@@ -1311,64 +1379,63 @@ function ApiKeysTab() {
       {/* API Manual */}
       <CardContent className="border-t pt-4">
         <details>
-          <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">API リファレンス</summary>
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">{t("admin:apiKeys.apiReference")}</summary>
           <div className="mt-3 space-y-4 text-sm">
             <div>
-              <h4 className="font-medium mb-1">ファイルアップロード</h4>
+              <h4 className="font-medium mb-1">{t("admin:apiKeys.fileUpload")}</h4>
               <pre className="bg-muted rounded p-3 text-xs overflow-x-auto whitespace-pre">{`curl -X POST /api/ingest/upload \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -F "file=@document.pdf" \\
-  -F "folder_id=FOLDER_UUID"  # 省略可`}</pre>
+  -F "folder_id=FOLDER_UUID"  # ${t("admin:apiKeys.apiManual.optional")}`}</pre>
             </div>
             <div>
-              <h4 className="font-medium mb-1">テキスト投入（n8n/Zapier連携向け）</h4>
+              <h4 className="font-medium mb-1">{t("admin:apiKeys.textIngest")}</h4>
               <pre className="bg-muted rounded p-3 text-xs overflow-x-auto whitespace-pre">{`curl -X POST /api/ingest/content \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "title": "タイトル",
-    "content": "本文テキスト（Markdown可）",
+    "title": "${t("admin:apiKeys.apiManual.exTitle")}",
+    "content": "${t("admin:apiKeys.apiManual.exContent")}",
     "source": "jira",
     "external_id": "PROJ-1234",
     "external_url": "https://...",
-    "folder": "Notion/プロジェクトA",
+    "folder": "${t("admin:apiKeys.apiManual.exFolder")}",
     "tags": ["tag1", "tag2"],
-    "memo": "メモ",
+    "memo": "${t("admin:apiKeys.apiManual.exMemo")}",
     "mode": "append",
     "version": true
   }'`}</pre>
               <p className="mt-1 text-xs text-muted-foreground">
-                <code>source</code> + <code>external_id</code> が同じ場合は既存ドキュメントを更新（upsert）。
-                <code>folder</code> / <code>tags</code> は名前指定で、存在しなければ自動作成されます。
+                {t("admin:apiKeys.apiManual.upsertNote")}
               </p>
               <table className="mt-2 w-full text-xs text-muted-foreground border-collapse">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left py-1 pr-2 font-medium">パラメータ</th>
-                    <th className="text-left py-1 pr-2 font-medium">必須</th>
-                    <th className="text-left py-1 font-medium">説明</th>
+                    <th className="text-left py-1 pr-2 font-medium">{t("admin:apiKeys.apiManual.parameter")}</th>
+                    <th className="text-left py-1 pr-2 font-medium">{t("admin:apiKeys.apiManual.required")}</th>
+                    <th className="text-left py-1 font-medium">{t("admin:apiKeys.apiManual.descriptionHeader")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="border-b"><td className="py-1 pr-2"><code>title</code></td><td className="py-1 pr-2">○</td><td className="py-1">ドキュメントタイトル（.md自動付与）</td></tr>
-                  <tr className="border-b"><td className="py-1 pr-2"><code>content</code></td><td className="py-1 pr-2">○</td><td className="py-1">本文（Markdown形式）</td></tr>
-                  <tr className="border-b"><td className="py-1 pr-2"><code>source</code></td><td className="py-1 pr-2">○</td><td className="py-1">登録元の識別子（例: discord, jira, n8n）</td></tr>
-                  <tr className="border-b"><td className="py-1 pr-2"><code>external_id</code></td><td className="py-1 pr-2"></td><td className="py-1">外部サービスの一意ID（upsertキー）</td></tr>
-                  <tr className="border-b"><td className="py-1 pr-2"><code>external_url</code></td><td className="py-1 pr-2"></td><td className="py-1">外部サービスのURL</td></tr>
-                  <tr className="border-b"><td className="py-1 pr-2"><code>folder</code></td><td className="py-1 pr-2"></td><td className="py-1">フォルダ名（自動作成）。<code>/</code> 区切りでサブフォルダ指定可（例: <code>親/子</code>）</td></tr>
-                  <tr className="border-b"><td className="py-1 pr-2"><code>tags</code></td><td className="py-1 pr-2"></td><td className="py-1">タグ名の配列（自動作成）</td></tr>
-                  <tr className="border-b"><td className="py-1 pr-2"><code>memo</code></td><td className="py-1 pr-2"></td><td className="py-1">メモ</td></tr>
-                  <tr className="border-b"><td className="py-1 pr-2"><code>mode</code></td><td className="py-1 pr-2"></td><td className="py-1"><code>"append"</code>: 既存ドキュメントに追記。省略時は全文置換</td></tr>
-                  <tr><td className="py-1 pr-2"><code>version</code></td><td className="py-1 pr-2"></td><td className="py-1"><code>true</code>: 更新時にバージョンを保存。デフォルト <code>false</code></td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>title</code></td><td className="py-1 pr-2">○</td><td className="py-1">{t("admin:apiKeys.apiManual.titleDesc")}</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>content</code></td><td className="py-1 pr-2">○</td><td className="py-1">{t("admin:apiKeys.apiManual.contentDesc")}</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>source</code></td><td className="py-1 pr-2">○</td><td className="py-1">{t("admin:apiKeys.apiManual.sourceDesc")}</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>external_id</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.externalIdDesc")}</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>external_url</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.externalUrlDesc")}</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>folder</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.folderDesc")}</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>tags</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.tagsDesc")}</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>memo</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.memoDesc")}</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>mode</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.modeDesc")}</td></tr>
+                  <tr><td className="py-1 pr-2"><code>version</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.versionDesc")}</td></tr>
                 </tbody>
               </table>
             </div>
             <div>
-              <h4 className="font-medium mb-1">その他</h4>
+              <h4 className="font-medium mb-1">{t("admin:apiKeys.others")}</h4>
               <ul className="list-disc list-inside text-xs text-muted-foreground space-y-1">
-                <li><code>GET /api/ingest/status/&#123;id&#125;</code> — 処理状況の確認</li>
-                <li><code>DELETE /api/ingest/&#123;id&#125;</code> — ドキュメント削除（delete権限が必要）</li>
-                <li><code>GET /api/ingest/list</code> — ドキュメント一覧</li>
+                <li><code>GET /api/ingest/status/&#123;id&#125;</code> — {t("admin:apiKeys.apiManual.statusCheck")}</li>
+                <li><code>DELETE /api/ingest/&#123;id&#125;</code> — {t("admin:apiKeys.apiManual.deleteDoc")}</li>
+                <li><code>GET /api/ingest/list</code> — {t("admin:apiKeys.apiManual.listDocs")}</li>
               </ul>
             </div>
           </div>
@@ -1379,12 +1446,12 @@ function ApiKeysTab() {
       <Dialog open={createOpen} onOpenChange={(open) => { if (!open) { setCreateOpen(false); setCreatedKey(null); } }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{createdKey ? "API キーが作成されました" : "API キーを作成"}</DialogTitle>
+            <DialogTitle>{createdKey ? t("admin:apiKeys.keyCreated") : t("admin:apiKeys.createKey")}</DialogTitle>
           </DialogHeader>
 
           {createdKey ? (
             <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">このキーは一度だけ表示されます。安全な場所に保存してください。</p>
+              <p className="text-sm text-muted-foreground">{t("admin:apiKeys.keyWarning")}</p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 break-all rounded bg-muted p-3 text-sm">{createdKey}</code>
                 <Button variant="outline" size="sm" onClick={handleCopy}>
@@ -1392,35 +1459,35 @@ function ApiKeysTab() {
                 </Button>
               </div>
               <DialogFooter>
-                <Button onClick={() => { setCreateOpen(false); setCreatedKey(null); }}>閉じる</Button>
+                <Button onClick={() => { setCreateOpen(false); setCreatedKey(null); }}>{t("common:close")}</Button>
               </DialogFooter>
             </div>
           ) : (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>名前</Label>
-                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="wiki同期用" />
+                <Label>{t("admin:apiKeys.name")}</Label>
+                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t("admin:apiKeys.namePlaceholder")} />
               </div>
               <div className="space-y-2">
-                <Label>操作ユーザー</Label>
+                <Label>{t("admin:apiKeys.operationUser")}</Label>
                 <select value={form.owner_id} onChange={(e) => setForm({ ...form, owner_id: e.target.value })} className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
-                  <option value="">ユーザーを選択</option>
+                  <option value="">{t("admin:apiKeys.selectUser")}</option>
                   {users.map((u) => (
                     <option key={u.id} value={u.id}>{u.display_name || u.username}</option>
                   ))}
                 </select>
               </div>
               <div className="space-y-2">
-                <Label>対象フォルダ（空 = 制限なし）</Label>
+                <Label>{t("admin:apiKeys.targetFolder")}</Label>
                 <select value={form.folder_id} onChange={(e) => setForm({ ...form, folder_id: e.target.value })} className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
-                  <option value="">制限なし</option>
+                  <option value="">{t("admin:apiKeys.noRestriction")}</option>
                   {folders.map((f) => (
                     <option key={f.id} value={f.id}>{f.name}</option>
                   ))}
                 </select>
               </div>
               <div className="space-y-2">
-                <Label>権限</Label>
+                <Label>{t("admin:apiKeys.permissions")}</Label>
                 <div className="flex gap-2 flex-wrap">
                   {ALL_PERMISSIONS.map((perm) => (
                     <Button
@@ -1437,15 +1504,15 @@ function ApiKeysTab() {
               </div>
               <div className="flex items-center gap-2">
                 <Switch checked={form.allow_overwrite} onCheckedChange={(v) => setForm({ ...form, allow_overwrite: v })} />
-                <Label>同名ファイルの上書きを許可</Label>
+                <Label>{t("admin:apiKeys.allowOverwrite")}</Label>
               </div>
               <div className="space-y-2">
-                <Label>有効期限（空 = 無期限）</Label>
+                <Label>{t("admin:apiKeys.expiryLabel")}</Label>
                 <Input type="date" value={form.expires_at} onChange={(e) => setForm({ ...form, expires_at: e.target.value })} />
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setCreateOpen(false)}>キャンセル</Button>
-                <Button onClick={handleCreate} disabled={!form.name || !form.owner_id}>作成</Button>
+                <Button variant="outline" onClick={() => setCreateOpen(false)}>{t("common:cancel")}</Button>
+                <Button onClick={handleCreate} disabled={!form.name || !form.owner_id}>{t("common:create")}</Button>
               </DialogFooter>
             </div>
           )}
@@ -1460,18 +1527,18 @@ function ApiKeysTab() {
 // ---------------------------------------------------------------------------
 
 const ACTION_LABELS: Record<string, string> = {
-  login: "ログイン",
-  "login.failed": "ログイン失敗",
-  logout: "ログアウト",
-  "document.upload": "ドキュメントアップロード",
-  "document.create": "ドキュメント作成",
-  "document.update": "ドキュメント更新",
-  "document.delete": "ゴミ箱へ移動",
-  "document.purge": "完全削除",
-  "document.restore": "ゴミ箱から復元",
-  "document.overwrite": "ドキュメント上書き",
-  "document.ingest_content": "テキスト投入(API)",
-  "document.ingest_content_update": "テキスト更新(API)",
+  login: t("admin:auditLogs.actions.login"),
+  "login.failed": t("admin:auditLogs.actions.login.failed"),
+  logout: t("admin:auditLogs.actions.logout"),
+  "document.upload": t("admin:auditLogs.actions.document.upload"),
+  "document.create": t("admin:auditLogs.actions.document.create"),
+  "document.update": t("admin:auditLogs.actions.document.update"),
+  "document.delete": t("admin:auditLogs.actions.document.delete"),
+  "document.purge": t("admin:auditLogs.actions.document.purge"),
+  "document.restore": t("admin:auditLogs.actions.document.restore"),
+  "document.overwrite": t("admin:auditLogs.actions.document.overwrite"),
+  "document.ingest_content": t("admin:auditLogs.actions.document.ingest_content"),
+  "document.ingest_content_update": t("admin:auditLogs.actions.document.ingest_content_update"),
 };
 
 // ---------------------------------------------------------------------------
@@ -1480,21 +1547,21 @@ const ACTION_LABELS: Record<string, string> = {
 
 const MAIL_PROVIDER_FIELDS: Record<string, { key: string; label: string; secret?: boolean; placeholder?: string }[]> = {
   smtp: [
-    { key: "smtp_host", label: "SMTPホスト", placeholder: "smtp.gmail.com" },
-    { key: "smtp_port", label: "SMTPポート", placeholder: "587" },
-    { key: "smtp_username", label: "SMTPユーザー名", placeholder: "user@gmail.com" },
-    { key: "smtp_password", label: "SMTPパスワード", secret: true },
+    { key: "smtp_host", label: t("admin:mail.smtp.host"), placeholder: "smtp.gmail.com" },
+    { key: "smtp_port", label: t("admin:mail.smtp.port"), placeholder: "587" },
+    { key: "smtp_username", label: t("admin:mail.smtp.username"), placeholder: "user@gmail.com" },
+    { key: "smtp_password", label: t("admin:mail.smtp.password"), secret: true },
   ],
   sendgrid: [
-    { key: "sendgrid_api_key", label: "SendGrid APIキー", secret: true, placeholder: "SG.xxxx" },
+    { key: "sendgrid_api_key", label: t("admin:mail.sendgrid.apiKey"), secret: true, placeholder: "SG.xxxx" },
   ],
   resend: [
-    { key: "resend_api_key", label: "Resend APIキー", secret: true, placeholder: "re_xxxx" },
+    { key: "resend_api_key", label: t("admin:mail.resend.apiKey"), secret: true, placeholder: "re_xxxx" },
   ],
   ses: [
-    { key: "ses_region", label: "AWS SES リージョン", placeholder: "ap-northeast-1" },
-    { key: "ses_access_key", label: "AWS SES アクセスキー", secret: true },
-    { key: "ses_secret_key", label: "AWS SES シークレットキー", secret: true },
+    { key: "ses_region", label: t("admin:mail.ses.region"), placeholder: "ap-northeast-1" },
+    { key: "ses_access_key", label: t("admin:mail.ses.accessKey"), secret: true },
+    { key: "ses_secret_key", label: t("admin:mail.ses.secretKey"), secret: true },
   ],
 };
 
@@ -1518,11 +1585,11 @@ function MailTab() {
       for (const item of s) map[item.key] = item.value;
       setSettings(map);
       setEdited({});
-    }).catch(() => toast.error("設定の取得に失敗"));
+    }).catch(() => toast.error(t("admin:settings.fetchFailed")));
   }, []);
 
   const loadRecipients = useCallback(() => {
-    getMailRecipients().then(setRecipients).catch(() => toast.error("通知先の取得に失敗"));
+    getMailRecipients().then(setRecipients).catch(() => toast.error(t("admin:mail.recipientsFetchFailed")));
   }, []);
 
   useEffect(() => { loadSettings(); loadRecipients(); }, [loadSettings, loadRecipients]);
@@ -1533,12 +1600,12 @@ function MailTab() {
       for (const [key, value] of Object.entries(edited)) {
         await updateSetting(key, value);
       }
-      toast.success("メール設定を保存しました");
+      toast.success(t("admin:mail.configSaved"));
       // Apply edited values to local state immediately to avoid race with DB commit
       setSettings((prev) => ({ ...prev, ...edited }));
       setEdited({});
     } catch {
-      toast.error("保存に失敗しました");
+      toast.error(t("common:saveFailed"));
     } finally {
       setSavingConfig(false);
     }
@@ -1552,7 +1619,7 @@ function MailTab() {
       setAddOpen(false);
       loadRecipients();
     } catch {
-      toast.error("追加に失敗しました");
+      toast.error(t("common:createFailed"));
     }
   };
 
@@ -1561,18 +1628,18 @@ function MailTab() {
       const updated = await updateMailRecipient(id, { [field]: value });
       setRecipients((prev) => prev.map((r) => (r.id === id ? updated : r)));
     } catch {
-      toast.error("更新に失敗しました");
+      toast.error(t("common:updateFailed"));
     }
   };
 
   const handleDelete = async (id: string) => {
     const r = recipients.find((r) => r.id === id);
-    if (!confirm(`${r?.email ?? "この通知先"} を削除しますか？`)) return;
+    if (!confirm(t("admin:mail.deleteRecipientConfirm", { email: r?.email ?? "" }))) return;
     try {
       await deleteMailRecipient(id);
       setRecipients((prev) => prev.filter((r) => r.id !== id));
     } catch {
-      toast.error("削除に失敗しました");
+      toast.error(t("common:deleteFailed"));
     }
   };
 
@@ -1583,7 +1650,7 @@ function MailTab() {
       const res = await sendTestMail(testEmail.trim());
       toast.success(res.message);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "送信に失敗しました");
+      toast.error(e instanceof Error ? e.message : t("admin:mail.sendFailed"));
     } finally {
       setTestSending(false);
     }
@@ -1600,17 +1667,17 @@ function MailTab() {
       {/* Provider config */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><Settings className="h-4 w-4" />メール送信設定</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2"><Settings className="h-4 w-4" />{t("admin:mail.configTitle")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-1.5">
-            <Label>プロバイダ</Label>
+            <Label>{t("admin:mail.provider")}</Label>
             <select
               value={provider || ""}
               onChange={(e) => setVal("mail_provider", e.target.value)}
               className="h-8 w-60 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             >
-              <option value="">無効</option>
+              <option value="">{t("admin:mail.providerDisabled")}</option>
               <option value="smtp">SMTP</option>
               <option value="sendgrid">SendGrid</option>
               <option value="resend">Resend</option>
@@ -1621,7 +1688,7 @@ function MailTab() {
           {provider && (
             <>
               <div className="grid gap-1.5">
-                <Label>送信元メールアドレス</Label>
+                <Label>{t("admin:mail.fromAddress")}</Label>
                 <Input
                   value={getVal("mail_from")}
                   onChange={(e) => setVal("mail_from", e.target.value)}
@@ -1647,18 +1714,18 @@ function MailTab() {
 
           <div className="flex gap-2 pt-2">
             <Button onClick={handleSaveConfig} disabled={!hasChanges || savingConfig}>
-              <Save className="h-4 w-4 mr-1" />{savingConfig ? "保存中..." : "保存"}
+              <Save className="h-4 w-4 mr-1" />{savingConfig ? t("common:saving") : t("common:save")}
             </Button>
             {provider && (
               <>
                 <Input
-                  placeholder="テスト送信先メールアドレス"
+                  placeholder={t("admin:mail.testEmailPlaceholder")}
                   value={testEmail}
                   onChange={(e) => setTestEmail(e.target.value)}
                   className="max-w-60"
                 />
                 <Button variant="outline" onClick={handleTest} disabled={testSending || !testEmail.trim()}>
-                  <Send className="h-4 w-4 mr-1" />{testSending ? "送信中..." : "テスト送信"}
+                  <Send className="h-4 w-4 mr-1" />{testSending ? t("admin:mail.sending") : t("admin:mail.testSend")}
                 </Button>
               </>
             )}
@@ -1670,9 +1737,9 @@ function MailTab() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2"><Mail className="h-4 w-4" />通知先</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2"><Mail className="h-4 w-4" />{t("admin:mail.recipientsTitle")}</CardTitle>
             <Button size="sm" onClick={() => setAddOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" />追加
+              <Plus className="h-4 w-4 mr-1" />{t("common:add")}
             </Button>
           </div>
         </CardHeader>
@@ -1680,17 +1747,17 @@ function MailTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>メールアドレス</TableHead>
-                <TableHead className="text-center w-20">ログイン</TableHead>
-                <TableHead className="text-center w-20">新規</TableHead>
-                <TableHead className="text-center w-20">更新</TableHead>
-                <TableHead className="text-center w-20">削除</TableHead>
+                <TableHead>{t("admin:mail.emailAddress")}</TableHead>
+                <TableHead className="text-center w-20">{t("admin:mail.onLogin")}</TableHead>
+                <TableHead className="text-center w-20">{t("admin:mail.onCreate")}</TableHead>
+                <TableHead className="text-center w-20">{t("admin:mail.onUpdate")}</TableHead>
+                <TableHead className="text-center w-20">{t("admin:mail.onDelete")}</TableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {recipients.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">通知先が登録されていません</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">{t("admin:mail.noRecipients")}</TableCell></TableRow>
               )}
               {recipients.map((r) => (
                 <TableRow key={r.id}>
@@ -1722,9 +1789,9 @@ function MailTab() {
       {/* Add dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>通知先を追加</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t("admin:mail.addRecipient")}</DialogTitle></DialogHeader>
           <div className="py-4">
-            <Label>メールアドレス</Label>
+            <Label>{t("admin:mail.emailInput")}</Label>
             <Input
               value={newEmail}
               onChange={(e) => setNewEmail(e.target.value)}
@@ -1733,8 +1800,8 @@ function MailTab() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>キャンセル</Button>
-            <Button onClick={handleAdd} disabled={!newEmail.trim()}>追加</Button>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>{t("common:cancel")}</Button>
+            <Button onClick={handleAdd} disabled={!newEmail.trim()}>{t("common:add")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1755,7 +1822,7 @@ function WebhooksTab() {
   const [testSending, setTestSending] = useState(false);
 
   const load = useCallback(() => {
-    getWebhooks().then(setEndpoints).catch(() => toast.error("Webhook一覧の取得に失敗"));
+    getWebhooks().then(setEndpoints).catch(() => toast.error(t("admin:webhooks.fetchFailed")));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -1767,23 +1834,23 @@ function WebhooksTab() {
       setNewName(""); setNewUrl(""); setNewFormat("json"); setNewSecret("");
       setAddOpen(false);
       load();
-    } catch { toast.error("追加に失敗しました"); }
+    } catch { toast.error(t("common:createFailed")); }
   };
 
   const handleToggle = async (id: string, field: keyof Pick<WebhookEndpoint, "on_login" | "on_create" | "on_update" | "on_delete" | "enabled">, value: boolean) => {
     try {
       const updated = await updateWebhook(id, { [field]: value });
       setEndpoints((prev) => prev.map((ep) => (ep.id === id ? updated : ep)));
-    } catch { toast.error("更新に失敗しました"); }
+    } catch { toast.error(t("common:updateFailed")); }
   };
 
   const handleDelete = async (id: string) => {
     const ep = endpoints.find((e) => e.id === id);
-    if (!confirm(`${ep?.name ?? "このWebhook"} を削除しますか？`)) return;
+    if (!confirm(t("admin:webhooks.deleteConfirm", { name: ep?.name ?? "" }))) return;
     try {
       await deleteWebhook(id);
       setEndpoints((prev) => prev.filter((e) => e.id !== id));
-    } catch { toast.error("削除に失敗しました"); }
+    } catch { toast.error(t("common:deleteFailed")); }
   };
 
   const handleTest = async () => {
@@ -1793,7 +1860,7 @@ function WebhooksTab() {
       const res = await sendTestWebhook(testUrl.trim(), testSecret.trim() || null, testFormat);
       toast.success(res.message);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "送信に失敗しました");
+      toast.error(e instanceof Error ? e.message : t("admin:mail.sendFailed"));
     } finally { setTestSending(false); }
   };
 
@@ -1802,7 +1869,7 @@ function WebhooksTab() {
       {/* Test */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><Webhook className="h-4 w-4" />テスト送信</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2"><Webhook className="h-4 w-4" />{t("admin:webhooks.testTitle")}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex gap-2 items-end flex-wrap">
@@ -1811,7 +1878,7 @@ function WebhooksTab() {
               <Input value={testUrl} onChange={(e) => setTestUrl(e.target.value)} placeholder="https://discord.com/api/webhooks/..." className="max-w-md" autoComplete="one-time-code" />
             </div>
             <div className="grid gap-1.5">
-              <Label>形式</Label>
+              <Label>{t("admin:webhooks.format")}</Label>
               <select value={testFormat} onChange={(e) => setTestFormat(e.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm w-32">
                 <option value="json">JSON</option>
                 <option value="discord">Discord</option>
@@ -1819,11 +1886,11 @@ function WebhooksTab() {
               </select>
             </div>
             <div className="grid gap-1.5">
-              <Label>Secret（任意）</Label>
-              <Input type="password" value={testSecret} onChange={(e) => setTestSecret(e.target.value)} placeholder="HMAC署名キー" className="w-48" />
+              <Label>{t("admin:webhooks.secret")}</Label>
+              <Input type="password" value={testSecret} onChange={(e) => setTestSecret(e.target.value)} placeholder={t("admin:webhooks.hmacPlaceholder")} className="w-48" />
             </div>
             <Button variant="outline" onClick={handleTest} disabled={testSending || !testUrl.trim()}>
-              <Send className="h-4 w-4 mr-1" />{testSending ? "送信中..." : "テスト"}
+              <Send className="h-4 w-4 mr-1" />{testSending ? t("admin:webhooks.testing") : t("admin:webhooks.test")}
             </Button>
           </div>
         </CardContent>
@@ -1833,9 +1900,9 @@ function WebhooksTab() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2"><Webhook className="h-4 w-4" />エンドポイント</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2"><Webhook className="h-4 w-4" />{t("admin:webhooks.endpointsTitle")}</CardTitle>
             <Button size="sm" onClick={() => setAddOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" />追加
+              <Plus className="h-4 w-4 mr-1" />{t("common:add")}
             </Button>
           </div>
         </CardHeader>
@@ -1843,20 +1910,20 @@ function WebhooksTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>名前</TableHead>
+                <TableHead>{t("admin:apiKeys.name")}</TableHead>
                 <TableHead>URL</TableHead>
-                <TableHead className="w-20">形式</TableHead>
-                <TableHead className="text-center w-16">有効</TableHead>
-                <TableHead className="text-center w-20">ログイン</TableHead>
-                <TableHead className="text-center w-16">新規</TableHead>
-                <TableHead className="text-center w-16">更新</TableHead>
-                <TableHead className="text-center w-16">削除</TableHead>
+                <TableHead className="w-20">{t("admin:webhooks.format")}</TableHead>
+                <TableHead className="text-center w-16">{t("admin:apiKeys.active")}</TableHead>
+                <TableHead className="text-center w-20">{t("admin:mail.onLogin")}</TableHead>
+                <TableHead className="text-center w-16">{t("admin:mail.onCreate")}</TableHead>
+                <TableHead className="text-center w-16">{t("admin:mail.onUpdate")}</TableHead>
+                <TableHead className="text-center w-16">{t("admin:mail.onDelete")}</TableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {endpoints.length === 0 && (
-                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Webhook が登録されていません</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">{t("admin:webhooks.noWebhooks")}</TableCell></TableRow>
               )}
               {endpoints.map((ep) => (
                 <TableRow key={ep.id}>
@@ -1895,10 +1962,10 @@ function WebhooksTab() {
       {/* Add dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Webhook を追加</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t("admin:webhooks.createTitle")}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <div className="grid gap-1.5">
-              <Label>名前</Label>
+              <Label>{t("admin:apiKeys.name")}</Label>
               <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Slack通知" autoComplete="one-time-code" />
             </div>
             <div className="grid gap-1.5">
@@ -1906,21 +1973,21 @@ function WebhooksTab() {
               <Input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://discord.com/api/webhooks/..." autoComplete="one-time-code" />
             </div>
             <div className="grid gap-1.5">
-              <Label>形式</Label>
+              <Label>{t("admin:webhooks.format")}</Label>
               <select value={newFormat} onChange={(e) => setNewFormat(e.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm">
-                <option value="json">JSON（汎用）</option>
+                <option value="json">{t("admin:webhooks.formatJson")}</option>
                 <option value="discord">Discord</option>
                 <option value="slack">Slack</option>
               </select>
             </div>
             <div className="grid gap-1.5">
-              <Label>Secret（任意、HMAC-SHA256署名用）</Label>
-              <Input type="password" value={newSecret} onChange={(e) => setNewSecret(e.target.value)} placeholder="署名キー" />
+              <Label>{t("admin:webhooks.signSecretLabel")}</Label>
+              <Input type="password" value={newSecret} onChange={(e) => setNewSecret(e.target.value)} placeholder={t("admin:webhooks.signKeyPlaceholder")} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>キャンセル</Button>
-            <Button onClick={handleAdd} disabled={!newName.trim() || !newUrl.trim()}>追加</Button>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>{t("common:cancel")}</Button>
+            <Button onClick={handleAdd} disabled={!newName.trim() || !newUrl.trim()}>{t("common:add")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1954,7 +2021,7 @@ function AuditLogsTab() {
       setItems(res.items);
       setTotal(res.total);
     } catch {
-      toast.error("監査ログの取得に失敗");
+      toast.error(t("common:fetchFailed"));
     } finally {
       setLoading(false);
     }
@@ -1977,47 +2044,47 @@ function AuditLogsTab() {
         date_to: filterDateTo || undefined,
       });
     } catch {
-      toast.error("CSV出力に失敗しました");
+      toast.error(t("common:failed"));
     }
   }
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base">監査ログ</CardTitle>
+        <CardTitle className="text-base">{t("admin:auditLogs.title")}</CardTitle>
         <Button size="sm" variant="outline" onClick={handleExport}>
-          <Download className="h-4 w-4 mr-1" /> CSV出力
+          <Download className="h-4 w-4 mr-1" /> {t("admin:auditLogs.exportCsv")}
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
         {/* Filters */}
         <div className="flex flex-wrap gap-2 items-end">
           <div className="w-40">
-            <label className="text-xs text-muted-foreground">アクション</label>
+            <label className="text-xs text-muted-foreground">{t("admin:auditLogs.actionFilter")}</label>
             <select
               value={filterAction}
               onChange={(e) => { setFilterAction(e.target.value); setPage(1); }}
               className="w-full h-9 rounded-md border bg-background px-2 text-sm"
             >
-              <option value="">すべて</option>
+              <option value="">{t("admin:auditLogs.allFilter")}</option>
               {actions.map((a) => (
                 <option key={a} value={a}>{ACTION_LABELS[a] || a}</option>
               ))}
             </select>
           </div>
           <div className="w-36">
-            <label className="text-xs text-muted-foreground">開始日</label>
+            <label className="text-xs text-muted-foreground">{t("admin:auditLogs.startDate")}</label>
             <Input type="date" value={filterDateFrom} onChange={(e) => { setFilterDateFrom(e.target.value); setPage(1); }} className="h-9" />
           </div>
           <div className="w-36">
-            <label className="text-xs text-muted-foreground">終了日</label>
+            <label className="text-xs text-muted-foreground">{t("admin:auditLogs.endDate")}</label>
             <Input type="date" value={filterDateTo} onChange={(e) => { setFilterDateTo(e.target.value); setPage(1); }} className="h-9" />
           </div>
           <div className="flex-1 min-w-[160px]">
-            <label className="text-xs text-muted-foreground">検索</label>
+            <label className="text-xs text-muted-foreground">{t("admin:auditLogs.searchLabel")}</label>
             <div className="flex gap-1">
               <Input
-                placeholder="ユーザー名・対象名..."
+                placeholder={t("admin:auditLogs.searchPlaceholder")}
                 value={filterQ}
                 onChange={(e) => setFilterQ(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); load(); } }}
@@ -2035,21 +2102,21 @@ function AuditLogsTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-40">日時</TableHead>
-                <TableHead className="w-28">ユーザー</TableHead>
-                <TableHead className="w-36">アクション</TableHead>
-                <TableHead>対象</TableHead>
+                <TableHead className="w-40">{t("admin:auditLogs.dateTime")}</TableHead>
+                <TableHead className="w-28">{t("admin:auditLogs.user")}</TableHead>
+                <TableHead className="w-36">{t("admin:auditLogs.action")}</TableHead>
+                <TableHead>{t("admin:auditLogs.target")}</TableHead>
                 <TableHead className="w-28">IP</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading && items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">読み込み中...</TableCell>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">{t("common:loading")}</TableCell>
                 </TableRow>
               ) : items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">ログがありません</TableCell>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">{t("admin:auditLogs.noLogs")}</TableCell>
                 </TableRow>
               ) : items.map((item) => (
                 <TableRow key={item.id}>
@@ -2075,7 +2142,7 @@ function AuditLogsTab() {
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>{total}件中 {(page - 1) * perPage + 1}〜{Math.min(page * perPage, total)}件</span>
+            <span>{t("admin:auditLogs.pagination", { total, from: (page - 1) * perPage + 1, to: Math.min(page * perPage, total) })}</span>
             <div className="flex items-center gap-1">
               <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>
                 <ChevronLeft className="h-4 w-4" />
@@ -2105,7 +2172,7 @@ function NotesTab() {
     try {
       setNotes(await adminListNotes());
     } catch {
-      toast.error("ノート一覧の取得に失敗しました");
+      toast.error(t("admin:notes.fetchFailed"));
     }
   }, []);
 
@@ -2129,15 +2196,15 @@ function NotesTab() {
 
   const handleBulkDelete = async () => {
     if (selected.size === 0) return;
-    if (!window.confirm(`${selected.size}件のノートをゴミ箱に移動しますか？`)) return;
+    if (!window.confirm(t("admin:notes.deleteCountConfirm", { count: selected.size }))) return;
     setDeleting(true);
     try {
       const result = await adminBulkDeleteNotes(Array.from(selected));
-      toast.success(`${result.deleted}件のノートを削除しました`);
+      toast.success(t("admin:notes.deleted", { count: result.deleted }));
       setSelected(new Set());
       await load();
     } catch {
-      toast.error("削除に失敗しました");
+      toast.error(t("common:deleteFailed"));
     } finally {
       setDeleting(false);
     }
@@ -2153,17 +2220,17 @@ function NotesTab() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="flex items-center gap-2">
-          <BookOpenText className="h-5 w-5" />ノート管理
+          <BookOpenText className="h-5 w-5" />{t("admin:notes.title")}
         </CardTitle>
         {selected.size > 0 && (
           <Button variant="destructive" size="sm" onClick={handleBulkDelete} disabled={deleting}>
-            <Trash2 className="h-4 w-4 mr-1" />{selected.size}件削除
+            <Trash2 className="h-4 w-4 mr-1" />{t("admin:notes.deleteCount", { count: selected.size })}
           </Button>
         )}
       </CardHeader>
       <CardContent>
         {notes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">ノートはありません</p>
+          <p className="text-sm text-muted-foreground">{t("admin:notes.noNotes")}</p>
         ) : (
           <Table>
             <TableHeader>
@@ -2171,11 +2238,11 @@ function NotesTab() {
                 <TableHead className="w-8">
                   <input type="checkbox" checked={selected.size === notes.length && notes.length > 0} onChange={toggleAll} />
                 </TableHead>
-                <TableHead>タイトル</TableHead>
-                <TableHead>種別</TableHead>
-                <TableHead>読み取り専用</TableHead>
-                <TableHead>作成日時</TableHead>
-                <TableHead>更新日時</TableHead>
+                <TableHead>{t("admin:notes.noteTitle")}</TableHead>
+                <TableHead>{t("admin:notes.type")}</TableHead>
+                <TableHead>{t("admin:notes.readonlyLabel")}</TableHead>
+                <TableHead>{t("admin:notes.createdAt")}</TableHead>
+                <TableHead>{t("admin:notes.updatedAt")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -2194,7 +2261,7 @@ function NotesTab() {
                           await adminToggleNoteReadonly(note.id, checked);
                           setNotes((prev) => prev.map((n) => n.id === note.id ? { ...n, note_readonly: checked } : n));
                         } catch {
-                          toast.error("読み取り専用の切り替えに失敗しました");
+                          toast.error(t("admin:notes.readonlyToggleFailed"));
                         }
                       }}
                     />
@@ -2216,22 +2283,24 @@ function NotesTab() {
 // ---------------------------------------------------------------------------
 
 const ADMIN_SECTIONS = [
-  { key: "settings", label: "LLM設定", icon: Bot },
-  { key: "users", label: "ユーザー", icon: Users },
-  { key: "groups", label: "グループ", icon: UsersRound },
-  { key: "roles", label: "ロール", icon: Shield },
-  { key: "upload", label: "アップロード", icon: Upload },
-  { key: "share", label: "共有リンク", icon: Share2 },
-  { key: "apikeys", label: "APIキー", icon: Key },
-  { key: "audit", label: "監査ログ", icon: ScrollText },
-  { key: "mail", label: "メール通知", icon: Mail },
-  { key: "notes", label: "ノート", icon: BookOpenText },
-  { key: "webhooks", label: "Webhook", icon: Webhook },
-] as const;
+  { key: "general", label: t("admin:tabs.general"), icon: Settings },
+  { key: "settings", label: t("admin:tabs.settings"), icon: Bot },
+  { key: "users", label: t("admin:tabs.users"), icon: Users },
+  { key: "groups", label: t("admin:tabs.groups"), icon: UsersRound },
+  { key: "roles", label: t("admin:tabs.roles"), icon: Shield },
+  { key: "upload", label: t("admin:tabs.upload"), icon: Upload },
+  { key: "share", label: t("admin:tabs.share"), icon: Share2 },
+  { key: "apikeys", label: t("admin:tabs.apiKeys"), icon: Key },
+  { key: "audit", label: t("admin:tabs.auditLogs"), icon: ScrollText },
+  { key: "mail", label: t("admin:tabs.mail"), icon: Mail },
+  { key: "notes", label: t("admin:tabs.notes"), icon: BookOpenText },
+  { key: "webhooks", label: t("admin:tabs.webhooks"), icon: Webhook },
+];
 
-type SectionKey = (typeof ADMIN_SECTIONS)[number]["key"];
+type SectionKey = "general" | "settings" | "users" | "groups" | "roles" | "upload" | "share" | "apikeys" | "audit" | "mail" | "notes" | "webhooks";
 
 const SECTION_COMPONENTS: Record<SectionKey, React.FC> = {
+  general: GeneralTab,
   settings: SettingsTab,
   users: UsersTab,
   groups: GroupsTab,
@@ -2248,7 +2317,7 @@ const SECTION_COMPONENTS: Record<SectionKey, React.FC> = {
 export function AdminPage() {
   const [active, setActive] = useState<SectionKey>(() => {
     const saved = localStorage.getItem("admin_section");
-    return ADMIN_SECTIONS.some((s) => s.key === saved) ? (saved as SectionKey) : "settings";
+    return ADMIN_SECTIONS.some((s) => s.key === saved) ? (saved as SectionKey) : "general";
   });
   const ActiveComponent = SECTION_COMPONENTS[active];
 
@@ -2256,12 +2325,12 @@ export function AdminPage() {
     <div className="h-full flex overflow-hidden">
       {/* Sidebar */}
       <nav className="w-48 shrink-0 border-r bg-muted/30 flex flex-col">
-        <h1 className="text-lg font-bold px-4 py-3 border-b">管理</h1>
+        <h1 className="text-lg font-bold px-4 py-3 border-b">{t("admin:title")}</h1>
         <div className="flex-1 overflow-y-auto py-1">
           {ADMIN_SECTIONS.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
-              onClick={() => { setActive(key); localStorage.setItem("admin_section", key); }}
+              onClick={() => { setActive(key as SectionKey); localStorage.setItem("admin_section", key); }}
               className={`w-full flex items-center gap-2 px-4 py-2 text-sm text-left transition-colors ${
                 active === key
                   ? "bg-accent text-accent-foreground font-medium"

@@ -9,6 +9,7 @@ import { Save, Loader2, WifiOff, RefreshCw } from "lucide-react";
 import { useTheme } from "next-themes";
 import "@blocknote/shadcn/style.css";
 import NoteReadonlyView from "@/components/NoteReadonlyView";
+import { t } from "@/i18n";
 
 interface NoteEditorProps {
   noteId: string;
@@ -102,7 +103,7 @@ export default function NoteEditor(props: NoteEditorProps) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground gap-2">
         <Loader2 className="h-4 w-4 animate-spin" />
-        接続中...
+        {t("editor:connecting")}
       </div>
     );
   }
@@ -113,12 +114,12 @@ export default function NoteEditor(props: NoteEditorProps) {
         <div className="flex items-center gap-2 px-4 py-2 border-b">
           <h2 className="flex-1 text-lg font-semibold">{props.title}</h2>
           <WifiOff className="w-4 h-4 text-destructive flex-shrink-0" />
-          <span className="text-xs text-destructive">同期サーバーに接続できません（読み取り専用）</span>
+          <span className="text-xs text-destructive">{t("editor:connectionFailed")}</span>
           <button
             onClick={() => { setMode("connecting"); setRetryCount((c) => c + 1); }}
             className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-muted text-muted-foreground hover:bg-muted/80"
           >
-            <RefreshCw className="w-3 h-3" />再接続
+            <RefreshCw className="w-3 h-3" />{t("editor:reconnect")}
           </button>
         </div>
         <div className="flex-1 overflow-auto">
@@ -352,7 +353,7 @@ function NoteEditorInner({
           defaultValue={title}
           onBlurRef={titleBlurRef}
           onInputRef={titleInputRef}
-          placeholder="無題のノート"
+          placeholder={t("editor:untitledNote")}
         />
         <button
           onClick={handleSave}
@@ -362,14 +363,14 @@ function NoteEditorInner({
           }`}
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          {dirty ? "保存" : "保存済み"}
+          {dirty ? t("editor:save") : t("editor:saved")}
         </button>
       </div>
 
       {/* Metadata */}
       {updatedAt && (
         <div className="flex items-center gap-3 px-4 py-1 text-xs text-muted-foreground border-b">
-          <span>更新: {new Date(updatedAt).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+          <span>{t("editor:updatedAt")} {new Date(updatedAt).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
           {updatedByName && <span>by {updatedByName}</span>}
           {currentVersion != null && <span>v{currentVersion}</span>}
           <button

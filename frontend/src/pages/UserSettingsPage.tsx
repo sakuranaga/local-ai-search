@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AvatarCropper } from "@/components/AvatarCropper";
-import { User as UserIcon, Mail, Lock, Image, X } from "lucide-react";
+import { User as UserIcon, Mail, Lock, Image, X, Globe } from "lucide-react";
+import i18n, { t } from "@/i18n";
 
 export function UserSettingsPage() {
   const [user, setUser] = useState<User | null>(null);
@@ -25,6 +26,9 @@ export function UserSettingsPage() {
   const [cropperFile, setCropperFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Language
+  const [locale, setLocale] = useState<string>("");
+
   // Password form
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -36,6 +40,7 @@ export function UserSettingsPage() {
       setUser(u);
       setDisplayName(u.display_name || "");
       setEmail(u.email || "");
+      setLocale(u.locale || "");
     });
   }, []);
 
@@ -51,12 +56,12 @@ export function UserSettingsPage() {
     if (!file) return;
 
     if (file.size > 2 * 1024 * 1024) {
-      toast.error("ファイルサイズは2MB以下にしてください");
+      toast.error(t("common:fileSizeLimit"));
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
     if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.type)) {
-      toast.error("JPEG, PNG, GIF, WebPのみ対応しています");
+      toast.error(t("common:imageTypesOnly"));
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -106,16 +111,34 @@ export function UserSettingsPage() {
       updated = await updateProfile({
         display_name: displayName,
         email,
+        locale: locale || undefined,
       });
       setUser(updated);
+
+      // Apply language change
+      if (locale && locale !== i18n.language) {
+        localStorage.setItem("las_locale", locale);
+        i18n.changeLanguage(locale);
+      } else if (!locale) {
+        localStorage.removeItem("las_locale");
+        // Fall back to system language
+        try {
+          const { getPublicSetting } = await import("@/lib/api");
+          const res = await getPublicSetting("system_language");
+          i18n.changeLanguage(res.value || "ja");
+        } catch {
+          i18n.changeLanguage("ja");
+        }
+      }
+
       window.dispatchEvent(new Event("profile-updated"));
-      toast.success("プロフィールを更新しました");
+      toast.success(t("auth:profileUpdated"));
     } catch (e: any) {
       const msg = e?.message || "";
       if (msg.includes("409")) {
-        toast.error("このメールアドレスは既に使用されています");
+        toast.error(t("auth:emailConflict"));
       } else {
-        toast.error("更新に失敗しました");
+        toast.error(t("common:updateFailed"));
       }
     } finally {
       setProfileSaving(false);
@@ -124,11 +147,11 @@ export function UserSettingsPage() {
 
   async function handlePasswordChange() {
     if (newPassword !== confirmPassword) {
-      toast.error("新しいパスワードが一致しません");
+      toast.error(t("auth:passwordMismatch"));
       return;
     }
     if (newPassword.length < 4) {
-      toast.error("パスワードは4文字以上で入力してください");
+      toast.error(t("auth:passwordTooShort"));
       return;
     }
     setPasswordSaving(true);
@@ -137,16 +160,16 @@ export function UserSettingsPage() {
         current_password: currentPassword,
         new_password: newPassword,
       });
-      toast.success("パスワードを変更しました");
+      toast.success(t("auth:passwordChanged"));
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     } catch (e: any) {
       const msg = e?.message || "";
       if (msg.includes("400")) {
-        toast.error("現在のパスワードが正しくありません");
+        toast.error(t("auth:wrongCurrentPassword"));
       } else {
-        toast.error("パスワード変更に失敗しました");
+        toast.error(t("auth:passwordChangeFailed"));
       }
     } finally {
       setPasswordSaving(false);
@@ -157,13 +180,13 @@ export function UserSettingsPage() {
 
   return (
     <div className="max-w-2xl mx-auto p-4 md:p-8 space-y-6">
-      <h1 className="text-2xl font-bold">ユーザー設定</h1>
+      <h1 className="text-2xl font-bold">{t("auth:pageTitle")}</h1>
 
       {/* Profile Section */}
       <Card className="p-6 space-y-5">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <UserIcon className="h-5 w-5" />
-          プロフィール
+          {t("auth:profile")}
         </h2>
 
         <div className="flex items-center gap-4">
@@ -193,7 +216,7 @@ export function UserSettingsPage() {
           <div className="space-y-2">
             <Label htmlFor="displayName" className="flex items-center gap-1.5">
               <UserIcon className="h-3.5 w-3.5" />
-              表示名
+              {t("auth:displayName")}
             </Label>
             <Input
               id="displayName"
@@ -201,30 +224,30 @@ export function UserSettingsPage() {
               onChange={(e) => {
                 if ([...e.target.value].length <= 8) setDisplayName(e.target.value);
               }}
-              placeholder="表示名を入力（8文字以内）"
+              placeholder={t("auth:displayNamePlaceholder")}
               maxLength={24}
             />
-            <p className="text-xs text-muted-foreground">{[...displayName].length}/8文字</p>
+            <p className="text-xs text-muted-foreground">{t("auth:displayNameCount", { count: [...displayName].length })}</p>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="email" className="flex items-center gap-1.5">
               <Mail className="h-3.5 w-3.5" />
-              メールアドレス
+              {t("auth:email")}
             </Label>
             <Input
               id="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="メールアドレスを入力"
+              placeholder={t("auth:emailPlaceholder")}
             />
           </div>
 
           <div className="space-y-2">
             <Label className="flex items-center gap-1.5">
               <Image className="h-3.5 w-3.5" />
-              アイコン
+              {t("auth:avatar")}
             </Label>
             <div className="flex items-center gap-2">
               <input
@@ -240,7 +263,7 @@ export function UserSettingsPage() {
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
               >
-                ファイルを選択
+                {t("common:selectFile")}
               </Button>
               {displayAvatarSrc && (
                 <Button
@@ -250,19 +273,37 @@ export function UserSettingsPage() {
                   onClick={handleAvatarClear}
                 >
                   <X className="h-4 w-4 mr-1" />
-                  クリア
+                  {t("common:clear")}
                 </Button>
               )}
               {pendingFile && (
-                <span className="text-xs text-muted-foreground">切り抜き済み</span>
+                <span className="text-xs text-muted-foreground">{t("common:cropped")}</span>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">JPEG, PNG, GIF, WebP（2MB以下）</p>
+            <p className="text-xs text-muted-foreground">{t("common:imageFormats")}</p>
+          </div>
+
+          {/* Language selector */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1.5">
+              <Globe className="h-3.5 w-3.5" />
+              {t("auth:languageLabel")}
+            </Label>
+            <select
+              value={locale}
+              onChange={(e) => setLocale(e.target.value)}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+            >
+              <option value="">{t("auth:systemDefault")}</option>
+              <option value="ja">{t("common:japanese")}</option>
+              <option value="en">{t("common:english")}</option>
+            </select>
+            <p className="text-xs text-muted-foreground">{t("auth:languageDescription")}</p>
           </div>
 
           <div className="flex justify-end">
             <Button onClick={handleProfileSave} disabled={profileSaving}>
-              {profileSaving ? "保存中..." : "プロフィールを保存"}
+              {profileSaving ? t("auth:savingProfile") : t("auth:saveProfile")}
             </Button>
           </div>
         </div>
@@ -273,12 +314,12 @@ export function UserSettingsPage() {
       <Card className="p-6 space-y-5">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <Lock className="h-5 w-5" />
-          パスワード変更
+          {t("auth:changePassword")}
         </h2>
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="currentPassword">現在のパスワード</Label>
+            <Label htmlFor="currentPassword">{t("auth:currentPassword")}</Label>
             <Input
               id="currentPassword"
               type="password"
@@ -288,7 +329,7 @@ export function UserSettingsPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="newPassword">新しいパスワード</Label>
+            <Label htmlFor="newPassword">{t("auth:newPassword")}</Label>
             <Input
               id="newPassword"
               type="password"
@@ -298,7 +339,7 @@ export function UserSettingsPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="confirmPassword">新しいパスワード（確認）</Label>
+            <Label htmlFor="confirmPassword">{t("auth:confirmPassword")}</Label>
             <Input
               id="confirmPassword"
               type="password"
@@ -312,7 +353,7 @@ export function UserSettingsPage() {
               onClick={handlePasswordChange}
               disabled={passwordSaving || !currentPassword || !newPassword}
             >
-              {passwordSaving ? "変更中..." : "パスワードを変更"}
+              {passwordSaving ? t("auth:changingPassword") : t("auth:changePasswordButton")}
             </Button>
           </div>
         </div>

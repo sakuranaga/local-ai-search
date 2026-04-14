@@ -45,6 +45,7 @@ export async function updateProfile(data: {
   display_name?: string;
   avatar_url?: string;
   email?: string;
+  locale?: string;
 }): Promise<User> {
   return apiFetch<User>("/auth/me", {
     method: "PUT",

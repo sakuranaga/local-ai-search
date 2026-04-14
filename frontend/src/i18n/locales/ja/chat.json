@@ -1,0 +1,22 @@
+{
+  "title": "AI チャット",
+  "close": "閉じる",
+  "searchPrompt": "検索するとAIが回答を生成します",
+  "modelNotSet": "（モデル未設定）",
+  "sources": "参照元:",
+  "inputPlaceholder": "質問を入力... (Enter で送信、Shift+Enter で改行)",
+  "completed": "AI回答が完了しました",
+  "aiAnswer": "AI 回答",
+  "generating": "回答を生成中",
+  "aiSummaryPrompt": "検索するとAIが要約を生成します",
+  "toolNames": {
+    "search": "検索",
+    "text_search": "テキスト検索",
+    "title_search": "タイトル検索",
+    "read_document": "文書読込",
+    "count_documents": "件数確認",
+    "list_folders": "フォルダ一覧",
+    "list_documents": "文書一覧"
+  },
+  "queryLabel": "「{{query}}」"
+}

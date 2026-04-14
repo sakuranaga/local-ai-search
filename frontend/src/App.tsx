@@ -18,7 +18,8 @@ import { Search, Settings, LogOut, Moon, Sun, UserCog } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { type FormEvent, type ReactNode, useState, useEffect } from "react";
 import { useTheme } from "next-themes";
-import { getStats, type StatsResponse } from "@/lib/api";
+import { getStats, getPublicSetting, type StatsResponse } from "@/lib/api";
+import i18n, { t } from "@/i18n";
 
 function AuthGuard({ children }: { children: ReactNode }) {
   if (!getToken()) {
@@ -78,7 +79,7 @@ function NavBar() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             type="text"
-            placeholder="文書を検索..."
+            placeholder={t("common:searchDocuments")}
             value={searchValue}
             onChange={(e) => setSearchValue(e.target.value)}
             className="h-9 pl-9 pr-3 text-sm rounded-lg"
@@ -107,17 +108,17 @@ function NavBar() {
             )}
             <DropdownMenuItem onClick={() => navigate("/user")}>
               <UserCog className="h-4 w-4 mr-2" />
-              ユーザー設定
+              {t("common:userSettings")}
             </DropdownMenuItem>
             {currentUser?.roles.includes("admin") && (
               <DropdownMenuItem onClick={() => navigate("/admin")}>
                 <Settings className="h-4 w-4 mr-2" />
-                管理
+                {t("common:admin")}
               </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={() => logout()}>
               <LogOut className="h-4 w-4 mr-2" />
-              ログアウト
+              {t("common:logout")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -136,7 +137,7 @@ function ThemeToggle() {
     <button
       onClick={() => setTheme(isDark ? "light" : "dark")}
       className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-      title={isDark ? "ライトモード" : "ダークモード"}
+      title={isDark ? t("common:lightMode") : t("common:darkMode")}
     >
       {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </button>
@@ -166,14 +167,14 @@ function StatsFooter() {
   return (
     <div className="border-t px-2 md:px-4 py-2 flex items-center gap-2 md:gap-3 text-xs text-muted-foreground shrink-0 overflow-hidden">
       <Badge variant="outline" className="text-xs font-normal">
-        {stats.total_documents.toLocaleString()}文書登録済み
+        {t("common:documentsRegistered", { count: stats.total_documents.toLocaleString() })}
       </Badge>
       <Badge variant="outline" className="text-xs font-normal">
-        {stats.total_chunks.toLocaleString()}チャンク
+        {t("common:chunks", { count: stats.total_chunks.toLocaleString() })}
       </Badge>
       {stats.disk_total_bytes > 0 && (
         <Badge variant="outline" className="text-xs font-normal hidden md:inline-flex">
-          ディスク {formatBytes(stats.disk_used_bytes)}/{formatBytes(stats.disk_total_bytes)} ({Math.round(stats.disk_used_bytes / stats.disk_total_bytes * 100)}%)
+          {t("common:disk", { used: formatBytes(stats.disk_used_bytes), total: formatBytes(stats.disk_total_bytes), percent: Math.round(stats.disk_used_bytes / stats.disk_total_bytes * 100) })}
         </Badge>
       )}
       <span className="ml-auto">LAS Version {__APP_VERSION__}</span>
@@ -192,8 +193,42 @@ function AppLayout({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
+  const [langKey, setLangKey] = useState(0);
+
+  // Re-render entire app when language changes
+  useEffect(() => {
+    const handler = () => setLangKey((k) => k + 1);
+    i18n.on("languageChanged", handler);
+    return () => { i18n.off("languageChanged", handler); };
+  }, []);
+
+  // Resolve locale: localStorage → user.locale → system_language → ja
+  useEffect(() => {
+    const stored = localStorage.getItem("las_locale");
+    if (stored) return; // user already chose
+
+    (async () => {
+      try {
+        const user = await getMe();
+        if (user.locale) {
+          localStorage.setItem("las_locale", user.locale);
+          i18n.changeLanguage(user.locale);
+          return;
+        }
+      } catch { /* not logged in */ }
+
+      try {
+        const res = await getPublicSetting("system_language");
+        if (res.value && res.value !== i18n.language) {
+          localStorage.setItem("las_locale", res.value);
+          i18n.changeLanguage(res.value);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
   return (
-    <BrowserRouter>
+    <BrowserRouter key={langKey}>
       <Toaster position="bottom-right" />
       <Routes>
         <Route path="/login" element={<LoginPage />} />

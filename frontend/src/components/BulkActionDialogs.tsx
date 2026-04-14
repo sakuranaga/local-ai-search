@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { t } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -64,9 +65,9 @@ export function BulkPermissionsDialog({
         others_read: othersRead,
         others_write: othersWrite,
       });
-      toast.success(`${res.processed}件に権限を設定しました`);
+      toast.success(t("fileExplorer:bulkPermissions.applied", { count: res.processed }));
       onDone();
-    } catch { toast.error("保存失敗"); }
+    } catch { toast.error(t("common:saveFailed")); }
     finally { setSaving(false); }
   }
 
@@ -74,18 +75,18 @@ export function BulkPermissionsDialog({
     <Dialog open={open} onOpenChange={() => onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>一括権限変更</DialogTitle>
-          <DialogDescription>{selectedIds.length}件の文書に同じ権限を設定します。</DialogDescription>
+          <DialogTitle>{t("fileExplorer:bulkPermissions.title")}</DialogTitle>
+          <DialogDescription>{t("fileExplorer:bulkPermissions.description", { count: selectedIds.length })}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium">グループ</label>
+            <label className="text-sm font-medium">{t("common:group")}</label>
             <select
               value={groupId}
               onChange={(e) => setGroupId(e.target.value)}
               className="w-full h-9 rounded-md border bg-background px-3 text-sm mt-1"
             >
-              <option value="">なし</option>
+              <option value="">{t("common:none")}</option>
               {groups.map((g) => (
                 <option key={g.id} value={g.id}>{g.name}</option>
               ))}
@@ -93,37 +94,37 @@ export function BulkPermissionsDialog({
             <div className="flex gap-4 mt-2">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={groupRead} onChange={(e) => setGroupRead(e.target.checked)} />
-                読み取り
+                {t("common:read")}
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={groupWrite} onChange={(e) => setGroupWrite(e.target.checked)} />
-                書き込み
+                {t("common:write")}
               </label>
             </div>
           </div>
           <Separator />
           <div>
-            <label className="text-sm font-medium">全員（others）</label>
+            <label className="text-sm font-medium">{t("common:othersLabel")}</label>
             <div className="flex gap-4 mt-2">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={othersRead} onChange={(e) => setOthersRead(e.target.checked)} />
-                読み取り
+                {t("common:read")}
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={othersWrite} onChange={(e) => setOthersWrite(e.target.checked)} />
-                書き込み
+                {t("common:write")}
               </label>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">パーミッション:</span>
+            <span className="text-sm font-medium">{t("common:permissionString")}</span>
             <code className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
               {formatPermString(groupRead, groupWrite, othersRead, othersWrite)}
             </code>
           </div>
         </div>
         <DialogFooter showCloseButton>
-          <Button onClick={handleSave} disabled={saving}>適用</Button>
+          <Button onClick={handleSave} disabled={saving}>{t("common:apply")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -165,21 +166,21 @@ export function BulkFolderDialog({
     <Dialog open={open} onOpenChange={() => onClose()}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>一括フォルダ移動</DialogTitle>
-          <DialogDescription>{selectedIds.length}件の文書を移動します。</DialogDescription>
+          <DialogTitle>{t("fileExplorer:bulkFolder.title")}</DialogTitle>
+          <DialogDescription>{t("fileExplorer:bulkFolder.description", { count: selectedIds.length })}</DialogDescription>
         </DialogHeader>
         <select
           value={targetFolder}
           onChange={(e) => setTargetFolder(e.target.value)}
           className="w-full h-9 rounded-md border bg-background px-3 text-sm"
         >
-          <option value="">未整理（フォルダなし）</option>
+          <option value="">{t("fileExplorer:bulkFolder.unfiled")}</option>
           {folders.map((f) => (
             <option key={f.id} value={f.id}>{f.name}</option>
           ))}
         </select>
         <DialogFooter showCloseButton>
-          <Button onClick={() => onMove(targetFolder || null)}>移動する</Button>
+          <Button onClick={() => onMove(targetFolder || null)}>{t("fileExplorer:bulkFolder.move")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -248,9 +249,9 @@ export function BulkTagDialog({
     setSaving(true);
     try {
       const res = await bulkAction(selectedIds, "set_tags", { tag_ids: [...selectedTags] });
-      toast.success(`${res.processed}件のタグを更新しました`);
+      toast.success(t("fileExplorer:bulkTag.updated", { count: res.processed }));
       onDone();
-    } catch { toast.error("タグ更新失敗"); }
+    } catch { toast.error(t("fileExplorer:tagUpdateFailed")); }
     finally { setSaving(false); }
   }
 
@@ -258,8 +259,8 @@ export function BulkTagDialog({
     <Dialog open={open} onOpenChange={() => onClose()}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>タグ編集</DialogTitle>
-          <DialogDescription>{selectedIds.length}件の文書のタグを設定します。</DialogDescription>
+          <DialogTitle>{t("fileExplorer:bulkTag.title")}</DialogTitle>
+          <DialogDescription>{t("fileExplorer:bulkTag.description", { count: selectedIds.length })}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap gap-2">
           {allTags.map((t) => (
@@ -274,10 +275,10 @@ export function BulkTagDialog({
               {t.name}
             </button>
           ))}
-          {allTags.length === 0 && <p className="text-sm text-muted-foreground">タグがありません</p>}
+          {allTags.length === 0 && <p className="text-sm text-muted-foreground">{t("fileExplorer:bulkTag.noTags")}</p>}
         </div>
         <DialogFooter showCloseButton>
-          <Button onClick={handleSave} disabled={saving || !hasChanges}>保存</Button>
+          <Button onClick={handleSave} disabled={saving || !hasChanges}>{t("common:save")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -356,7 +357,7 @@ export function UploadDialog({
       try {
         const result = await traverseDataTransferItems(e.dataTransfer, MAX_UPLOAD_FILES);
         if (result.truncated) {
-          toast.error(`ファイル数が上限 (${MAX_UPLOAD_FILES}件) を超えています。分割してください。`);
+          toast.error(t("fileExplorer:maxFilesError", { max: MAX_UPLOAD_FILES }));
         } else {
           setItems(result.files);
         }
@@ -373,8 +374,8 @@ export function UploadDialog({
     <Dialog open={open} onOpenChange={() => { onClose(); reset(); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>アップロード</DialogTitle>
-          <DialogDescription>ファイルを選択またはドラッグ&ドロップ（フォルダも可）</DialogDescription>
+          <DialogTitle>{t("fileExplorer:uploadDialog.title")}</DialogTitle>
+          <DialogDescription>{t("fileExplorer:uploadDialog.description")}</DialogDescription>
         </DialogHeader>
 
         {/* Drop zone */}
@@ -395,25 +396,25 @@ export function UploadDialog({
           {scanning ? (
             <>
               <Loader2 className="h-10 w-10 text-muted-foreground animate-spin" />
-              <p className="text-sm text-muted-foreground">フォルダを読み取り中...</p>
+              <p className="text-sm text-muted-foreground">{t("fileExplorer:readingFolder")}</p>
             </>
           ) : items.length === 0 ? (
             <>
               <Upload className="h-10 w-10 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                クリックしてファイルを選択
+                {t("fileExplorer:uploadDialog.clickToSelect")}
               </p>
               <p className="text-xs text-muted-foreground/70">
-                フォルダはドロップで対応
+                {t("fileExplorer:uploadDialog.folderByDrop")}
               </p>
             </>
           ) : hasFolders ? (
             <>
               <FolderUp className="h-10 w-10 text-primary" />
               <p className="text-sm font-medium">
-                {folderNames.length === 1 ? `${folderNames[0]}/` : `${folderNames.length} フォルダ`}
+                {folderNames.length === 1 ? `${folderNames[0]}/` : t("fileExplorer:uploadDialog.foldersCount", { count: folderNames.length })}
               </p>
-              <p className="text-sm text-muted-foreground">{items.length} ファイル</p>
+              <p className="text-sm text-muted-foreground">{t("fileExplorer:uploadDialog.filesCount", { count: items.length })}</p>
             </>
           ) : (
             <>
@@ -423,7 +424,7 @@ export function UploadDialog({
                   <p key={i}>{item.file.name} ({formatBytes(item.file.size)})</p>
                 ))}
                 {items.length > MAX_SHOW_FILES && (
-                  <p>その他 {items.length - MAX_SHOW_FILES} 件</p>
+                  <p>{t("fileExplorer:uploadDialog.moreFiles", { count: items.length - MAX_SHOW_FILES })}</p>
                 )}
               </div>
             </>
@@ -439,7 +440,7 @@ export function UploadDialog({
 
         {overLimit && (
           <p className="text-sm text-destructive font-medium">
-            ファイル数が上限 ({MAX_UPLOAD_FILES}件) を超えています。分割してください。
+            {t("fileExplorer:maxFilesError", { max: MAX_UPLOAD_FILES })}
           </p>
         )}
 
@@ -449,11 +450,11 @@ export function UploadDialog({
               onClick={(e) => { e.stopPropagation(); reset(); }}
               className="text-sm text-muted-foreground hover:text-foreground"
             >
-              クリア
+              {t("common:clear")}
             </button>
             <Button onClick={handleUpload}>
               <Upload className="h-4 w-4 mr-2" />
-              アップロード{items.length > 1 ? ` (${items.length}件)` : ""}
+              {items.length > 1 ? t("fileExplorer:uploadDialog.uploadButtonMulti", { count: items.length }) : t("fileExplorer:uploadDialog.uploadButton")}
             </Button>
           </div>
         )}

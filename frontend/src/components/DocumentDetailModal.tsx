@@ -55,6 +55,7 @@ import {
   type ShareLinkInfo,
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatBytes, formatPermString } from "@/lib/fileExplorerHelpers";
+import { t } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Document Detail Modal
@@ -107,13 +108,13 @@ export function DocumentDetailModal({
     setTab(canPreview ? "view" : "edit");
     setLoading(true);
     setEditedContent(null);
-    getDocument(item.id).then(setDoc).catch(() => toast.error("文書取得失敗")).finally(() => setLoading(false));
+    getDocument(item.id).then(setDoc).catch(() => toast.error(t("documents:fetchFailed"))).finally(() => setLoading(false));
     getMe().then((me) => setIsAdmin(me.roles.includes("admin"))).catch(() => {});
   }, [item?.id]);
 
   function handleClose() {
     if (contentDirty) {
-      if (!confirm("編集内容が保存されていません。閉じますか？")) return;
+      if (!confirm(t("documents:unsavedConfirm"))) return;
     }
     setEditedContent(null);
     onClose();
@@ -136,8 +137,8 @@ export function DocumentDetailModal({
       setDoc({ ...doc, ...updated, content: editedContent });
       setEditedContent(null);
       onUpdated();
-      toast.success("テキストを保存しました（再チャンク・再ベクトル化完了）");
-    } catch { toast.error("保存に失敗しました"); }
+      toast.success(t("documents:textSaved"));
+    } catch { toast.error(t("documents:textSaveFailed")); }
     finally { setSavingContent(false); }
   }
 
@@ -156,14 +157,14 @@ export function DocumentDetailModal({
         {/* Favorite + Prev / Next navigation */}
         <div className="absolute top-2 right-10 flex items-center gap-0.5">
           {onToggleFavorite && (
-            <Button variant="ghost" size="icon-sm" onClick={onToggleFavorite} title={isFavorited ? "お気に入り解除" : "お気に入り追加"} tabIndex={-1} className="!ring-0 !outline-none">
+            <Button variant="ghost" size="icon-sm" onClick={onToggleFavorite} title={isFavorited ? t("documents:removeFavorite") : t("documents:addFavorite")} tabIndex={-1} className="!ring-0 !outline-none">
               <Star className={`h-4 w-4 ${isFavorited ? "fill-yellow-400 text-yellow-400" : ""}`} />
             </Button>
           )}
-          <Button variant="ghost" size="icon-sm" disabled={!onPrev} onClick={onPrev} title="前のファイル (←)" tabIndex={-1} className="!ring-0 !outline-none">
+          <Button variant="ghost" size="icon-sm" disabled={!onPrev} onClick={onPrev} title={t("documents:prevFile")} tabIndex={-1} className="!ring-0 !outline-none">
             <ChevronLeft />
           </Button>
-          <Button variant="ghost" size="icon-sm" disabled={!onNext} onClick={onNext} title="次のファイル (→)" tabIndex={-1} className="!ring-0 !outline-none">
+          <Button variant="ghost" size="icon-sm" disabled={!onNext} onClick={onNext} title={t("documents:nextFile")} tabIndex={-1} className="!ring-0 !outline-none">
             <ChevronRight />
           </Button>
         </div>
@@ -175,38 +176,38 @@ export function DocumentDetailModal({
           </DialogTitle>
           <DialogDescription className="flex items-center gap-3 text-xs">
             <Badge variant="outline">{item.file_type}</Badge>
-            {item.file_size != null && <span>サイズ: {formatBytes(item.file_size)}</span>}
-            <span>テキスト: {item.chunk_count}</span>
+            {item.file_size != null && <span>{t("documents:sizeLabel")} {formatBytes(item.file_size)}</span>}
+            <span>{t("documents:textLabel")} {item.chunk_count}</span>
             {item.folder_name && (
               <span className="flex items-center gap-0.5"><FolderIcon className="h-3 w-3" />{item.folder_name}</span>
             )}
-            {item.tags?.map((t) => (
-              <span key={t.id} className="inline-flex items-center text-xs px-1.5 rounded-full text-white" style={{ backgroundColor: t.color || "#6b7280" }}>
-                {t.name}
+            {item.tags?.map((tag) => (
+              <span key={tag.id} className="inline-flex items-center text-xs px-1.5 rounded-full text-white" style={{ backgroundColor: tag.color || "#6b7280" }}>
+                {tag.name}
               </span>
             ))}
-            {item.created_by_name && <span>登録者: {item.created_by_name}</span>}
-            <span>登録日: {formatDateTime(item.created_at)}</span>
-            <span>更新日: {formatDateTime(item.updated_at)}</span>
+            {item.created_by_name && <span>{t("documents:creatorLabel")} {item.created_by_name}</span>}
+            <span>{t("documents:createdAtLabel")} {formatDateTime(item.created_at)}</span>
+            <span>{t("documents:updatedAtLabel")} {formatDateTime(item.updated_at)}</span>
           </DialogDescription>
         </DialogHeader>
 
         {/* Tabs — hidden on mobile */}
         <div className="hidden md:flex gap-1 border-b">
-          {([...(showViewTab ? ["view" as const] : []), "edit" as const, "permissions" as const, ...(showRawTab ? ["raw" as const] : []), "versions" as const, ...(shareEnabled && !effectiveShareProhibited ? ["share" as const] : [])] as const).map((t) => (
+          {([...(showViewTab ? ["view" as const] : []), "edit" as const, "permissions" as const, ...(showRawTab ? ["raw" as const] : []), "versions" as const, ...(shareEnabled && !effectiveShareProhibited ? ["share" as const] : [])] as const).map((tabKey) => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
+              key={tabKey}
+              onClick={() => setTab(tabKey)}
               className={`px-3 py-1.5 text-sm border-b-2 transition-colors ${
-                tab === t ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"
+                tab === tabKey ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              {{ view: "表示", edit: "編集", permissions: "権限", raw: "検索テキスト", versions: "バージョン", share: "共有" }[t]}
+              {{ view: t("documents:tabView"), edit: t("documents:tabEdit"), permissions: t("documents:tabPermissions"), raw: t("documents:tabSearchText"), versions: t("documents:tabVersions"), share: t("documents:tabShare") }[tabKey]}
             </button>
           ))}
           <div className="ml-auto flex items-center gap-1 pb-1">
             {effectiveShareProhibited && (
-              <span className="text-xs text-destructive/70 px-1">共有禁止</span>
+              <span className="text-xs text-destructive/70 px-1">{t("documents:shareProhibited")}</span>
             )}
             {["xlsx", "xls", "docx", "doc", "pptx", "ppt", "odt", "ods", "odp", "csv"].includes(item.file_type?.toLowerCase() ?? "") && (
               <Button
@@ -214,11 +215,11 @@ export function DocumentDetailModal({
                 className="bg-black text-white hover:bg-black/80"
                 onClick={() => window.open(`/editor?id=${item.id}`, "_blank")}
               >
-                <ExternalLink className="h-3.5 w-3.5 mr-1" />編集
+                <ExternalLink className="h-3.5 w-3.5 mr-1" />{t("documents:editMode")}
               </Button>
             )}
             {item.source_path && (effectiveDownloadProhibited ? (
-              <span className="text-xs text-destructive/70 px-1">ダウンロード禁止</span>
+              <span className="text-xs text-destructive/70 px-1">{t("documents:downloadProhibited")}</span>
             ) : (
               <Button
                 variant="outline" size="sm"
@@ -230,7 +231,7 @@ export function DocumentDetailModal({
                   a.click();
                 }}
               >
-                <Download className="h-3.5 w-3.5 mr-1" />ダウンロード
+                <Download className="h-3.5 w-3.5 mr-1" />{t("documents:download")}
               </Button>
             ))}
             <Button
@@ -244,29 +245,29 @@ export function DocumentDetailModal({
                   if (jobId) {
                     await pollJobsProgress([jobId], () => {});
                   }
-                  toast.success("再構築完了");
+                  toast.success(t("documents:reindexDone"));
                   // Refresh modal content and parent list
                   getDocument(item.id).then(setDoc).catch(() => {});
                   onUpdated();
-                } catch { toast.error("再構築失敗"); } finally { setReindexing(false); }
+                } catch { toast.error(t("documents:reindexFailed")); } finally { setReindexing(false); }
               }}
             >
               <RefreshCw className={`h-3.5 w-3.5 mr-1${reindexing ? " animate-spin" : ""}`} />
-              {reindexing ? "再構築中..." : "再構築"}
+              {reindexing ? t("documents:reindexing") : t("documents:reindex")}
             </Button>
             <Button
               variant="destructive" size="sm"
               onClick={async () => {
-                if (!confirm("この文書をゴミ箱に移動しますか？")) return;
+                if (!confirm(t("documents:deleteConfirm"))) return;
                 try {
                   await deleteDocument(item.id);
-                  toast.success("ゴミ箱に移動しました");
+                  toast.success(t("documents:movedToTrash"));
                   onUpdated();
                   onClose();
-                } catch { toast.error("削除失敗"); }
+                } catch { toast.error(t("documents:deleteFailed")); }
               }}
             >
-              <Trash2 className="h-3.5 w-3.5 mr-1" />削除
+              <Trash2 className="h-3.5 w-3.5 mr-1" />{t("common:delete")}
             </Button>
           </div>
         </div>
@@ -276,7 +277,7 @@ export function DocumentDetailModal({
           className="flex-1 min-h-0 overflow-y-auto"
           onDoubleClick={() => { if (window.innerWidth < 768) handleClose(); }}
         >
-          {loading && <p className="text-sm text-muted-foreground p-4">読み込み中...</p>}
+          {loading && <p className="text-sm text-muted-foreground p-4">{t("common:loading")}</p>}
 
           {tab === "view" && doc && (
             <div className="space-y-3 h-full flex flex-col">
@@ -293,16 +294,16 @@ export function DocumentDetailModal({
             <div className="h-full flex flex-col">
               <div className="flex items-center gap-2 px-1 py-1.5">
                 <span className="text-xs text-muted-foreground">
-                  {contentDirty ? "変更あり（未保存）" : "検索・AIが参照するテキストです — 元ファイルは変更されません"}
+                  {contentDirty ? t("documents:unsavedChanges") : t("documents:searchTextHint")}
                 </span>
                 <div className="ml-auto flex items-center gap-2">
                   {contentDirty && (
                     <Button variant="ghost" size="sm" onClick={() => setEditedContent(null)}>
-                      元に戻す
+                      {t("documents:revert")}
                     </Button>
                   )}
                   <Button size="sm" disabled={!contentDirty || savingContent} onClick={handleSaveContent}>
-                    {savingContent ? "保存中..." : "保存"}
+                    {savingContent ? t("common:saving") : t("common:save")}
                   </Button>
                 </div>
               </div>
@@ -379,19 +380,19 @@ function EditTab({
   const [addTagId, setAddTagId] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const availableTags = allTags.filter((t) => !docTags.find((dt) => dt.id === t.id));
+  const availableTags = allTags.filter((tag) => !docTags.find((dt) => dt.id === tag.id));
 
   async function saveTagsNow(newTags: TagInfo[]) {
     try {
-      await updateDocument(item.id, { tag_ids: newTags.map((t) => t.id) });
+      await updateDocument(item.id, { tag_ids: newTags.map((tag) => tag.id) });
       onTagsChanged();
-    } catch { toast.error("タグ更新失敗"); }
+    } catch { toast.error(t("documents:tagUpdateFailed")); }
   }
 
   function handleAddTag() {
     const tid = Number(addTagId);
     if (!tid) return;
-    const tag = allTags.find((t) => t.id === tid);
+    const tag = allTags.find((tag) => tag.id === tid);
     if (tag) {
       const newTags = [...docTags, tag];
       setDocTags(newTags);
@@ -401,7 +402,7 @@ function EditTab({
   }
 
   function handleRemoveTag(id: number) {
-    const newTags = docTags.filter((t) => t.id !== id);
+    const newTags = docTags.filter((tag) => tag.id !== id);
     setDocTags(newTags);
     saveTagsNow(newTags);
   }
@@ -419,7 +420,7 @@ function EditTab({
       onPreviewDownloadProhibited(null);
       onSaved({ ...item, ...updated });
     } catch {
-      toast.error("更新に失敗しました");
+      toast.error(t("common:updateFailed"));
       // Revert
       if (field === "searchable") setSearchable(!value);
       else if (field === "ai_knowledge") setAiKnowledge(!value);
@@ -436,55 +437,55 @@ function EditTab({
         summary,
         memo,
         folder_id: folderId || null,
-        tag_ids: docTags.map((t) => t.id),
+        tag_ids: docTags.map((tag) => tag.id),
       });
-      toast.success("保存しました");
+      toast.success(t("common:saved"));
       onPreviewShareProhibited(null);
       onPreviewDownloadProhibited(null);
       onSaved({ ...item, title: updated.title, summary: updated.summary ?? "", folder_id: updated.folder_id ?? null, is_note: updated.is_note, share_prohibited: updated.share_prohibited, download_prohibited: updated.download_prohibited });
       onTagsChanged();
-    } catch { toast.error("保存失敗"); }
+    } catch { toast.error(t("documents:editSaveFailed")); }
     finally { setSaving(false); }
   }
 
   return (
     <div className="space-y-4 p-1">
       <div>
-        <label className="text-sm font-medium">タイトル</label>
+        <label className="text-sm font-medium">{t("documents:titleLabel")}</label>
         <Input value={title} onChange={(e) => setTitle(e.target.value)} />
       </div>
       <div>
-        <label className="text-sm font-medium">要約</label>
-        <Textarea value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="文書の要約..." rows={3} />
+        <label className="text-sm font-medium">{t("documents:summaryLabel")}</label>
+        <Textarea value={summary} onChange={(e) => setSummary(e.target.value)} placeholder={t("documents:summaryPlaceholder")} rows={3} />
       </div>
       <div>
-        <label className="text-sm font-medium">メモ</label>
-        <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="メモ..." rows={3} />
+        <label className="text-sm font-medium">{t("documents:memoLabel")}</label>
+        <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder={t("documents:memoPlaceholder")} rows={3} />
       </div>
       <div>
-        <label className="text-sm font-medium">フォルダ</label>
+        <label className="text-sm font-medium">{t("documents:folderLabel")}</label>
         <select
           value={folderId}
           onChange={(e) => setFolderId(e.target.value)}
           className="w-full h-9 rounded-md border bg-background px-3 text-sm"
         >
-          <option value="">なし（未整理）</option>
+          <option value="">{t("documents:unfiled")}</option>
           {folders.map((f) => (
             <option key={f.id} value={f.id}>{f.name}</option>
           ))}
         </select>
       </div>
       <div>
-        <label className="text-sm font-medium">タグ</label>
+        <label className="text-sm font-medium">{t("documents:tagsLabel")}</label>
         <div className="flex flex-wrap gap-1 mt-1 mb-2">
-          {docTags.map((t) => (
+          {docTags.map((tag) => (
             <span
-              key={t.id}
+              key={tag.id}
               className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full text-white"
-              style={{ backgroundColor: t.color || "#6b7280" }}
+              style={{ backgroundColor: tag.color || "#6b7280" }}
             >
-              {t.name}
-              <button onClick={() => handleRemoveTag(t.id)} className="hover:opacity-70">
+              {tag.name}
+              <button onClick={() => handleRemoveTag(tag.id)} className="hover:opacity-70">
                 <X className="h-3 w-3" />
               </button>
             </span>
@@ -497,46 +498,46 @@ function EditTab({
               onChange={(e) => setAddTagId(e.target.value)}
               className="h-8 flex-1 rounded-md border bg-background px-3 text-sm"
             >
-              <option value="">タグを追加...</option>
-              {availableTags.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
+              <option value="">{t("documents:addTag")}</option>
+              {availableTags.map((tag) => (
+                <option key={tag.id} value={tag.id}>{tag.name}</option>
               ))}
             </select>
-            <Button size="sm" variant="outline" onClick={handleAddTag} disabled={!addTagId}>追加</Button>
+            <Button size="sm" variant="outline" onClick={handleAddTag} disabled={!addTagId}>{t("common:add")}</Button>
           </div>
         )}
       </div>
       <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={saving || !title.trim()}>保存</Button>
+        <Button onClick={handleSave} disabled={saving || !title.trim()}>{t("common:save")}</Button>
       </div>
       <Separator />
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium text-muted-foreground">検索設定</span>
+        <span className="text-xs font-medium text-muted-foreground">{t("documents:searchSettings")}</span>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={searchable} onChange={(e) => handleToggleFlag("searchable", e.target.checked)} />
-          検索対象に含める
+          {t("documents:includeInSearch")}
         </label>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={aiKnowledge} onChange={(e) => handleToggleFlag("ai_knowledge", e.target.checked)} />
-          AIナレッジに含める
+          {t("documents:includeInAi")}
         </label>
         {isAdmin && (
           <>
-            <span className="text-xs font-medium text-muted-foreground mt-1">管理者設定</span>
+            <span className="text-xs font-medium text-muted-foreground mt-1">{t("documents:adminSettings")}</span>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={shareProhibited} onChange={(e) => handleToggleFlag("share_prohibited", e.target.checked)} />
-              共有リンクを禁止
+              {t("documents:prohibitShare")}
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={downloadProhibited} onChange={(e) => handleToggleFlag("download_prohibited", e.target.checked)} />
-              ダウンロードを禁止
+              {t("documents:prohibitDownload")}
             </label>
           </>
         )}
         {!isAdmin && (item.share_prohibited || item.download_prohibited) && (
           <div className="flex flex-col gap-1 text-xs text-muted-foreground mt-1">
-            {item.share_prohibited && <span>共有リンク: 禁止</span>}
-            {item.download_prohibited && <span>ダウンロード: 禁止</span>}
+            {item.share_prohibited && <span>{t("documents:shareProhibitedBadge")}</span>}
+            {item.download_prohibited && <span>{t("documents:downloadProhibitedBadge")}</span>}
           </div>
         )}
       </div>
@@ -577,30 +578,30 @@ function PermissionsTab({ docId, doc }: { docId: string; doc: Document }) {
         others_read: othersRead,
         others_write: othersWrite,
       });
-      toast.success("権限を保存しました");
-    } catch { toast.error("保存失敗"); }
+      toast.success(t("documents:permissionsSaved"));
+    } catch { toast.error(t("documents:permissionsSaveFailed")); }
     finally { setSaving(false); }
   }
 
   return (
     <div className="space-y-4 p-1">
       <div className="text-sm">
-        <span className="font-medium">オーナー:</span>{" "}
-        <span>{doc.owner_name ?? "不明"}</span>{" "}
-        <Badge variant="outline" className="text-xs ml-1">rw（固定）</Badge>
+        <span className="font-medium">{t("documents:ownerLabel")}</span>{" "}
+        <span>{doc.owner_name ?? t("common:unknown")}</span>{" "}
+        <Badge variant="outline" className="text-xs ml-1">{t("common:rwFixed")}</Badge>
       </div>
 
       <Separator />
 
       <div>
-        <label className="text-sm font-medium">グループ</label>
+        <label className="text-sm font-medium">{t("common:group")}</label>
         <select
           value={groupId}
           onChange={(e) => setGroupId(e.target.value)}
           disabled={!canEdit}
           className="w-full h-9 rounded-md border bg-background px-3 text-sm mt-1 disabled:opacity-50"
         >
-          <option value="">なし</option>
+          <option value="">{t("common:none")}</option>
           {groups.map((g) => (
             <option key={g.id} value={g.id}>{g.name}</option>
           ))}
@@ -608,11 +609,11 @@ function PermissionsTab({ docId, doc }: { docId: string; doc: Document }) {
         <div className="flex gap-4 mt-2">
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={groupRead} onChange={(e) => setGroupRead(e.target.checked)} disabled={!canEdit} />
-            読み取り
+            {t("common:read")}
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={groupWrite} onChange={(e) => setGroupWrite(e.target.checked)} disabled={!canEdit} />
-            書き込み
+            {t("common:write")}
           </label>
         </div>
       </div>
@@ -620,15 +621,15 @@ function PermissionsTab({ docId, doc }: { docId: string; doc: Document }) {
       <Separator />
 
       <div>
-        <label className="text-sm font-medium">全員（others）</label>
+        <label className="text-sm font-medium">{t("common:othersLabel")}</label>
         <div className="flex gap-4 mt-2">
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={othersRead} onChange={(e) => setOthersRead(e.target.checked)} disabled={!canEdit} />
-            読み取り
+            {t("common:read")}
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={othersWrite} onChange={(e) => setOthersWrite(e.target.checked)} disabled={!canEdit} />
-            書き込み
+            {t("common:write")}
           </label>
         </div>
       </div>
@@ -636,7 +637,7 @@ function PermissionsTab({ docId, doc }: { docId: string; doc: Document }) {
       <Separator />
 
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium">パーミッション:</span>
+        <span className="text-sm font-medium">{t("common:permissionString")}</span>
         <code className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
           {formatPermString(groupRead, groupWrite, othersRead, othersWrite)}
         </code>
@@ -644,11 +645,11 @@ function PermissionsTab({ docId, doc }: { docId: string; doc: Document }) {
 
       <p className="text-xs text-muted-foreground">
         {canEdit
-          ? "adminロールのユーザーは全文書にアクセス可能です"
-          : "権限の変更はオーナーまたは管理者のみ可能です"}
+          ? t("documents:adminNote")
+          : t("documents:permissionsNote")}
       </p>
 
-      <div className="flex justify-end"><Button onClick={handleSave} disabled={saving || !canEdit}>権限を保存</Button></div>
+      <div className="flex justify-end"><Button onClick={handleSave} disabled={saving || !canEdit}>{t("documents:savePermissions")}</Button></div>
     </div>
   );
 }
@@ -666,35 +667,35 @@ function VersionsTab({ documentId, onRestored }: { documentId: string; onRestore
     setLoading(true);
     getDocumentVersions(documentId)
       .then(setVersions)
-      .catch(() => toast.error("バージョン一覧の取得に失敗"))
+      .catch(() => toast.error(t("documents:versionsFetchFailed")))
       .finally(() => setLoading(false));
   }, [documentId]);
 
   async function handleRestore(versionNumber: number) {
-    if (!confirm(`バージョン ${versionNumber} に復元しますか？`)) return;
+    if (!confirm(t("documents:versionRestoreConfirm", { version: versionNumber }))) return;
     setRestoring(versionNumber);
     try {
       await restoreDocumentVersion(documentId, versionNumber);
-      toast.success(`バージョン ${versionNumber} に復元しました`);
+      toast.success(t("documents:versionRestored", { version: versionNumber }));
       // Reload versions
       const updated = await getDocumentVersions(documentId);
       setVersions(updated);
       onRestored();
     } catch {
-      toast.error("復元に失敗しました");
+      toast.error(t("documents:versionRestoreFailed"));
     } finally {
       setRestoring(null);
     }
   }
 
-  if (loading) return <p className="text-sm text-muted-foreground p-4">読み込み中...</p>;
+  if (loading) return <p className="text-sm text-muted-foreground p-4">{t("common:loading")}</p>;
 
   if (versions.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <History className="h-8 w-8" />
-        <p className="text-sm">バージョン履歴はありません</p>
-        <p className="text-xs">ファイルの上書きやテキスト編集で自動的に作成されます</p>
+        <p className="text-sm">{t("documents:noVersionHistory")}</p>
+        <p className="text-xs">{t("documents:versionHistoryHint")}</p>
       </div>
     );
   }
@@ -712,11 +713,11 @@ function VersionsTab({ documentId, onRestored }: { documentId: string; onRestore
             <div className="flex items-center gap-2">
               <span className="font-medium">v{v.version_number}</span>
               {v.is_current && (
-                <Badge variant="outline" className="text-xs px-1.5 py-0">現在</Badge>
+                <Badge variant="outline" className="text-xs px-1.5 py-0">{t("documents:current")}</Badge>
               )}
               {v.change_type && (
                 <Badge variant="secondary" className="text-xs px-1.5 py-0">
-                  {{ upload: "アップロード", text_edit: "検索テキスト編集", note_edit: "ノート編集", overwrite: "ファイル上書き" }[v.change_type] ?? v.change_type}
+                  {t("documents:changeType." + v.change_type) ?? v.change_type}
                 </Badge>
               )}
             </div>
@@ -738,7 +739,7 @@ function VersionsTab({ documentId, onRestored }: { documentId: string; onRestore
               ) : (
                 <RotateCcw className="h-3.5 w-3.5 mr-1" />
               )}
-              {restoring === v.version_number ? "" : "復元"}
+              {restoring === v.version_number ? "" : t("documents:restoreButton")}
             </Button>
           )}
         </div>
@@ -785,36 +786,36 @@ function ShareTab({ documentId }: { documentId: string; documentTitle: string })
       setShowCreate(false);
       setPassword("");
       load();
-      toast.success("共有リンクを作成しました");
+      toast.success(t("documents:shareLinkCreated"));
     } catch (e: any) {
-      toast.error(e.message || "作成に失敗しました");
+      toast.error(e.message || t("common:createFailed"));
     } finally {
       setCreating(false);
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("この共有リンクを無効化しますか？")) return;
+    if (!confirm(t("documents:shareLinkDisableConfirm"))) return;
     try {
       await deleteShareLink(id);
       load();
-      toast.success("共有リンクを無効化しました");
-    } catch { toast.error("失敗しました"); }
+      toast.success(t("documents:shareLinkDisabled"));
+    } catch { toast.error(t("common:failed")); }
   }
 
   function handleCopy(url: string, id: string) {
     navigator.clipboard.writeText(url);
     setCopiedId(id);
-    toast.success("URLをコピーしました");
+    toast.success(t("documents:urlCopied"));
     setTimeout(() => setCopiedId(null), 2000);
   }
 
-  if (loading) return <p className="text-sm text-muted-foreground p-4">読み込み中...</p>;
+  if (loading) return <p className="text-sm text-muted-foreground p-4">{t("common:loading")}</p>;
 
   return (
     <div className="space-y-4 p-1">
       {links.length === 0 && !showCreate && (
-        <p className="text-sm text-muted-foreground py-4 text-center">共有リンクはありません</p>
+        <p className="text-sm text-muted-foreground py-4 text-center">{t("documents:noShareLinks")}</p>
       )}
 
       {links.map((link) => (
@@ -832,34 +833,34 @@ function ShareTab({ documentId }: { documentId: string; documentTitle: string })
             )}
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            {link.has_password && <span>🔒 パスワード</span>}
-            <span>期限: {link.expires_at ? formatDate(link.expires_at) : "無期限"}</span>
-            {!link.is_active && <span className="text-destructive font-medium">無効</span>}
+            {link.has_password && <span>🔒 {t("documents:passwordLabel")}</span>}
+            <span>{t("documents:expiryLabel")} {link.expires_at ? formatDate(link.expires_at) : t("documents:noExpiry")}</span>
+            {!link.is_active && <span className="text-destructive font-medium">{t("documents:inactive")}</span>}
           </div>
         </div>
       ))}
 
       {showCreate ? (
         <div className="border rounded-lg p-3 space-y-3">
-          <h4 className="text-sm font-medium">新しい共有リンク</h4>
+          <h4 className="text-sm font-medium">{t("documents:newShareLink")}</h4>
           <select value={expiresIn} onChange={(e) => setExpiresIn(e.target.value)} className="h-8 rounded-md border bg-background px-2 text-sm w-full">
-            <option value="1h">1時間</option>
-            <option value="1d">1日</option>
-            <option value="7d">7日間</option>
-            <option value="30d">30日間</option>
+            <option value="1h">{t("documents:hour1")}</option>
+            <option value="1d">{t("documents:day1")}</option>
+            <option value="7d">{t("documents:days7")}</option>
+            <option value="30d">{t("documents:days30")}</option>
           </select>
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={usePassword} onChange={(e) => setUsePassword(e.target.checked)} />パスワード保護
+            <input type="checkbox" checked={usePassword} onChange={(e) => setUsePassword(e.target.checked)} />{t("documents:passwordProtection")}
           </label>
-          {usePassword && <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="パスワード" />}
+          {usePassword && <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("documents:passwordLabel")} />}
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>キャンセル</Button>
-            <Button size="sm" onClick={handleCreate} disabled={creating}>{creating ? "作成中..." : "作成"}</Button>
+            <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>{t("common:cancel")}</Button>
+            <Button size="sm" onClick={handleCreate} disabled={creating}>{creating ? t("common:creating") : t("common:create")}</Button>
           </div>
         </div>
       ) : (
         <Button variant="outline" size="sm" onClick={() => setShowCreate(true)}>
-          <Plus className="h-3.5 w-3.5 mr-1" />新しい共有リンク
+          <Plus className="h-3.5 w-3.5 mr-1" />{t("documents:newShareLink")}
         </Button>
       )}
     </div>

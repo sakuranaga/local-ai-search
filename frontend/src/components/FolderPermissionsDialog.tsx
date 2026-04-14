@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { t } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -46,10 +47,10 @@ export function FolderPermissionsDialog({
         others_write: othersWrite,
         recursive,
       });
-      toast.success("フォルダ権限を保存しました");
+      toast.success(t("fileExplorer:folderPermissions.saved"));
       onSaved();
     } catch (e: any) {
-      const msg = e?.message?.includes("403") ? "権限がありません" : "保存に失敗しました";
+      const msg = e?.message?.includes("403") ? t("common:noPermission") : t("common:saveFailed");
       toast.error(msg);
     } finally {
       setSaving(false);
@@ -60,25 +61,25 @@ export function FolderPermissionsDialog({
     <Dialog open onOpenChange={() => onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>フォルダ権限設定: {folder.name}</DialogTitle>
+          <DialogTitle>{t("fileExplorer:folderPermissions.title", { name: folder.name })}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="text-sm">
-            <span className="font-medium">オーナー:</span>{" "}
-            <span>{folder.owner_name ?? "不明"}</span>{" "}
-            <Badge variant="outline" className="text-xs ml-1">rw（固定）</Badge>
+            <span className="font-medium">{t("common:owner")}:</span>{" "}
+            <span>{folder.owner_name ?? t("common:unknown")}</span>{" "}
+            <Badge variant="outline" className="text-xs ml-1">{t("common:rwFixed")}</Badge>
           </div>
 
           <Separator />
 
           <div>
-            <label className="text-sm font-medium">グループ</label>
+            <label className="text-sm font-medium">{t("common:group")}</label>
             <select
               value={groupId}
               onChange={(e) => setGroupId(e.target.value)}
               className="w-full h-9 rounded-md border bg-background px-3 text-sm mt-1"
             >
-              <option value="">なし</option>
+              <option value="">{t("common:none")}</option>
               {groups.map((g) => (
                 <option key={g.id} value={g.id}>{g.name}</option>
               ))}
@@ -86,11 +87,11 @@ export function FolderPermissionsDialog({
             <div className="flex gap-4 mt-2">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={groupRead} onChange={(e) => setGroupRead(e.target.checked)} />
-                読み取り
+                {t("common:read")}
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={groupWrite} onChange={(e) => setGroupWrite(e.target.checked)} />
-                書き込み
+                {t("common:write")}
               </label>
             </div>
           </div>
@@ -98,15 +99,15 @@ export function FolderPermissionsDialog({
           <Separator />
 
           <div>
-            <label className="text-sm font-medium">全員（others）</label>
+            <label className="text-sm font-medium">{t("common:othersLabel")}</label>
             <div className="flex gap-4 mt-2">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={othersRead} onChange={(e) => setOthersRead(e.target.checked)} />
-                読み取り
+                {t("common:read")}
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={othersWrite} onChange={(e) => setOthersWrite(e.target.checked)} />
-                書き込み
+                {t("common:write")}
               </label>
             </div>
           </div>
@@ -114,7 +115,7 @@ export function FolderPermissionsDialog({
           <Separator />
 
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">パーミッション:</span>
+            <span className="text-sm font-medium">{t("common:permissionString")}</span>
             <code className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
               {formatPermString(groupRead, groupWrite, othersRead, othersWrite)}
             </code>
@@ -122,11 +123,11 @@ export function FolderPermissionsDialog({
 
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={recursive} onChange={(e) => setRecursive(e.target.checked)} />
-            サブフォルダとその中のファイルにも適用
+            {t("fileExplorer:folderPermissions.applyToChildren")}
           </label>
         </div>
         <DialogFooter showCloseButton>
-          <Button onClick={handleSave} disabled={saving}>保存</Button>
+          <Button onClick={handleSave} disabled={saving}>{t("common:save")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
