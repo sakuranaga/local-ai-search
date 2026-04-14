@@ -262,6 +262,7 @@ export function FileExplorerPage() {
   const [noteDeleteTarget, setNoteDeleteTarget] = useState<{ noteId: string; title: string } | null>(null);
   const [noteDeleteMode, setNoteDeleteMode] = useState<"remove" | "delete">("remove");
   const [noteCtxMenu, setNoteCtxMenu] = useState<NoteContextMenuState | null>(null);
+  const [blankCtx, setBlankCtx] = useState<{ x: number; y: number } | null>(null);
   const notesReadonly = activeNote?.note_readonly ?? false;
   const noteDirtyRef = useRef(false);
 
@@ -1840,7 +1841,13 @@ export function FileExplorerPage() {
 
         {/* Table */}
         <Card className="!py-0 !gap-0 flex-1 min-h-0 overflow-hidden flex flex-col">
-          <div className="flex-1 min-h-0 overflow-auto" ref={scrollContainerRef}>
+          <div className="flex-1 min-h-0 overflow-auto" ref={scrollContainerRef} onContextMenu={(e) => {
+            // Only show blank-area menu when right-clicking on empty space (not on a row)
+            if ((e.target as HTMLElement).closest("tr")) return;
+            if (showTrash) return;
+            e.preventDefault();
+            setBlankCtx({ x: e.clientX, y: e.clientY });
+          }}>
             <table className="doc-table w-full text-sm" style={{ tableLayout: "fixed", minWidth: 720 }}>
               <colgroup>
                 <col />
@@ -2050,6 +2057,27 @@ export function FileExplorerPage() {
             onClose={() => setContextMenu(null)}
             onAction={contextAction}
           />
+        )}
+
+        {/* Blank area context menu */}
+        {blankCtx && (
+          <>
+            <div className="fixed inset-0 z-50" onClick={() => setBlankCtx(null)} onContextMenu={(e) => { e.preventDefault(); setBlankCtx(null); }} />
+            <div
+              className="fixed z-50 min-w-[160px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 animate-in fade-in-0 zoom-in-95"
+              style={{ left: blankCtx.x, top: blankCtx.y }}
+            >
+              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setNewFolderParent(activeFolderId && activeFolderId !== "unfiled" ? activeFolderId : null); setNewFolderOpen(true); setBlankCtx(null); }}>
+                <FolderPlus className="h-4 w-4" />フォルダ作成
+              </button>
+              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setCreateTextOpen(true); setBlankCtx(null); }}>
+                <FilePlus className="h-4 w-4" />テキスト新規作成
+              </button>
+              <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setUploadOpen(true); setBlankCtx(null); }}>
+                <Upload className="h-4 w-4" />ファイルアップロード
+              </button>
+            </div>
+          </>
         )}
 
         </>
