@@ -199,7 +199,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Local AI Search",
     description="Self-hosted AI-powered document search with RAG",
-    version="1.2.0",
+    version="1.3.0",
     lifespan=lifespan,
 )
 
