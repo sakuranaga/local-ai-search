@@ -1179,7 +1179,11 @@ export function FileExplorerPage() {
 
   function handleFileDragOver(e: React.DragEvent) {
     e.preventDefault();
-    if (hasFiles(e)) e.dataTransfer.dropEffect = "copy";
+    if (e.dataTransfer.types.includes("application/x-folder-id") || e.dataTransfer.types.includes("application/x-doc-ids")) {
+      e.dataTransfer.dropEffect = "move";
+    } else if (hasFiles(e)) {
+      e.dataTransfer.dropEffect = "copy";
+    }
   }
 
   const uploadFolderId = activeFolderId && activeFolderId !== "unfiled" ? activeFolderId : null;
@@ -1218,6 +1222,28 @@ export function FileExplorerPage() {
     e.preventDefault();
     dragCounter.current = 0;
     setFileDragOver(false);
+
+    // Handle folder dragged from sidebar into file list
+    const draggedFolderId = e.dataTransfer.getData("application/x-folder-id");
+    if (draggedFolderId) {
+      const targetFolderId = activeFolderId && activeFolderId !== "unfiled" ? activeFolderId : null;
+      if (draggedFolderId !== targetFolderId) {
+        handleDropFolderOnFolder(draggedFolderId, targetFolderId);
+      }
+      return;
+    }
+
+    // Handle documents dragged from file list
+    const docData = e.dataTransfer.getData("application/x-doc-ids");
+    if (docData) {
+      try {
+        const ids: string[] = JSON.parse(docData);
+        const targetFolderId = activeFolderId && activeFolderId !== "unfiled" ? activeFolderId : null;
+        if (ids.length > 0) handleDropOnFolder(targetFolderId, ids);
+      } catch { /* ignore */ }
+      return;
+    }
+
     if (!hasFiles(e) || uploadOpen) return;
 
     // Check for directory entries (folder drop)
@@ -1853,7 +1879,35 @@ export function FileExplorerPage() {
 
         {/* Table */}
         <Card className="!py-0 !gap-0 flex-1 min-h-0 overflow-hidden flex flex-col">
-          <div className="flex-1 min-h-0 overflow-auto" ref={scrollContainerRef} onContextMenu={(e) => {
+          <div className="flex-1 min-h-0 overflow-auto" ref={scrollContainerRef}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("application/x-folder-id") || e.dataTransfer.types.includes("application/x-doc-ids")) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            }
+          }}
+          onDrop={(e) => {
+            const draggedFolderId = e.dataTransfer.getData("application/x-folder-id");
+            if (draggedFolderId) {
+              e.preventDefault();
+              e.stopPropagation();
+              const targetFolderId = activeFolderId && activeFolderId !== "unfiled" ? activeFolderId : null;
+              if (draggedFolderId !== targetFolderId) handleDropFolderOnFolder(draggedFolderId, targetFolderId);
+              return;
+            }
+            const docData = e.dataTransfer.getData("application/x-doc-ids");
+            if (docData) {
+              e.preventDefault();
+              e.stopPropagation();
+              try {
+                const ids: string[] = JSON.parse(docData);
+                const targetFolderId = activeFolderId && activeFolderId !== "unfiled" ? activeFolderId : null;
+                if (ids.length > 0) handleDropOnFolder(targetFolderId, ids);
+              } catch { /* ignore */ }
+              return;
+            }
+          }}
+          onContextMenu={(e) => {
             // Only show blank-area menu when right-clicking on empty space (not on a row)
             if ((e.target as HTMLElement).closest("tr")) return;
             if (showTrash) return;

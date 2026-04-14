@@ -277,7 +277,10 @@ export function uploadWithProgress(
         return;
       }
       trackUploadEnd(file.name);
-      toast.error(`${file.name}: アップロード失敗 - ${error.message}`, { id: toastId });
+      const msg = error.message?.includes("403") || error.message?.includes("permission")
+        ? "権限がありません"
+        : error.message;
+      toast.error(`${file.name}: アップロード失敗 - ${msg}`, { id: toastId });
     },
     removeFingerprintOnSuccess: true,
   });

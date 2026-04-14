@@ -28,6 +28,7 @@ from app.models import ApiKey, Chunk, Document, DocumentTag, File, Folder, Tag, 
 from app.services.audit import audit_log
 from app.services.auth import verify_token
 from app.services.document_processing import get_file_type
+from app.services.permissions import can_access_folder
 from app.services.job_queue import create_job
 from app.utils.filename import sanitize_filename
 
@@ -138,6 +139,12 @@ async def _ingest_single_file(
     """Upload and register a single file."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
+
+    # Check write permission on target folder
+    if folder_id:
+        folder_obj = await db.get(Folder, folder_id)
+        if folder_obj and not await can_access_folder(folder_obj, user, need_write=True, db=db):
+            raise HTTPException(status_code=403, detail="No write permission on target folder")
 
     file_type = get_file_type(file.filename)
 
@@ -801,8 +808,7 @@ async def tus_hook(
             user, api_key = await _authenticate_tus_upload(metadata, db)
             if user is None:
                 return JSONResponse(
-                    status_code=401,
-                    content={"HTTPResponse": {"StatusCode": 401, "Body": "Authentication required"}},
+                    content={"RejectUpload": True, "HTTPResponse": {"StatusCode": 401, "Body": "Authentication required"}},
                 )
 
             # Check API key folder restriction
@@ -810,9 +816,22 @@ async def tus_hook(
                 requested_folder = metadata.get("folder_id", "")
                 if requested_folder and requested_folder != str(api_key.folder_id):
                     return JSONResponse(
-                        status_code=403,
-                        content={"HTTPResponse": {"StatusCode": 403, "Body": "API key restricted to specific folder"}},
+                        content={"RejectUpload": True, "HTTPResponse": {"StatusCode": 403, "Body": "API key restricted to specific folder"}},
                     )
+
+            # Check write permission on target folder
+            folder_id_str = metadata.get("folder_id", "")
+            if api_key and api_key.folder_id:
+                folder_id_str = str(api_key.folder_id)
+            if folder_id_str:
+                try:
+                    folder_obj = await db.get(Folder, uuid.UUID(folder_id_str))
+                    if folder_obj and not await can_access_folder(folder_obj, user, need_write=True, db=db):
+                        return JSONResponse(
+                            content={"RejectUpload": True, "HTTPResponse": {"StatusCode": 403, "Body": "No write permission on target folder"}},
+                        )
+                except ValueError:
+                    pass
 
         return JSONResponse(content={})
 
@@ -854,6 +873,13 @@ async def tus_hook(
             # API key folder restriction
             if api_key and api_key.folder_id:
                 folder_uuid = api_key.folder_id
+
+            # Check write permission on target folder
+            if folder_uuid:
+                folder_check = await db.get(Folder, folder_uuid)
+                if folder_check and not await can_access_folder(folder_check, user, need_write=True, db=db):
+                    logger.error("tus post-finish: no write permission on folder %s for user %s", folder_uuid, user.username)
+                    return JSONResponse(content={"ok": False}, status_code=403)
 
             # Copy permissions from folder
             doc_group_id = None

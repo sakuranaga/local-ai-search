@@ -260,7 +260,9 @@ export class UploadQueueManager {
 
         trackUploadEnd(item.filename);
         item.status = "error";
-        item.error = error.message || "アップロード失敗";
+        item.error = error.message?.includes("403") || error.message?.includes("permission")
+          ? "権限がありません"
+          : error.message || "アップロード失敗";
         item.file = null;
         this.activeUploads.delete(item.id);
         this._notify();

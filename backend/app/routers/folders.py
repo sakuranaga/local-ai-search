@@ -11,6 +11,7 @@ from app.models import Document, Folder, Group, User
 from app.services.permissions import (
     build_folder_visibility_filter,
     build_visibility_filter,
+    can_access_folder,
     get_user_group_ids,
     is_admin,
 )
@@ -239,6 +240,8 @@ async def create_folder(
         parent = await db.get(Folder, parent_uuid)
         if parent is None:
             raise HTTPException(status_code=404, detail="Parent folder not found")
+        if not await can_access_folder(parent, current_user, need_write=True, db=db):
+            raise HTTPException(status_code=403, detail="No write permission on parent folder")
 
     folder = Folder(
         name=body.name,
@@ -281,8 +284,11 @@ async def create_folders_bulk(
     root_parent: uuid.UUID | None = None
     if body.parent_id:
         root_parent = uuid.UUID(body.parent_id)
-        if not await db.get(Folder, root_parent):
+        parent = await db.get(Folder, root_parent)
+        if not parent:
             raise HTTPException(status_code=404, detail="Parent folder not found")
+        if not await can_access_folder(parent, current_user, need_write=True, db=db):
+            raise HTTPException(status_code=403, detail="No write permission on parent folder")
 
     # Sort by depth so parents are created before children
     sorted_paths = sorted(set(body.paths), key=lambda p: p.count("/"))
@@ -358,10 +364,13 @@ async def update_folder(
         if body.parent_id == "":
             folder.parent_id = None
         else:
-            new_parent = uuid.UUID(body.parent_id)
-            if not await _check_no_cycle(db, folder_id, new_parent):
+            new_parent_id = uuid.UUID(body.parent_id)
+            if not await _check_no_cycle(db, folder_id, new_parent_id):
                 raise HTTPException(status_code=400, detail="Circular reference")
-            folder.parent_id = new_parent
+            new_parent_folder = await db.get(Folder, new_parent_id)
+            if new_parent_folder and not await can_access_folder(new_parent_folder, current_user, need_write=True, db=db):
+                raise HTTPException(status_code=403, detail="No write permission on target folder")
+            folder.parent_id = new_parent_id
 
     # Permission fields (owner/admin only)
     perms_changed = False

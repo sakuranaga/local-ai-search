@@ -38,6 +38,7 @@ from app.services.parser import chunk_text
 from app.services.permissions import (
     is_admin as _is_admin,
     can_access_document as _check_doc_access,
+    can_access_folder as _check_folder_access,
     get_user_group_ids,
     build_visibility_filter,
     format_permission_string,
@@ -310,6 +311,12 @@ async def create_text_document(
         title += ".md"
 
     folder_id = uuid.UUID(body.folder_id) if body.folder_id else None
+
+    # Check write permission on target folder
+    if folder_id:
+        folder_obj = await db.get(Folder, folder_id)
+        if folder_obj and not await _check_folder_access(folder_obj, current_user, need_write=True, db=db):
+            raise HTTPException(status_code=403, detail="No write permission on target folder")
 
     # Write content to disk as .md
     storage_dir = Path(settings.STORAGE_PATH) / "uploads" / str(current_user.id)
@@ -1115,7 +1122,12 @@ async def update_document(
     if body.download_prohibited is not None:
         doc.download_prohibited = body.download_prohibited
     if body.folder_id is not None:
-        doc.folder_id = uuid.UUID(body.folder_id) if body.folder_id else None
+        new_folder_id = uuid.UUID(body.folder_id) if body.folder_id else None
+        if new_folder_id:
+            target_folder = await db.get(Folder, new_folder_id)
+            if target_folder and not await _check_folder_access(target_folder, current_user, need_write=True, db=db):
+                raise HTTPException(status_code=403, detail="No write permission on target folder")
+        doc.folder_id = new_folder_id
     if body.tag_ids is not None:
         await db.execute(
             delete(DocumentTag).where(DocumentTag.document_id == doc.id)
@@ -1351,6 +1363,10 @@ async def bulk_action(
         docs = await _accessible_docs()
         folder_uuid = uuid.UUID(body.folder_id) if body.folder_id else None
         target_folder = await db.get(Folder, folder_uuid) if folder_uuid else None
+
+        # Check write permission on target folder
+        if target_folder and not await _check_folder_access(target_folder, current_user, need_write=True, db=db):
+            raise HTTPException(status_code=403, detail="No write permission on target folder")
 
         # Handle overwrite: soft-delete existing docs with same titles in target folder
         if body.overwrite and docs:
