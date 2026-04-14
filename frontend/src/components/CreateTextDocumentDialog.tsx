@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,16 +30,14 @@ export function CreateTextDocumentDialog({
   const [folderId, setFolderId] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Sync folderId when dialog opens with a different currentFolderId
-  function handleOpenChange(isOpen: boolean) {
-    if (isOpen) {
-      setFolderId("");
+  // Reset form when dialog opens
+  useEffect(() => {
+    if (open) {
+      setFolderId(currentFolderId ?? "");
       setTitle("");
       setContent("");
-    } else {
-      onClose();
     }
-  }
+  }, [open, currentFolderId]);
 
   async function handleSave() {
     const trimmedTitle = title.trim();
@@ -70,7 +68,7 @@ export function CreateTextDocumentDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="sm:max-w-4xl w-[95vw] h-[85vh] !max-w-none !w-screen !h-[100dvh] !max-h-[100dvh] !rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 md:!max-w-4xl md:!w-[95vw] md:!h-[85vh] md:!max-h-[85vh] md:!rounded-lg md:!top-1/2 md:!left-1/2 md:!-translate-x-1/2 md:!-translate-y-1/2 flex flex-col pb-[env(safe-area-inset-bottom)] md:pb-0">
         <DialogHeader>
           <DialogTitle>新規テキストドキュメント</DialogTitle>

@@ -232,6 +232,7 @@ export function FileExplorerPage() {
   const [detailDoc, setDetailDoc] = useState<DocumentListItem | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [createTextOpen, setCreateTextOpen] = useState(false);
+  const [createTextFolderId, setCreateTextFolderId] = useState<string | null>(null);
   const [bulkActionOpen, setBulkActionOpen] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<DocumentListItem | null>(null);
   const [shareEnabled, setShareEnabled] = useState(false);
@@ -925,6 +926,17 @@ export function FileExplorerPage() {
         break;
       case "delete":
         setBulkActionOpen("delete");
+        break;
+      case "new_folder":
+        setNewFolderParent(activeFolderId && activeFolderId !== "unfiled" ? activeFolderId : null);
+        setNewFolderOpen(true);
+        break;
+      case "new_text":
+        setCreateTextFolderId(item.folder_id ?? null);
+        setCreateTextOpen(true);
+        break;
+      case "new_upload":
+        setUploadOpen(true);
         break;
     }
   }
@@ -2074,7 +2086,7 @@ export function FileExplorerPage() {
                 <FilePlus className="h-4 w-4" />テキスト新規作成
               </button>
               <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setUploadOpen(true); setBlankCtx(null); }}>
-                <Upload className="h-4 w-4" />ファイルアップロード
+                <Upload className="h-4 w-4" />アップロード
               </button>
             </div>
           </>
@@ -2553,10 +2565,10 @@ export function FileExplorerPage() {
       {/* Create Text Document Dialog */}
       <CreateTextDocumentDialog
         open={createTextOpen}
-        onClose={() => setCreateTextOpen(false)}
+        onClose={() => { setCreateTextOpen(false); setCreateTextFolderId(null); }}
         folders={folders}
-        currentFolderId={uploadFolderId}
-        onCreated={() => { setCreateTextOpen(false); load(true); }}
+        currentFolderId={createTextFolderId ?? uploadFolderId}
+        onCreated={() => { setCreateTextOpen(false); setCreateTextFolderId(null); load(true); }}
       />
 
       {/* Note Delete Dialog */}

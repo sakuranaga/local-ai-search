@@ -13,6 +13,11 @@ import {
   Star,
   FileText,
   FolderOutput,
+  Plus,
+  ChevronRight,
+  FolderPlus,
+  FilePlus,
+  Upload,
 } from "lucide-react";
 import type { DocumentListItem } from "@/lib/api";
 
@@ -40,6 +45,8 @@ export function DocumentContextMenu({
   onAction,
 }: DocumentContextMenuProps) {
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: menu.x, top: menu.y });
+  const [showNewSub, setShowNewSub] = useState(false);
+  const [newSubPos, setNewSubPos] = useState<"right" | "left">("right");
 
   const isMulti = selectedCount > 1;
   const count = Math.max(selectedCount, 1);
@@ -82,13 +89,34 @@ export function DocumentContextMenu({
             <Download className="h-4 w-4" />ダウンロード{isMulti ? ` (${count}件)` : ""}
           </button>
         )}
+        <div className={sep} />
+        <div className="relative" onMouseEnter={(e) => {
+          setShowNewSub(true);
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          setNewSubPos(rect.right + 170 > window.innerWidth ? "left" : "right");
+        }} onMouseLeave={() => setShowNewSub(false)}>
+          <button className={`${btn} justify-between`} onClick={() => setShowNewSub((v) => !v)}>
+            <span className="flex items-center gap-2"><Plus className="h-4 w-4" />新規作成</span>
+            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+          </button>
+          {showNewSub && (
+            <div className={`absolute top-0 ${newSubPos === "right" ? "left-full" : "right-full"} ml-1 min-w-[170px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 z-50`}>
+              <button className={btn} onClick={() => onAction("new_folder")}>
+                <FolderPlus className="h-4 w-4" />フォルダ作成
+              </button>
+              <button className={btn} onClick={() => onAction("new_text")}>
+                <FilePlus className="h-4 w-4" />テキスト新規作成
+              </button>
+              <button className={btn} onClick={() => onAction("new_upload")}>
+                <Upload className="h-4 w-4" />アップロード
+              </button>
+            </div>
+          )}
+        </div>
         {!isMulti && shareEnabled && !menu.item.share_prohibited && (
-          <>
-            <div className={sep} />
-            <button className={btn} onClick={() => onAction("share")}>
-              <Link className="h-4 w-4" />共有リンク作成
-            </button>
-          </>
+          <button className={btn} onClick={() => onAction("share")}>
+            <Link className="h-4 w-4" />共有リンク作成
+          </button>
         )}
         <div className={sep} />
         <button className={btn} onClick={() => onAction("move_folder")}>
