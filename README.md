@@ -75,6 +75,7 @@ Mount LAS as a network drive. Uses a **FUSE + Samba hybrid architecture**: FUSE 
 - **Video player** — video.js v10 for mp4/mov/mkv/avi (seek, playback speed, PiP, fullscreen)
 - **Audio player** — mp3/wav/ogg/m4a/flac/aac in-browser playback
 - **Text editing** — OverType WYSIWYG editor for correcting OCR errors (auto re-chunk & re-vectorize)
+- **Collaborative editing** — Collabora Online (LibreOffice Online) integration via WOPI. Edit DOCX/XLSX/PPTX directly in the browser with full Office compatibility
 - **AI summaries** — LLM auto-generates document summaries on upload
 - **External sharing** — Share files via independent Share Server. Password protection, expiration (max 30 days), auto-cleanup
 - **Bulk operations** — Multi-select for tag editing, folder move, permission changes, delete, zip download
@@ -150,6 +151,7 @@ Mount LAS as a network drive. Uses a **FUSE + Samba hybrid architecture**: FUSE 
 | Video Player | video.js v10 (@videojs/react) |
 | LLM | llama.cpp (OpenAI-compatible API) |
 | Embedding | llama.cpp (OpenAI-compatible API) |
+| Office Editing | Collabora Online (WOPI integration) |
 | Proxy | Nginx (SPA + API + tus reverse proxy) |
 | Container | Docker Compose |
 
@@ -253,6 +255,7 @@ docker compose up -d
 | clamav | ClamAV antivirus scanner | internal 3310 |
 | y-websocket | Yjs WebSocket server (collaboration) | internal 1234 |
 | nginx | Reverse proxy + SPA serving | **3002** |
+| collabora | Collabora Online (LibreOffice Online) | internal 9980 |
 | las-fuse | FUSE virtual filesystem for SMB | internal |
 | samba | SMB file sharing server | **445** |
 | ocr-server | Surya OCR (host, systemd recommended) | 8090 |

@@ -103,6 +103,7 @@ LAS をネットワークドライブとしてマウントします。**FUSE + S
 - **動画プレビュー** — video.js v10 でmp4/mov/mkv/avi等を再生（シーク、再生速度、PiP、フルスクリーン対応）
 - **音声プレビュー** — mp3/wav/ogg/m4a/flac/aac をブラウザ内再生
 - **テキスト編集** — OverType エディタでOCR誤認識の修正等（再チャンク・再ベクトル化を自動実行）
+- **協調編集** — Collabora Online (LibreOffice Online) の WOPI 統合。DOCX/XLSX/PPTX をブラウザ上で直接編集、完全な Office 互換
 - **AI 要約** — 文書登録時に LLM で要約を自動生成
 - **外部共有リンク** — LAN内のファイルを外部の Share Server 経由で共有。パスワード保護、有効期限（最大30日）、期限切れ自動削除対応
 - **一括操作** — 複数選択でタグ編集、フォルダ移動、権限変更、削除、Zip ダウンロード
@@ -196,6 +197,7 @@ LAS は**ファイルサーバー**であり、元ファイルは不可侵が原
 | Video Player | video.js v10 (@videojs/react) — リッチな動画プレイヤー |
 | LLM | llama.cpp (OpenAI 互換 API) |
 | Embedding | llama.cpp (OpenAI 互換 API) |
+| Office 編集 | Collabora Online (WOPI 統合) |
 | Proxy | Nginx (SPA + API + tus リバースプロキシ) |
 | Container | Docker Compose |
 
@@ -299,6 +301,7 @@ docker compose up -d
 | y-websocket | Yjs WebSocket サーバー（共同編集） | 内部 1234 |
 | nginx | リバースプロキシ + SPA 配信 | **3002** |
 | queue-worker | バックグラウンドジョブ処理 | 内部 |
+| collabora | Collabora Online (LibreOffice Online) | 内部 9980 |
 | las-fuse | FUSE 仮想ファイルシステム (SMB 用) | 内部 |
 | samba | SMB ファイル共有サーバー | **445** |
 | ocr-server | Surya OCR（ホスト直接起動、systemd 推奨） | 8090 |
