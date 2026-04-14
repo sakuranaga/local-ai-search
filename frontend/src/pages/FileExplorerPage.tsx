@@ -1152,7 +1152,7 @@ export function FileExplorerPage() {
       toast.error(`ファイル数が上限 (${MAX_UPLOAD_FILES}件) を超えています (${files.length.toLocaleString()}件)。分割してください。`);
       return;
     }
-    const dupTitles = await checkDuplicates(files.map((f) => f.name));
+    const dupTitles = await checkDuplicates(files.map((f) => f.name), uploadFolderId);
     const dupSet = new Set(dupTitles);
     const dups: globalThis.File[] = [];
     const nonDups: globalThis.File[] = [];

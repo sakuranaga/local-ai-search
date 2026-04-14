@@ -59,8 +59,9 @@ export async function resolveTitles(ids: string[]): Promise<Record<string, { tit
   });
 }
 
-export async function checkDuplicates(titles: string[]): Promise<string[]> {
-  const data = await apiFetch<{ duplicates: string[] }>("/documents/check-duplicates", {
+export async function checkDuplicates(titles: string[], folderId?: string | null): Promise<string[]> {
+  const params = folderId ? `?folder_id=${folderId}` : "";
+  const data = await apiFetch<{ duplicates: string[] }>(`/documents/check-duplicates${params}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(titles),

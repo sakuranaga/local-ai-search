@@ -548,18 +548,22 @@ async def get_processing_status(
 @router.post("/check-duplicates")
 async def check_duplicates(
     titles: list[str] = Body(...),
+    folder_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Return which of the given titles already exist as documents."""
+    """Return which of the given titles already exist as documents in the given folder."""
     if not titles:
         return {"duplicates": []}
-    result = await db.execute(
-        select(Document.title).where(
-            Document.title.in_(titles),
-            Document.deleted_at.is_(None),
-        )
+    query = select(Document.title).where(
+        Document.title.in_(titles),
+        Document.deleted_at.is_(None),
     )
+    if folder_id:
+        query = query.where(Document.folder_id == folder_id)
+    else:
+        query = query.where(Document.folder_id.is_(None))
+    result = await db.execute(query)
     found = set(result.scalars().all())
     return {"duplicates": [t for t in titles if t in found]}
 
