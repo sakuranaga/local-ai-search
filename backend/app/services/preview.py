@@ -1,7 +1,11 @@
 """Generate HTML previews for office documents (Excel, PowerPoint)."""
 
 import asyncio
+import logging
+import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="ja">
@@ -31,16 +35,58 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 async def render_preview_html(path: str, file_type: str) -> str:
     """Render an office document as HTML."""
     ft = file_type.lower().lstrip(".")
-    if ft in ("xlsx", "xls"):
+    if ft == "xls":
+        converted = await _convert_for_preview(path, "xls", "xlsx")
+        if converted:
+            return await asyncio.get_event_loop().run_in_executor(None, _render_excel, converted)
+        return _HTML_TEMPLATE.format(content="<p>プレビューの生成に失敗しました。</p>")
+    elif ft == "xlsx":
         return await asyncio.get_event_loop().run_in_executor(None, _render_excel, path)
+    elif ft == "ppt":
+        converted = await _convert_for_preview(path, "ppt", "pptx")
+        if converted:
+            return await asyncio.get_event_loop().run_in_executor(None, _render_pptx, converted)
+        return _HTML_TEMPLATE.format(content="<p>プレビューの生成に失敗しました。</p>")
     elif ft == "pptx":
         return await asyncio.get_event_loop().run_in_executor(None, _render_pptx, path)
     elif ft in ("csv", "tsv"):
         return await asyncio.get_event_loop().run_in_executor(None, _render_csv, path, ft)
-    elif ft in ("docx", "doc"):
+    elif ft == "doc":
+        converted = await _convert_for_preview(path, "doc", "docx")
+        if converted:
+            return await asyncio.get_event_loop().run_in_executor(None, _render_docx, converted)
+        return _HTML_TEMPLATE.format(content="<p>プレビューの生成に失敗しました。</p>")
+    elif ft == "docx":
         return await asyncio.get_event_loop().run_in_executor(None, _render_docx, path)
     else:
         return _HTML_TEMPLATE.format(content="<p>このファイル形式のプレビューには対応していません。</p>")
+
+
+async def _convert_for_preview(path: str, src_ext: str, dst_ext: str) -> str | None:
+    """Convert a legacy Office file for preview using LibreOffice headless."""
+    import tempfile
+    import uuid as _uuid
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        symlink = os.path.join(tmpdir, f"{_uuid.uuid4().hex}.{src_ext}")
+        os.symlink(os.path.abspath(path), symlink)
+        user_inst = f"file://{tmpdir}/lo_profile"
+        proc = await asyncio.create_subprocess_exec(
+            "soffice", "--headless", "--norestore",
+            f"-env:UserInstallation={user_inst}",
+            "--convert-to", dst_ext, "--outdir", tmpdir, symlink,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=120)
+        converted = symlink.rsplit(".", 1)[0] + f".{dst_ext}"
+        if os.path.exists(converted):
+            return converted
+        logger.error("LibreOffice preview conversion failed: %s -> %s", path, dst_ext)
+        return None
+    except Exception as e:
+        logger.error("LibreOffice preview conversion error for %s: %s", path, e)
+        return None
 
 
 def _render_excel(path: str) -> str:

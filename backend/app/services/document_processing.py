@@ -28,14 +28,15 @@ _TYPE_MAP = {
     "txt": "txt",
     "pdf": "pdf",
     "docx": "docx",
-    "doc": "docx",
+    "doc": "doc",
     "xlsx": "xlsx",
-    "xls": "xlsx",
+    "xls": "xls",
     "csv": "csv",
     "tsv": "csv",
     "html": "html",
     "htm": "html",
     "pptx": "pptx",
+    "ppt": "ppt",
     "png": "png",
     "jpg": "jpg",
     "jpeg": "jpg",
@@ -48,7 +49,7 @@ _TYPE_MAP = {
 
 # Tier 1: file types that support text extraction → chunk → embed → summarize
 EXTRACTABLE_TYPES = {
-    "md", "txt", "pdf", "docx", "xlsx", "csv", "html", "pptx", "rtf",
+    "md", "txt", "pdf", "docx", "doc", "xlsx", "xls", "csv", "html", "pptx", "ppt", "rtf",
     "png", "jpg", "gif", "bmp", "tiff", "webp",
 }
 

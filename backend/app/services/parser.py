@@ -22,14 +22,23 @@ async def parse_file(path: str, file_type: str) -> str:
         return await _parse_text(path)
     elif file_type == "pdf":
         return await _parse_pdf(path)
-    elif file_type in ("docx", "doc"):
+    elif file_type == "doc":
+        converted = await _convert_with_libreoffice(path, "doc", "docx")
+        return await _parse_docx(converted) if converted else ""
+    elif file_type == "docx":
         return await _parse_docx(path)
-    elif file_type in ("xlsx", "xls"):
+    elif file_type == "xls":
+        converted = await _convert_with_libreoffice(path, "xls", "xlsx")
+        return await _parse_excel(converted) if converted else ""
+    elif file_type == "xlsx":
         return await _parse_excel(path)
     elif file_type in ("csv", "tsv"):
         return await _parse_csv(path, delimiter="\t" if file_type == "tsv" else ",")
     elif file_type in ("htm", "html"):
         return await _parse_html(path)
+    elif file_type == "ppt":
+        converted = await _convert_with_libreoffice(path, "ppt", "pptx")
+        return await _parse_pptx(converted) if converted else ""
     elif file_type == "pptx":
         return await _parse_pptx(path)
     elif file_type == "rtf":
@@ -199,6 +208,43 @@ async def _parse_pptx(path: str) -> str:
         return "\n".join(parts)
 
     return await asyncio.get_event_loop().run_in_executor(None, _extract)
+
+
+async def _convert_with_libreoffice(path: str, src_ext: str, dst_ext: str) -> str | None:
+    """Convert a legacy Office file to modern format using LibreOffice headless.
+
+    Returns the path to the converted file, or None on failure.
+    """
+    import tempfile
+    import uuid as _uuid
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        symlink = os.path.join(tmpdir, f"{_uuid.uuid4().hex}.{src_ext}")
+        os.symlink(os.path.abspath(path), symlink)
+        user_inst = f"file://{tmpdir}/lo_profile"
+
+        # Determine LibreOffice output filter
+        fmt_map = {"xlsx": "xlsx", "docx": "docx", "pptx": "pptx"}
+        out_fmt = fmt_map.get(dst_ext, dst_ext)
+
+        proc = await asyncio.create_subprocess_exec(
+            "soffice", "--headless", "--norestore",
+            f"-env:UserInstallation={user_inst}",
+            "--convert-to", out_fmt, "--outdir", tmpdir, symlink,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=120)
+
+        converted = symlink.rsplit(".", 1)[0] + f".{dst_ext}"
+        if os.path.exists(converted):
+            return converted
+
+        logger.error("LibreOffice conversion failed: %s -> %s", path, dst_ext)
+        return None
+    except Exception as e:
+        logger.error("LibreOffice conversion error for %s: %s", path, e)
+        return None
 
 
 async def _parse_rtf(path: str) -> str:
