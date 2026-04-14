@@ -526,6 +526,7 @@ async def get_filter_options(
         )
         .join(Document, Document.created_by_id == User.id)
         .where(Document.deleted_at.is_(None))
+        .where(User.is_active.is_(True))
         .group_by(User.id, User.display_name, User.username)
         .order_by("name")
     )

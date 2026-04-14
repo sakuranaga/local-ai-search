@@ -30,6 +30,7 @@ import {
   Star,
   History,
   RotateCcw,
+  ExternalLink,
 } from "lucide-react";
 import {
   getDocument,
@@ -223,6 +224,15 @@ export function DocumentDetailModal({
                 <Download className="h-3.5 w-3.5 mr-1" />ダウンロード
               </Button>
             ))}
+            {["xlsx", "xls", "docx", "doc", "pptx", "ppt", "odt", "ods", "odp", "csv"].includes(item.file_type?.toLowerCase() ?? "") && (
+              <Button
+                size="sm"
+                className="bg-black text-white hover:bg-black/80"
+                onClick={() => window.open(`/editor?id=${item.id}`, "_blank")}
+              >
+                <ExternalLink className="h-3.5 w-3.5 mr-1" />編集
+              </Button>
+            )}
             <Button
               variant="outline" size="sm"
               disabled={reindexing}

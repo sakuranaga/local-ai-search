@@ -238,6 +238,9 @@ app.include_router(notes.router, prefix="/api")
 from app.routers import jobs
 app.include_router(jobs.router, prefix="/api/jobs")
 
+from app.routers import wopi
+app.include_router(wopi.router, prefix="/api")
+
 
 @app.get("/api/health")
 async def health():

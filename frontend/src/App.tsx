@@ -13,6 +13,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { UserSettingsPage } from "@/pages/UserSettingsPage";
+import { EditorPage } from "@/pages/EditorPage";
 import { Search, Settings, LogOut, Moon, Sun, UserCog } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { type FormEvent, type ReactNode, useState, useEffect } from "react";
@@ -223,6 +224,14 @@ export default function App() {
               <AppLayout>
                 <UserSettingsPage />
               </AppLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/editor"
+          element={
+            <AuthGuard>
+              <EditorPage />
             </AuthGuard>
           }
         />
