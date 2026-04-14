@@ -16,6 +16,9 @@ export async function searchDocumentsList(params: {
   unfiled?: boolean;
   tags?: string[];
   file_type?: string;
+  date_from?: string;
+  date_to?: string;
+  created_by?: string;
   include_unsearchable?: boolean;
 }): Promise<DocumentSearchResponse> {
   const p = new URLSearchParams();
@@ -26,6 +29,9 @@ export async function searchDocumentsList(params: {
   if (params.unfiled) p.set("unfiled", "true");
   if (params.tags?.length) p.set("tags", params.tags.join(","));
   if (params.file_type) p.set("file_type", params.file_type);
+  if (params.date_from) p.set("date_from", params.date_from);
+  if (params.date_to) p.set("date_to", params.date_to);
+  if (params.created_by) p.set("created_by", params.created_by);
   if (params.include_unsearchable) p.set("include_unsearchable", "true");
   return apiFetch(`/search/documents?${p.toString()}`);
 }

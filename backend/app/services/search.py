@@ -30,6 +30,8 @@ async def fulltext_search(
     user: User | None = None,
     folder_id: str | None = None, unfiled: bool = False,
     tags: str | None = None, file_type: str | None = None,
+    date_from: str | None = None, date_to: str | None = None,
+    created_by: str | None = None,
 ) -> list[dict]:
     """Full-text search using SQL LIKE with pg_bigm GIN index acceleration."""
     words = tokenize_query(query)
@@ -104,6 +106,14 @@ async def fulltext_search(
                 .subquery()
             )
             stmt = stmt.where(Document.id.in_(select(tag_sq.c.document_id)))
+    if date_from:
+        from datetime import datetime as _dt
+        stmt = stmt.where(Document.created_at >= _dt.fromisoformat(date_from))
+    if date_to:
+        from datetime import datetime as _dt, timedelta as _td
+        stmt = stmt.where(Document.created_at < _dt.fromisoformat(date_to) + _td(days=1))
+    if created_by:
+        stmt = stmt.where(Document.created_by_id == uuid.UUID(created_by))
     stmt = stmt.order_by(match_count.desc()).limit(limit)
 
     result = await db.execute(stmt)
@@ -219,6 +229,9 @@ async def _metadata_signals(
     unfiled: bool = False,
     tags: str | None = None,
     file_type: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    created_by: str | None = None,
     limit: int = 200,
 ) -> dict[str, list[str]]:
     """Run metadata search signals and return {signal_name: [doc_id, ...]} ranked lists.
@@ -249,6 +262,14 @@ async def _metadata_signals(
                 .subquery()
             )
             base_filters.append(Document.id.in_(select(tag_sq.c.document_id)))
+    if date_from:
+        from datetime import datetime as _dt
+        base_filters.append(Document.created_at >= _dt.fromisoformat(date_from))
+    if date_to:
+        from datetime import datetime as _dt, timedelta as _td
+        base_filters.append(Document.created_at < _dt.fromisoformat(date_to) + _td(days=1))
+    if created_by:
+        base_filters.append(Document.created_by_id == uuid.UUID(created_by))
 
     results: dict[str, list[str]] = {}
     # Track per-document max match_count across all metadata signals
@@ -391,6 +412,8 @@ async def merged_search(
     user: User | None = None,
     folder_id: str | None = None, unfiled: bool = False,
     tags: str | None = None, file_type: str | None = None,
+    date_from: str | None = None, date_to: str | None = None,
+    created_by: str | None = None,
 ) -> tuple[list[dict], int]:
     """Unified multi-signal search with weighted RRF and freshness decay.
 
@@ -400,7 +423,8 @@ async def merged_search(
     """
     import asyncio
 
-    filter_kwargs = dict(folder_id=folder_id, unfiled=unfiled, tags=tags, file_type=file_type)
+    filter_kwargs = dict(folder_id=folder_id, unfiled=unfiled, tags=tags, file_type=file_type,
+                         date_from=date_from, date_to=date_to, created_by=created_by)
     common_kwargs = dict(
         require_searchable=require_searchable,
         require_ai_knowledge=require_ai_knowledge,
@@ -455,6 +479,14 @@ async def merged_search(
                         .subquery()
                     )
                     stmt = stmt.where(Document.id.in_(select(tag_sq.c.document_id)))
+            if date_from:
+                from datetime import datetime as _dt
+                stmt = stmt.where(Document.created_at >= _dt.fromisoformat(date_from))
+            if date_to:
+                from datetime import datetime as _dt, timedelta as _td
+                stmt = stmt.where(Document.created_at < _dt.fromisoformat(date_to) + _td(days=1))
+            if created_by:
+                stmt = stmt.where(Document.created_by_id == uuid.UUID(created_by))
             stmt = stmt.order_by(distance).limit(max_candidates)
             rows = (await s.execute(stmt)).all()
             return [

@@ -23,6 +23,9 @@ async def search_documents_list(
     unfiled: bool = Query(False),
     tags: str | None = Query(None, description="Comma-separated tag names (AND filter)"),
     file_type: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    created_by: str | None = Query(None),
     include_unsearchable: bool = Query(False, description="Include documents with searchable=OFF"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -35,6 +38,7 @@ async def search_documents_list(
         db, q, limit=per_page, offset=offset,
         require_searchable=not include_unsearchable, user=current_user,
         folder_id=folder_id, unfiled=unfiled, tags=tags, file_type=file_type,
+        date_from=date_from, date_to=date_to, created_by=created_by,
     )
 
     doc_ids_ordered = [uuid.UUID(r["document_id"]) for r in results]

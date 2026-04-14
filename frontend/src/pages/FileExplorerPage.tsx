@@ -398,6 +398,9 @@ export function FileExplorerPage() {
           page: currentPage,
           per_page: perPage,
           file_type: filterType || undefined,
+          date_from: filterDateFrom || undefined,
+          date_to: filterDateTo || undefined,
+          created_by: filterCreatedBy || undefined,
           include_unsearchable: filterIncludeUnsearchable || undefined,
         };
         const data = await searchDocumentsList(searchParams);

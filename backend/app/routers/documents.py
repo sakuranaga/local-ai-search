@@ -520,11 +520,14 @@ async def get_filter_options(
 
     # Distinct creators
     creators_result = await db.execute(
-        select(User.id, User.username)
+        select(
+            User.id,
+            func.coalesce(func.nullif(User.display_name, ""), User.username).label("name"),
+        )
         .join(Document, Document.created_by_id == User.id)
         .where(Document.deleted_at.is_(None))
-        .group_by(User.id, User.username)
-        .order_by(User.username)
+        .group_by(User.id, User.display_name, User.username)
+        .order_by("name")
     )
     creators = [{"id": str(row[0]), "name": row[1]} for row in creators_result.all()]
 
