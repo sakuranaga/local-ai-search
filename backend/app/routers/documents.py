@@ -1351,6 +1351,25 @@ async def bulk_action(
         docs = await _accessible_docs()
         folder_uuid = uuid.UUID(body.folder_id) if body.folder_id else None
         target_folder = await db.get(Folder, folder_uuid) if folder_uuid else None
+
+        # Handle overwrite: soft-delete existing docs with same titles in target folder
+        if body.overwrite and docs:
+            moving_titles = [doc.title for doc in docs]
+            moving_ids = {doc.id for doc in docs}
+            existing_q = select(Document).where(
+                Document.title.in_(moving_titles),
+                Document.deleted_at.is_(None),
+            )
+            if folder_uuid:
+                existing_q = existing_q.where(Document.folder_id == folder_uuid)
+            else:
+                existing_q = existing_q.where(Document.folder_id.is_(None))
+            existing_result = await db.execute(existing_q)
+            now = datetime.now(timezone.utc)
+            for existing_doc in existing_result.scalars().all():
+                if existing_doc.id not in moving_ids:
+                    existing_doc.deleted_at = now
+
         for doc in docs:
             doc.folder_id = folder_uuid
             if target_folder:

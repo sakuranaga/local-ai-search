@@ -294,6 +294,13 @@ export function FileExplorerPage() {
   // Overwrite confirmation queue (shared by drag-drop and upload dialog)
   const [overwriteQueue, setOverwriteQueue] = useState<globalThis.File[]>([]);
 
+  // Move duplicate confirmation
+  const [pendingMove, setPendingMove] = useState<{
+    docIds: string[];
+    folderId: string | null;
+    duplicateNames: string[];
+  } | null>(null);
+
   // Upload queue manager (3+ files)
   const [queueState, setQueueState] = useState<QueueState | null>(null);
   const reloadRef = useRef<() => void>(() => {});
@@ -957,8 +964,25 @@ export function FileExplorerPage() {
   }
 
   // Drag & drop / bulk move: move documents to folders
-  async function handleDropOnFolder(folderId: string | null, docIds: string[]) {
+  async function handleDropOnFolder(folderId: string | null, docIds: string[], overwrite = false) {
     if (docIds.length === 0) return;
+
+    // Check for duplicates in target folder (skip if overwrite already confirmed)
+    if (!overwrite) {
+      try {
+        const movingItems = items.filter((i) => docIds.includes(i.id));
+        const titles = movingItems.map((i) => i.title);
+        if (titles.length > 0) {
+          const dupTitles = await checkDuplicates(titles, folderId);
+          if (dupTitles.length > 0) {
+            setPendingMove({ docIds, folderId, duplicateNames: dupTitles });
+            return;
+          }
+        }
+      } catch {
+        // If duplicate check fails, proceed with move
+      }
+    }
 
     // Optimistic update: adjust folder counts immediately
     const movingItems = items.filter((i) => docIds.includes(i.id));
@@ -986,7 +1010,7 @@ export function FileExplorerPage() {
     );
 
     try {
-      const res = await bulkAction(docIds, "move_to_folder", { folder_id: folderId });
+      const res = await bulkAction(docIds, "move_to_folder", { folder_id: folderId, overwrite });
       toast.success(`${res.processed}件を移動しました`);
       setSelected(new Set());
       // Reload to get accurate data from server
@@ -1271,6 +1295,28 @@ export function FileExplorerPage() {
 
   function handleOverwriteCancel() {
     setOverwriteQueue([]);
+  }
+
+  // Move duplicate handlers
+  function handleMoveOverwrite() {
+    if (!pendingMove) return;
+    setPendingMove(null);
+    handleDropOnFolder(pendingMove.folderId, pendingMove.docIds, true);
+  }
+  function handleMoveSkip() {
+    if (!pendingMove) return;
+    const skipSet = new Set(pendingMove.duplicateNames);
+    const nonDupIds = pendingMove.docIds.filter((id) => {
+      const item = items.find((i) => i.id === id);
+      return item && !skipSet.has(item.title);
+    });
+    setPendingMove(null);
+    if (nonDupIds.length > 0) {
+      handleDropOnFolder(pendingMove.folderId, nonDupIds);
+    }
+  }
+  function handleMoveCancel() {
+    setPendingMove(null);
   }
 
   return (
@@ -2345,6 +2391,30 @@ export function FileExplorerPage() {
             )}
             <Button variant="outline" onClick={handleOverwriteSkip}>スキップ</Button>
             <Button variant="destructive" onClick={handleOverwriteConfirm}>上書き</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move duplicate confirmation */}
+      <Dialog open={!!pendingMove} onOpenChange={() => handleMoveCancel()}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>移動先に同名ファイルが存在します</DialogTitle>
+            <DialogDescription>
+              {pendingMove?.duplicateNames.length}件のファイルが移動先フォルダに既に存在します。
+            </DialogDescription>
+          </DialogHeader>
+          {pendingMove && (
+            <div className="text-sm bg-muted rounded-md p-3 max-h-40 overflow-auto space-y-1">
+              {pendingMove.duplicateNames.map((name) => (
+                <p key={name} className="font-medium">{name}</p>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={handleMoveCancel}>キャンセル</Button>
+            <Button variant="outline" onClick={handleMoveSkip}>スキップ</Button>
+            <Button variant="destructive" onClick={handleMoveOverwrite}>上書き</Button>
           </div>
         </DialogContent>
       </Dialog>

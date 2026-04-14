@@ -93,6 +93,7 @@ class BulkActionRequest(BaseModel):
     others_write: bool | None = None
     # For move_to_folder action
     folder_id: str | None = None  # "" to unset
+    overwrite: bool = False  # When true, soft-delete existing docs with same titles in target folder
     # For add_tags / remove_tags actions
     tag_ids: list[int] | None = None
     # For set_searchable / set_ai_knowledge actions
