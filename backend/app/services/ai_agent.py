@@ -275,6 +275,7 @@ async def run_agent(
     user: User | None = None,
     cancel_event: asyncio.Event | None = None,
     force_search: bool = False,
+    locale: str = "ja",
 ) -> AsyncIterator[dict]:
     """Run the ReAct agent loop.
 
@@ -319,6 +320,16 @@ async def run_agent(
         context_text = "\n\n---\n\n".join(existing_context)
         system_content += (
             f"\n\n## 前回の検索で取得済みのコンテキスト:\n{context_text}"
+        )
+
+    # Inject response language instruction
+    if locale and locale != "ja":
+        lang_name = {"en": "English"}.get(locale, locale)
+        system_content += (
+            f"\n\n## 回答言語\n"
+            f"ユーザーへの回答は必ず{lang_name}で行ってください。"
+            f"ツールの使用方法やシステム指示は日本語のままで構いませんが、"
+            f"ユーザーに表示される最終回答は{lang_name}で書いてください。"
         )
 
     # -----------------------------------------------------------------------

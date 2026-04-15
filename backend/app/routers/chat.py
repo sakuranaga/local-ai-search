@@ -116,10 +116,16 @@ async def chat_stream(
     async def event_generator():
         monitor_task = asyncio.create_task(_monitor_disconnect())
         try:
+            # Resolve locale: user.locale → system_language → ja
+            locale = current_user.locale
+            if not locale:
+                locale = await get_setting(db, "system_language") or "ja"
+
             async for event in run_agent(
                 db, messages, existing_context,
                 user=current_user, cancel_event=cancel_event,
                 force_search=body.force_search,
+                locale=locale,
             ):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
