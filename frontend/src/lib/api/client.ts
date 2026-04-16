@@ -69,7 +69,10 @@ export async function apiFetch<T>(
       }
     }
     clearToken();
-    window.location.href = "/login";
+    // Avoid reload loop when the request originated from the login page itself
+    if (window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
     throw new Error("Unauthorized");
   }
 

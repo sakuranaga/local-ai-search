@@ -208,14 +208,17 @@ export default function App() {
     if (stored) return; // user already chose
 
     (async () => {
-      try {
-        const user = await getMe();
-        if (user.locale) {
-          localStorage.setItem("las_locale", user.locale);
-          i18n.changeLanguage(user.locale);
-          return;
-        }
-      } catch { /* not logged in */ }
+      // Only call getMe() when a token exists, otherwise the 401 redirect logic fires
+      if (getToken()) {
+        try {
+          const user = await getMe();
+          if (user.locale) {
+            localStorage.setItem("las_locale", user.locale);
+            i18n.changeLanguage(user.locale);
+            return;
+          }
+        } catch { /* not logged in */ }
+      }
 
       try {
         const res = await getPublicSetting("system_language");

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.deps import get_current_user, require_permission
+from app.deps import require_permission
 from app.models import SystemSetting, User
 from app.services.audit import audit_log
 from app.services.settings import DEFAULTS
@@ -32,9 +32,9 @@ PUBLIC_KEYS: set[str] = {"share_enabled", "system_language"}
 async def get_public_setting(
     key: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
-    """Get a single public setting (available to all authenticated users)."""
+    """Get a single public setting. No auth required so the login page can
+    resolve the system language before the user has signed in."""
     if key not in PUBLIC_KEYS:
         raise HTTPException(status_code=404, detail="Setting not found")
     from app.services.settings import get_setting
