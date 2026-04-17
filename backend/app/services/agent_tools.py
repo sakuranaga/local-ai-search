@@ -523,11 +523,31 @@ async def execute_tool(
 # Parse tool calls from text (some models output them inline)
 # ---------------------------------------------------------------------------
 
-# Also handle JSON-style tool calls: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
+# JSON-style: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
 _TOOL_CALL_JSON_RE = re.compile(
-    r"<tool_call>\s*(\{.*?\})\s*</tool_call>",
+    r"<\|?tool_call\|?>\s*(\{.*?\})\s*<\|?/?tool_call\|?>",
     re.DOTALL,
 )
+
+# Gemma-style: <|tool_call>call:func_name{key: "value", ...}<tool_call|>
+_TOOL_CALL_GEMMA_RE = re.compile(
+    r"<\|?tool_call\|?>\s*call:(\w+)\s*\{(.*?)\}\s*<\|?/?tool_call\|?>",
+    re.DOTALL,
+)
+
+
+def _parse_gemma_args(raw: str) -> dict:
+    """Parse Gemma-style args like: key: "value", key2: "value2"."""
+    args = {}
+    for m in re.finditer(r'(\w+)\s*:\s*"([^"]*)"', raw):
+        args[m.group(1)] = m.group(2)
+    for m in re.finditer(r"(\w+)\s*:\s*'([^']*)'", raw):
+        if m.group(1) not in args:
+            args[m.group(1)] = m.group(2)
+    for m in re.finditer(r"(\w+)\s*:\s*(\d+(?:\.\d+)?)", raw):
+        if m.group(1) not in args:
+            args[m.group(1)] = m.group(2)
+    return args
 
 
 def extract_tool_calls_from_text(content: str) -> tuple[list[dict], str]:
@@ -546,7 +566,6 @@ def extract_tool_calls_from_text(content: str) -> tuple[list[dict], str]:
     for match in xml_pattern.finditer(content):
         func_name = match.group(1)
         params_text = match.group(2)
-        # Parse <parameter=key>value</parameter> pairs
         args = {}
         for pm in re.finditer(r"<parameter=(\w+)>\s*(.*?)\s*</parameter>", params_text, re.DOTALL):
             args[pm.group(1)] = pm.group(2).strip()
@@ -557,6 +576,19 @@ def extract_tool_calls_from_text(content: str) -> tuple[list[dict], str]:
                 "function": {"name": func_name, "arguments": json.dumps(args)},
             })
         cleaned = cleaned.replace(match.group(0), "")
+
+    # Try Gemma-style: <|tool_call>call:search{query: "..."}<tool_call|>
+    if not tool_calls:
+        for match in _TOOL_CALL_GEMMA_RE.finditer(content):
+            func_name = match.group(1)
+            args = _parse_gemma_args(match.group(2))
+            if func_name:
+                tool_calls.append({
+                    "id": f"text_call_{len(tool_calls)}",
+                    "type": "function",
+                    "function": {"name": func_name, "arguments": json.dumps(args)},
+                })
+            cleaned = cleaned.replace(match.group(0), "")
 
     # Try JSON-style: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
     if not tool_calls:

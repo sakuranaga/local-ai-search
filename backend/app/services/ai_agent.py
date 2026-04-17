@@ -77,40 +77,66 @@ async def _stream_filtered(
     messages: list[dict],
     cancel_event: asyncio.Event | None = None,
 ) -> AsyncIterator[dict]:
-    """Stream chat and filter out any <tool_call> XML from output."""
-    _TAG_OPEN = "<tool_call>"
-    _TAG_CLOSE = "</tool_call>"
+    """Stream chat and filter out tool_call tags from output.
+
+    Handles multiple tag formats:
+      <tool_call>...</tool_call>       (standard XML)
+      <|tool_call>...<tool_call|>      (Gemma-style)
+    """
+    _OPEN_TAGS = ["<tool_call>", "<|tool_call>"]
+    _CLOSE_TAGS = ["</tool_call>", "<tool_call|>"]
+    _MIN_HOLD = 2
+
+    def _find_open(s: str) -> int:
+        pos = -1
+        for tag in _OPEN_TAGS:
+            idx = s.find(tag)
+            if idx != -1 and (pos == -1 or idx < pos):
+                pos = idx
+        return pos
+
+    def _find_close(s: str, start: int) -> int:
+        """Return end position (past close tag), or -1."""
+        for tag in _CLOSE_TAGS:
+            idx = s.find(tag, start)
+            if idx != -1:
+                return idx + len(tag)
+        return -1
+
+    def _partial_hold(s: str) -> int:
+        """Chars at end of s that match a prefix of any open tag."""
+        max_tag_len = max(len(t) for t in _OPEN_TAGS)
+        for i in range(min(max_tag_len, len(s)), _MIN_HOLD - 1, -1):
+            tail = s[-i:]
+            if any(tag.startswith(tail) for tag in _OPEN_TAGS):
+                return i
+        return 0
+
     buffer = ""
     async for token in stream_chat_raw(messages, cancel_event=cancel_event):
         buffer += token
         while buffer:
-            tag_start = buffer.find(_TAG_OPEN)
+            tag_start = _find_open(buffer)
             if tag_start == -1:
-                # Check if buffer ends with a partial prefix of "<tool_call>"
-                hold = 0
-                for i in range(min(len(_TAG_OPEN), len(buffer)), 1, -1):
-                    if buffer.endswith(_TAG_OPEN[:i]) and i >= 2:
-                        hold = i
-                        break
+                hold = _partial_hold(buffer)
                 emit_end = len(buffer) - hold
                 if emit_end > 0:
                     yield {"type": "token", "content": buffer[:emit_end]}
                 buffer = buffer[emit_end:]
                 break
             else:
-                # Emit text before the tag
                 if tag_start > 0:
                     yield {"type": "token", "content": buffer[:tag_start]}
-                # Look for closing tag
-                tag_end = buffer.find(_TAG_CLOSE, tag_start)
-                if tag_end != -1:
-                    buffer = buffer[tag_end + len(_TAG_CLOSE) :]
+                close_end = _find_close(buffer, tag_start)
+                if close_end != -1:
+                    buffer = buffer[close_end:]
                 else:
                     buffer = buffer[tag_start:]
                     break
-    # Flush remaining buffer (strip any unclosed tool_call)
     if buffer:
-        cleaned = re.sub(r"<tool_call>.*", "", buffer, flags=re.DOTALL).strip()
+        cleaned = re.sub(
+            r"<\|?tool_call\|?>.*", "", buffer, flags=re.DOTALL
+        ).strip()
         if cleaned:
             yield {"type": "token", "content": cleaned}
 
@@ -415,10 +441,13 @@ async def run_agent(
             # OR if it's the first round (need at least one search).
             # When finish_reason=stop after multiple rounds, the LLM intends to
             # finish — extracting embedded tool calls causes the stream to hang.
+            _has_embedded = (
+                "<tool_call>" in content or "<|tool_call>" in content
+            )
             should_extract = (
                 not tool_calls
                 and content
-                and "<tool_call>" in content
+                and _has_embedded
                 and (finish_reason != "stop" or round_num <= 1)
             )
             if should_extract:
@@ -438,7 +467,7 @@ async def run_agent(
                         "content": content,
                         "tool_calls": tool_calls,
                     }
-            elif not tool_calls and content and "<tool_call>" in content:
+            elif not tool_calls and content and _has_embedded:
                 # finish_reason=stop after tool use — the remaining text is
                 # an intermediate observation, not a real answer.
                 # Clear content to force a proper streaming final answer.
