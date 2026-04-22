@@ -20,7 +20,7 @@ const IMAGE_TYPES = new Set(["png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", 
 const OFFICE_TYPES = new Set(["xlsx", "xls", "csv", "tsv", "pptx", "ppt", "docx", "doc", "rtf"]);
 /** Tier 1: text-extractable types (have content via processing pipeline). */
 const TEXT_EXTRACTABLE = new Set([
-  "md", "pdf", "docx", "doc", "xlsx", "xls", "csv", "html", "pptx", "ppt", "rtf",
+  "md", "txt", "text", "pdf", "docx", "doc", "xlsx", "xls", "csv", "html", "pptx", "ppt", "rtf",
   "png", "jpg", "gif", "bmp", "tiff", "webp",
 ]);
 /** Tier 2: browser-native preview via <audio> / <video>. */
