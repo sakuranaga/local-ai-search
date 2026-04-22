@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { getToken } from "@/lib/api";
 import { Download, FileIcon } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -31,6 +32,53 @@ const VIDEO_TYPES = new Set([
   "3gp", "3g2", "f4v", "asf", "vob", "mpg", "mpeg",
 ]);
 const SVG_TYPES = new Set(["svg"]);
+const EXCEL_TYPES = new Set(["xlsx", "xls"]);
+
+function CollaboraReadonly({ docId }: { docId: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    fetch("/hosting/discovery")
+      .then((res) => res.text())
+      .then((xml) => {
+        const doc = new DOMParser().parseFromString(xml, "text/xml");
+        let editUrl: string | null = null;
+        for (const action of doc.querySelectorAll("action")) {
+          if (action.getAttribute("name") === "edit") {
+            editUrl = action.getAttribute("urlsrc") || null;
+            break;
+          }
+        }
+        if (!editUrl) { setError(true); return; }
+        const token = getToken() || "";
+        const wopiSrc = `http://backend:8000/api/wopi/view/${docId}`;
+        const base = new URL(editUrl.split("?")[0]);
+        base.protocol = window.location.protocol;
+        base.host = window.location.host;
+        const params = [
+          `WOPISrc=${encodeURIComponent(wopiSrc)}`,
+          `access_token=${encodeURIComponent(token)}`,
+          "lang=ja",
+          "permission=readonly",
+        ].join("&");
+        setSrc(`${base.toString()}?${params}`);
+      })
+      .catch(() => setError(true));
+  }, [docId]);
+
+  if (error) return null;
+  if (!src) return <div className="flex items-center justify-center min-h-[60vh] text-muted-foreground">{t("common:loading")}</div>;
+
+  return (
+    <iframe
+      src={src}
+      className="w-full h-full min-h-[60vh] rounded border"
+      allow="clipboard-read; clipboard-write"
+      title="Excel preview"
+    />
+  );
+}
 
 export function isPreviewable(fileType: string): boolean {
   const ft = fileType.toLowerCase();
@@ -110,7 +158,12 @@ export function DocumentPreview({ docId, fileType, content, mode }: DocumentPrev
     );
   }
 
-  // HTML preview for office documents (Excel, PowerPoint, CSV, DOCX)
+  // Collabora readonly preview for Excel
+  if (EXCEL_TYPES.has(ft)) {
+    return <CollaboraReadonly docId={docId} />;
+  }
+
+  // HTML preview for office documents (PowerPoint, CSV, DOCX)
   if (OFFICE_TYPES.has(ft)) {
     return (
       <iframe

@@ -50,25 +50,50 @@ async def _get_document_and_file(doc_id: str, db: AsyncSession) -> tuple[Documen
     return doc, file
 
 
+async def _check_file_info(doc_id: str, access_token: str, db: AsyncSession, *, writable: bool):
+    user = await _get_user_by_token(access_token, db)
+    doc, file = await _get_document_and_file(doc_id, db)
+    info = {
+        "BaseFileName": doc.title or "untitled",
+        "Size": file.file_size or 0,
+        "OwnerId": str(doc.owner_id),
+        "UserId": str(user.id),
+        "UserFriendlyName": user.display_name or user.username,
+        "UserCanWrite": writable,
+        "PostMessageOrigin": "*",
+    }
+    if not writable:
+        info.update({
+            "HidePrintOption": True,
+            "HideSaveOption": True,
+            "HideExportOption": True,
+        })
+    return info
+
+
+async def _get_file_contents(doc_id: str, access_token: str, db: AsyncSession):
+    await _get_user_by_token(access_token, db)
+    _, file = await _get_document_and_file(doc_id, db)
+    file_path = os.path.join(STORAGE_PATH, file.storage_path)
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not on disk")
+    with open(file_path, "rb") as f:
+        content = f.read()
+    return Response(content=content, media_type="application/octet-stream")
+
+
+# ---------------------------------------------------------------------------
+# Read-write endpoints: /wopi/files/{doc_id}
+# ---------------------------------------------------------------------------
+
 @router.get("/files/{doc_id}")
 async def check_file_info(
     doc_id: str,
     access_token: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """WOPI CheckFileInfo — return file metadata."""
-    user = await _get_user_by_token(access_token, db)
-    doc, file = await _get_document_and_file(doc_id, db)
-
-    return {
-        "BaseFileName": doc.title or "untitled",
-        "Size": file.file_size or 0,
-        "OwnerId": str(doc.owner_id),
-        "UserId": str(user.id),
-        "UserFriendlyName": user.display_name or user.username,
-        "UserCanWrite": True,
-        "PostMessageOrigin": "*",
-    }
+    """WOPI CheckFileInfo — return file metadata (read-write)."""
+    return await _check_file_info(doc_id, access_token, db, writable=True)
 
 
 @router.get("/files/{doc_id}/contents")
@@ -78,17 +103,7 @@ async def get_file(
     db: AsyncSession = Depends(get_db),
 ):
     """WOPI GetFile — return file contents."""
-    await _get_user_by_token(access_token, db)
-    doc, file = await _get_document_and_file(doc_id, db)
-
-    file_path = os.path.join(STORAGE_PATH, file.storage_path)
-    if not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail="File not on disk")
-
-    with open(file_path, "rb") as f:
-        content = f.read()
-
-    return Response(content=content, media_type="application/octet-stream")
+    return await _get_file_contents(doc_id, access_token, db)
 
 
 @router.post("/files/{doc_id}/contents")
@@ -100,7 +115,7 @@ async def put_file(
 ):
     """WOPI PutFile — save edited file contents."""
     await _get_user_by_token(access_token, db)
-    doc, file = await _get_document_and_file(doc_id, db)
+    _, file = await _get_document_and_file(doc_id, db)
 
     file_path = os.path.join(STORAGE_PATH, file.storage_path)
     content = await request.body()
@@ -108,8 +123,37 @@ async def put_file(
     with open(file_path, "wb") as f:
         f.write(content)
 
-    # Update file size
     file.file_size = len(content)
     await db.commit()
 
     return Response(status_code=200)
+
+
+# ---------------------------------------------------------------------------
+# Read-only endpoints: /wopi/view/{doc_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/view/{doc_id}")
+async def check_file_info_readonly(
+    doc_id: str,
+    access_token: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """WOPI CheckFileInfo — return file metadata (read-only)."""
+    return await _check_file_info(doc_id, access_token, db, writable=False)
+
+
+@router.get("/view/{doc_id}/contents")
+async def get_file_readonly(
+    doc_id: str,
+    access_token: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """WOPI GetFile — return file contents (read-only)."""
+    return await _get_file_contents(doc_id, access_token, db)
+
+
+@router.post("/view/{doc_id}/contents")
+async def put_file_readonly():
+    """WOPI PutFile — blocked for read-only view."""
+    raise HTTPException(status_code=403, detail="Read-only view")
