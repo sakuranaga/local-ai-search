@@ -187,7 +187,9 @@
     "title": "フォルダ権限設定: {{name}}",
     "saved": "フォルダ権限を保存しました",
     "applyToChildren": "サブフォルダとその中のファイルにも適用",
-    "saveButton": "権限を保存"
+    "saveButton": "権限を保存",
+    "copyId": "UUIDをコピー",
+    "idCopied": "UUIDをコピーしました"
   },
   "uploadProgress": {
     "title": "アップロード {{completed}} / {{total}} 件完了",

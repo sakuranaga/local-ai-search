@@ -187,7 +187,9 @@
     "title": "Folder Permissions: {{name}}",
     "saved": "Folder permissions saved",
     "applyToChildren": "Also apply to subfolders and their files",
-    "saveButton": "Save Permissions"
+    "saveButton": "Save Permissions",
+    "copyId": "Copy UUID",
+    "idCopied": "UUID copied"
   },
   "uploadProgress": {
     "title": "Upload {{completed}} / {{total}} completed",

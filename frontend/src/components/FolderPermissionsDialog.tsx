@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Copy, Check } from "lucide-react";
 import { t } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,10 +32,18 @@ export function FolderPermissionsDialog({
   const [othersWrite, setOthersWrite] = useState(folder.others_write);
   const [recursive, setRecursive] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     getGroups().then(setGroups).catch(() => {});
   }, []);
+
+  function handleCopyId() {
+    navigator.clipboard.writeText(folder.id);
+    setCopied(true);
+    toast.success(t("fileExplorer:folderPermissions.idCopied"));
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -68,6 +77,22 @@ export function FolderPermissionsDialog({
             <span className="font-medium">{t("common:owner")}:</span>{" "}
             <span>{folder.owner_name ?? t("common:unknown")}</span>{" "}
             <Badge variant="outline" className="text-xs ml-1">{t("common:rwFixed")}</Badge>
+          </div>
+
+          <div className="flex items-center gap-2 text-sm">
+            <span className="font-medium shrink-0">UUID:</span>
+            <code className="text-xs font-mono bg-muted px-2 py-0.5 rounded flex-1 truncate">
+              {folder.id}
+            </code>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCopyId}
+              className="shrink-0 h-7 px-2"
+              aria-label={t("fileExplorer:folderPermissions.copyId")}
+            >
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            </Button>
           </div>
 
           <Separator />
