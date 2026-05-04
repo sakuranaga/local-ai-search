@@ -144,6 +144,8 @@
       "memoDesc": "メモ",
       "modeDesc": "\"append\": 既存ドキュメントに追記。省略時は全文置換",
       "versionDesc": "true: 更新時にバージョンを保存。デフォルト false",
+      "searchableDesc": "全文検索の対象に含めるか。デフォルト true",
+      "aiKnowledgeDesc": "AIチャットの知識ソースに含めるか。デフォルト true",
       "upsertNote": "source + external_id が同じ場合は既存ドキュメントを更新（upsert）。folder / tags は名前指定で、存在しなければ自動作成されます。",
       "statusCheck": "処理状況の確認",
       "deleteDoc": "ドキュメント削除（delete権限が必要）",

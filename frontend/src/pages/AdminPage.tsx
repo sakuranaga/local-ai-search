@@ -1383,7 +1383,7 @@ function ApiKeysTab() {
           <div className="mt-3 space-y-4 text-sm">
             <div>
               <h4 className="font-medium mb-1">{t("admin:apiKeys.fileUpload")}</h4>
-              <pre className="bg-muted rounded p-3 text-xs overflow-x-auto whitespace-pre">{`curl -X POST /api/ingest/upload \\
+              <pre className="bg-muted rounded p-3 text-xs overflow-x-auto whitespace-pre">{`curl -X POST "/api/ingest/upload?searchable=true&ai_knowledge=false" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -F "file=@document.pdf" \\
   -F "folder_id=FOLDER_UUID"  # ${t("admin:apiKeys.apiManual.optional")}`}</pre>
@@ -1403,7 +1403,9 @@ function ApiKeysTab() {
     "tags": ["tag1", "tag2"],
     "memo": "${t("admin:apiKeys.apiManual.exMemo")}",
     "mode": "append",
-    "version": true
+    "version": true,
+    "searchable": true,
+    "ai_knowledge": false
   }'`}</pre>
               <p className="mt-1 text-xs text-muted-foreground">
                 {t("admin:apiKeys.apiManual.upsertNote")}
@@ -1426,7 +1428,9 @@ function ApiKeysTab() {
                   <tr className="border-b"><td className="py-1 pr-2"><code>tags</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.tagsDesc")}</td></tr>
                   <tr className="border-b"><td className="py-1 pr-2"><code>memo</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.memoDesc")}</td></tr>
                   <tr className="border-b"><td className="py-1 pr-2"><code>mode</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.modeDesc")}</td></tr>
-                  <tr><td className="py-1 pr-2"><code>version</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.versionDesc")}</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>version</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.versionDesc")}</td></tr>
+                  <tr className="border-b"><td className="py-1 pr-2"><code>searchable</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.searchableDesc")}</td></tr>
+                  <tr><td className="py-1 pr-2"><code>ai_knowledge</code></td><td className="py-1 pr-2"></td><td className="py-1">{t("admin:apiKeys.apiManual.aiKnowledgeDesc")}</td></tr>
                 </tbody>
               </table>
             </div>

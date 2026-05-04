@@ -144,6 +144,8 @@
       "memoDesc": "Memo",
       "modeDesc": "\"append\": append to existing document. Default: full replace",
       "versionDesc": "true: save version on update. Default: false",
+      "searchableDesc": "Include in full-text search. Default: true",
+      "aiKnowledgeDesc": "Include as knowledge source for AI chat. Default: true",
       "upsertNote": "Documents with the same source + external_id will be updated (upsert). folder / tags are specified by name and auto-created if they don't exist.",
       "statusCheck": "Check processing status",
       "deleteDoc": "Delete document (requires delete permission)",

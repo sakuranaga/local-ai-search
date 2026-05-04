@@ -119,6 +119,8 @@ class IngestContentRequest(BaseModel):
     memo: str | None = None
     mode: str | None = None  # "append" to append content to existing doc
     version: bool = False  # True to create a version snapshot on update
+    searchable: bool | None = None  # override default (True)
+    ai_knowledge: bool | None = None  # override default (True)
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +137,8 @@ async def _ingest_single_file(
     *,
     custom_created_at: datetime | None = None,
     custom_updated_at: datetime | None = None,
+    searchable: bool | None = None,
+    ai_knowledge: bool | None = None,
 ) -> IngestResponse:
     """Upload and register a single file."""
     if not file.filename:
@@ -215,6 +219,10 @@ async def _ingest_single_file(
         doc.updated_at = custom_updated_at if custom_updated_at is not None else func.now()
         if folder_id is not None:
             doc.folder_id = folder_id
+        if searchable is not None:
+            doc.searchable = searchable
+        if ai_knowledge is not None:
+            doc.ai_knowledge = ai_knowledge
     else:
         # Copy permissions from folder
         doc_group_id = None
@@ -247,6 +255,8 @@ async def _ingest_single_file(
             group_write=doc_group_write,
             others_read=doc_others_read,
             others_write=doc_others_write,
+            searchable=True if searchable is None else searchable,
+            ai_knowledge=True if ai_knowledge is None else ai_knowledge,
             created_by_id=user.id,
             updated_by_id=user.id,
             processing_status="pending",
@@ -324,6 +334,8 @@ async def ingest_upload(
     folder_id: uuid.UUID | None = Query(None),
     created_at: datetime | None = Query(None, description="Custom created_at timestamp (ISO 8601)"),
     updated_at: datetime | None = Query(None, description="Custom updated_at timestamp (ISO 8601)"),
+    searchable: bool | None = Query(None, description="Override searchable flag (default True)"),
+    ai_knowledge: bool | None = Query(None, description="Override ai_knowledge flag (default True)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -335,6 +347,8 @@ async def ingest_upload(
         file, resolved_folder, api_key, current_user, db, background_tasks,
         custom_created_at=created_at,
         custom_updated_at=updated_at,
+        searchable=searchable,
+        ai_knowledge=ai_knowledge,
     )
 
 
@@ -343,6 +357,8 @@ async def ingest_upload_batch(
     files: list[UploadFile],
     background_tasks: BackgroundTasks,
     folder_id: uuid.UUID | None = Query(None),
+    searchable: bool | None = Query(None, description="Override searchable flag (default True)"),
+    ai_knowledge: bool | None = Query(None, description="Override ai_knowledge flag (default True)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -358,6 +374,8 @@ async def ingest_upload_batch(
         try:
             result = await _ingest_single_file(
                 file, resolved_folder, api_key, current_user, db, background_tasks,
+                searchable=searchable,
+                ai_knowledge=ai_knowledge,
             )
             uploaded.append(result)
         except HTTPException as e:
@@ -507,6 +525,10 @@ async def ingest_content(
         doc.memo = body.memo if body.memo is not None else doc.memo
         if resolved_folder is not None:
             doc.folder_id = resolved_folder
+        if body.searchable is not None:
+            doc.searchable = body.searchable
+        if body.ai_knowledge is not None:
+            doc.ai_knowledge = body.ai_knowledge
     else:
         # Copy permissions from folder
         doc_group_id = None
@@ -538,6 +560,8 @@ async def ingest_content(
             group_write=doc_group_write,
             others_read=doc_others_read,
             others_write=doc_others_write,
+            searchable=True if body.searchable is None else body.searchable,
+            ai_knowledge=True if body.ai_knowledge is None else body.ai_knowledge,
             created_by_id=current_user.id,
             updated_by_id=current_user.id,
             processing_status="pending",
