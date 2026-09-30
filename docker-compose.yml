@@ -79,7 +79,7 @@ services:
       - clamav_data:/var/lib/clamav
       - ./data:/data/storage:ro
     healthcheck:
-      test: ["CMD", "clamdcheck"]
+      test: ["CMD", "clamdcheck.sh"]
       interval: 30s
       timeout: 10s
       retries: 5
