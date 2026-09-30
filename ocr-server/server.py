@@ -1,7 +1,9 @@
-"""Lightweight OCR server powered by Surya.
+"""Lightweight OCR server powered by Surya v2.
 
 Accepts image or PDF files and returns extracted text.
-Runs on the host with GPU (ROCm/CUDA) for fast inference.
+Uses llama.cpp (llama-server) as the VLM inference backend. Surya v2 does
+not need torch on the GPU, so set TORCH_DEVICE=cpu on hosts where ROCm is
+unstable.
 """
 
 import os
@@ -11,8 +13,10 @@ if _sentry_dsn:
     import sentry_sdk
     sentry_sdk.init(_sentry_dsn)
 
+import html
 import io
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 
@@ -20,65 +24,28 @@ import pypdfium2 as pdfium
 from fastapi import FastAPI, File, UploadFile
 from PIL import Image
 from pydantic import BaseModel
-from surya.detection import DetectionPredictor
-from surya.foundation import FoundationPredictor
+from surya.inference import SuryaInferenceManager
 from surya.recognition import RecognitionPredictor
 
 logger = logging.getLogger("ocr-server")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-# Global predictors (loaded once at startup)
-det_predictor: DetectionPredictor | None = None
 rec_predictor: RecognitionPredictor | None = None
-
-# Warmup image: one large image is enough when RECOGNITION_BATCH_SIZE is fixed,
-# since all batches will have the same tensor shape.
-_WARMUP_SIZES = [
-    (3000, 4000),   # typical phone photo / large document
-]
-
-
-def _make_text_image(w: int, h: int) -> Image.Image:
-    """Create a dummy image with text lines to trigger recognition kernels."""
-    from PIL import ImageDraw
-
-    img = Image.new("RGB", (w, h), "white")
-    draw = ImageDraw.Draw(img)
-    y = 20
-    line_height = 30
-    while y + line_height < h:
-        draw.text((20, y), f"Warmup line at y={y} ABCDEFG 0123456789", fill="black")
-        y += line_height
-    return img
-
-
-def _warmup(det: DetectionPredictor, rec: RecognitionPredictor):
-    """Run dummy OCR at various resolutions to pre-compile ROCm kernels.
-
-    Uses text-filled images so both detection AND recognition kernels
-    are compiled during startup.
-    """
-    logger.info("Warming up with %d image sizes (ROCm kernel compilation)...", len(_WARMUP_SIZES))
-    for i, (w, h) in enumerate(_WARMUP_SIZES):
-        t0 = time.time()
-        dummy = _make_text_image(w, h)
-        rec([dummy], det_predictor=det)
-        elapsed = time.time() - t0
-        logger.info("  Warmup %d/%d (%dx%d): %.1fs", i + 1, len(_WARMUP_SIZES), w, h, elapsed)
-    logger.info("Warmup complete.")
+manager: SuryaInferenceManager | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global det_predictor, rec_predictor
-    logger.info("Loading Surya OCR models...")
-    foundation = FoundationPredictor()
-    det_predictor = DetectionPredictor()
-    rec_predictor = RecognitionPredictor(foundation)
-    logger.info("Surya OCR models loaded.")
-    _warmup(det_predictor, rec_predictor)
+    global rec_predictor, manager
+    logger.info("Starting Surya v2 inference backend...")
+    # Start llama-server eagerly so startup failures surface immediately
+    # instead of on the first OCR request.
+    manager = SuryaInferenceManager(lazy=False)
+    rec_predictor = RecognitionPredictor(manager)
+    logger.info("Surya v2 ready (backend=%s).", manager.method)
     yield
     logger.info("Shutting down OCR server.")
+    manager.stop()
 
 
 app = FastAPI(title="OCR Server", lifespan=lifespan)
@@ -101,7 +68,7 @@ def _images_from_pdf(data: bytes, dpi: int = 300) -> list[Image.Image]:
     return images
 
 
-_MAX_DIMENSION = 4000  # max width or height — matches warmup size
+_MAX_DIMENSION = 4000
 
 
 def _limit_size(img: Image.Image) -> Image.Image:
@@ -116,12 +83,18 @@ def _limit_size(img: Image.Image) -> Image.Image:
 
 
 def _ocr_images(images: list[Image.Image]) -> str:
-    """Run Surya OCR on a list of images and return combined text."""
+    """Run Surya v2 OCR on a list of images and return combined text."""
     images = [_limit_size(img) for img in images]
-    predictions = rec_predictor(images, det_predictor=det_predictor)
+    predictions = rec_predictor(images)
     parts: list[str] = []
     for page in predictions:
-        lines = [line.text for line in page.text_lines if line.text.strip()]
+        lines = []
+        for block in sorted(page.blocks, key=lambda b: b.reading_order):
+            if block.skipped or block.error:
+                continue
+            text = html.unescape(re.sub(r"<[^>]+>", "", block.html)).strip()
+            if text:
+                lines.append(text)
         parts.append("\n".join(lines))
     return "\n\n".join(parts)
 

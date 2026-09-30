@@ -162,7 +162,7 @@ LAS は**ファイルサーバー**であり、元ファイルは不可侵が原
                      └─────────┘  └──────────┘ └───────┘ └──────────────────┘
 
                      ┌──────────────────┐
-                     │  Surya OCR       │  ← GPU (ROCm/CUDA) 推奨
+                     │  Surya OCR v2    │  ← llama.cpp (GPU)
                      │  :8090           │
                      └──────────────────┘
 
@@ -190,7 +190,7 @@ LAS は**ファイルサーバー**であり、元ファイルは不可侵が原
 | Antivirus | ClamAV (360万+シグネチャ、自動定義更新) |
 | Share Server | Go + SQLite (WAL) — 外部共有専用、独立デプロイ |
 | Document Preview | LibreOffice headless + PyMuPDF — PPTX/DOCX/DOC/RTF → PDF → PNG 変換 |
-| OCR | Surya OCR — GPU対応（ROCm/CUDA）、画像・スキャンPDFのテキスト抽出 |
+| OCR | Surya OCR v2 — llama.cpp で推論（Vulkan/CUDA/Metal）、画像・スキャンPDFのテキスト抽出 |
 | Text Editor | OverType (91KB、依存ゼロの WYSIWYG マークダウンエディタ) |
 | Note Editor | BlockNote (ProseMirror ベース WYSIWYG ブロックエディタ) |
 | Collaboration | Yjs + y-websocket (CRDT リアルタイム共同編集、LevelDB 永続化) |
@@ -232,7 +232,7 @@ llama-server \
 
 ### OCR サーバーの起動（オプション）
 
-Surya OCR を使った画像・スキャンPDFのテキスト抽出サーバー。GPU（ROCm/CUDA）推奨。
+Surya OCR v2 を使った画像・スキャンPDFのテキスト抽出サーバー。GPU 対応の `llama-server`（[llama.cpp](https://github.com/ggml-org/llama.cpp)）が必要です。モデルは初回起動時に自動ダウンロードされます。
 
 ```bash
 cd ocr-server
@@ -242,11 +242,11 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 起動（デフォルト: ポート 8090、GPU使用）
+# 起動（デフォルト: ポート 8090）
 ./start.sh
 
-# CPU モードで起動する場合
-TORCH_DEVICE=cpu ./start.sh
+# llama-server が PATH にない場合
+LLAMA_CPP_BINARY=/path/to/llama.cpp/build/bin/llama-server ./start.sh
 ```
 
 OCR サーバーが起動していない場合、画像ファイルのテキスト抽出とスキャンPDFの OCR はスキップされます（テキスト埋め込みPDFは OCR なしで処理可能）。

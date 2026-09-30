@@ -118,7 +118,7 @@ Mount LAS as a network drive. Uses a **FUSE + Samba hybrid architecture**: FUSE 
                      └─────────┘  └──────────┘ └───────┘ └──────────────────┘
 
                      ┌──────────────────┐
-                     │  Surya OCR       │  ← GPU (ROCm/CUDA) recommended
+                     │  Surya OCR v2    │  ← llama.cpp (GPU)
                      │  :8090           │
                      └──────────────────┘
 
@@ -144,7 +144,7 @@ Mount LAS as a network drive. Uses a **FUSE + Samba hybrid architecture**: FUSE 
 | Antivirus | ClamAV (3.6M+ signatures, auto-updating definitions) |
 | Share Server | Go + SQLite (WAL) — external sharing, independent deployment |
 | Document Preview | LibreOffice headless + PyMuPDF — PPTX/DOCX/DOC/RTF → PDF → PNG |
-| OCR | Surya OCR — GPU-accelerated (ROCm/CUDA), image & scanned PDF text extraction |
+| OCR | Surya OCR v2 — llama.cpp inference (Vulkan/CUDA/Metal), image & scanned PDF text extraction |
 | Text Editor | OverType (91KB, zero-dependency WYSIWYG markdown editor) |
 | Note Editor | BlockNote (ProseMirror-based WYSIWYG block editor) |
 | Collaboration | Yjs + y-websocket (CRDT real-time co-editing, LevelDB persistence) |
@@ -186,7 +186,7 @@ llama-server \
 
 ### OCR server (optional)
 
-Surya OCR server for image and scanned PDF text extraction. GPU (ROCm/CUDA) recommended.
+Surya OCR v2 server for image and scanned PDF text extraction. Requires a GPU-enabled `llama-server` binary ([llama.cpp](https://github.com/ggml-org/llama.cpp)); the model is downloaded automatically on first start.
 
 ```bash
 cd ocr-server
@@ -196,11 +196,11 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Start (default: port 8090, GPU)
+# Start (default: port 8090)
 ./start.sh
 
-# CPU mode
-TORCH_DEVICE=cpu ./start.sh
+# If llama-server is not on PATH
+LLAMA_CPP_BINARY=/path/to/llama.cpp/build/bin/llama-server ./start.sh
 ```
 
 If the OCR server is not running, image text extraction and scanned PDF OCR are skipped (text-embedded PDFs work without OCR).

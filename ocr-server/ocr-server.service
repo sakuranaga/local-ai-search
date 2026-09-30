@@ -1,5 +1,5 @@
 [Unit]
-Description=Surya OCR Server (GPU)
+Description=Surya OCR Server
 After=network.target
 
 [Service]
@@ -8,15 +8,15 @@ Type=simple
 WorkingDirectory=/path/to/local-ai-search/ocr-server
 ExecStart=/path/to/local-ai-search/ocr-server/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8090
 
-# AMD GPU stability (adjust or remove for NVIDIA/CPU)
-Environment=HSA_ENABLE_SDMA=0
-Environment=AMD_SERIALIZE_KERNEL=3
-Environment=ROCM_FORCE_DISABLE_LAZY_ALLOC=1
-Environment=TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
-Environment=RECOGNITION_BATCH_SIZE=64
-Environment=DETECTOR_BATCH_SIZE=8
-Environment=TORCH_DEVICE=cuda
-Environment=PATH=/path/to/local-ai-search/ocr-server/venv/bin:/opt/rocm/bin:/usr/local/bin:/usr/bin:/bin
+# Surya v2 runs recognition in llama-server (GPU via Vulkan/CUDA/Metal build).
+# torch is only used on CPU.
+Environment=TORCH_DEVICE=cpu
+Environment=SURYA_INFERENCE_BACKEND=llamacpp
+# Path to a llama-server binary built with GPU support (defaults to PATH lookup)
+#Environment=LLAMA_CPP_BINARY=/path/to/llama.cpp/build/bin/llama-server
+Environment=PATH=/path/to/local-ai-search/ocr-server/venv/bin:/usr/local/bin:/usr/bin:/bin
+# Startup waits for llama-server to load the model
+TimeoutStartSec=660
 
 # Auto-restart on crash
 Restart=on-failure

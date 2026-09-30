@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start the OCR server with Surya.
 # Usage: ./start.sh [port]
-# Set TORCH_DEVICE=cuda to use GPU (requires ROCm/CUDA compatible PyTorch).
+# Set LLAMA_CPP_BINARY to a GPU-enabled llama-server build if not on PATH.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -13,18 +13,9 @@ if [ -d "venv" ]; then
     source venv/bin/activate
 fi
 
-# AMD GPU stability settings
-export HSA_ENABLE_SDMA="${HSA_ENABLE_SDMA:-0}"
-export AMD_SERIALIZE_KERNEL="${AMD_SERIALIZE_KERNEL:-3}"
-export ROCM_FORCE_DISABLE_LAZY_ALLOC="${ROCM_FORCE_DISABLE_LAZY_ALLOC:-1}"
-export TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL="${TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL:-1}"
+# Surya v2 runs recognition in llama-server; torch is only used on CPU.
+export TORCH_DEVICE="${TORCH_DEVICE:-cpu}"
+export SURYA_INFERENCE_BACKEND="${SURYA_INFERENCE_BACKEND:-llamacpp}"
 
-# Fix batch size to avoid ROCm kernel recompilation for different tensor shapes
-export RECOGNITION_BATCH_SIZE="${RECOGNITION_BATCH_SIZE:-64}"
-export DETECTOR_BATCH_SIZE="${DETECTOR_BATCH_SIZE:-8}"
-
-# Default to GPU (set TORCH_DEVICE=cpu if no compatible GPU available)
-export TORCH_DEVICE="${TORCH_DEVICE:-cuda}"
-
-echo "Starting OCR server on port ${PORT} (device: ${TORCH_DEVICE})..."
+echo "Starting OCR server on port ${PORT} (backend: ${SURYA_INFERENCE_BACKEND})..."
 exec uvicorn server:app --host 0.0.0.0 --port "$PORT"
