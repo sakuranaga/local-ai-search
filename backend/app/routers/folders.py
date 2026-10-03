@@ -13,6 +13,7 @@ from app.services.permissions import (
     build_visibility_filter,
     can_access_folder,
     get_user_group_ids,
+    inherited_folder_perms,
     is_admin,
 )
 
@@ -235,6 +236,7 @@ async def create_folder(
     current_user: User = Depends(get_current_user),
 ):
     parent_uuid = None
+    parent = None
     if body.parent_id:
         parent_uuid = uuid.UUID(body.parent_id)
         parent = await db.get(Folder, parent_uuid)
@@ -247,6 +249,7 @@ async def create_folder(
         name=body.name,
         parent_id=parent_uuid,
         owner_id=current_user.id,
+        **inherited_folder_perms(parent),
     )
     db.add(folder)
     await db.flush()
@@ -282,6 +285,7 @@ async def create_folders_bulk(
     Returns a mapping of path → folder id.
     """
     root_parent: uuid.UUID | None = None
+    parent = None
     if body.parent_id:
         root_parent = uuid.UUID(body.parent_id)
         parent = await db.get(Folder, root_parent)
@@ -302,6 +306,7 @@ async def create_folders_bulk(
             continue
 
         current_parent = root_parent
+        current_parent_obj = parent
         accumulated = ""
 
         for part in parts:
@@ -309,6 +314,7 @@ async def create_folders_bulk(
 
             if accumulated in path_to_id:
                 current_parent = uuid.UUID(path_to_id[accumulated])
+                current_parent_obj = await db.get(Folder, current_parent)
                 continue
 
             # Check if folder already exists under current parent
@@ -323,17 +329,20 @@ async def create_folders_bulk(
             if folder:
                 path_to_id[accumulated] = str(folder.id)
                 current_parent = folder.id
+                current_parent_obj = folder
             else:
                 folder = Folder(
                     name=part,
                     parent_id=current_parent,
                     owner_id=current_user.id,
+                    **inherited_folder_perms(current_parent_obj),
                 )
                 db.add(folder)
                 await db.flush()
                 await db.refresh(folder)
                 path_to_id[accumulated] = str(folder.id)
                 current_parent = folder.id
+                current_parent_obj = folder
 
     await db.commit()
 

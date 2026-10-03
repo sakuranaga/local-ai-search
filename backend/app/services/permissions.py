@@ -16,6 +16,22 @@ from sqlalchemy.sql import ColumnElement
 from app.models import Document, Folder, Group, GroupMember, User
 
 
+def inherited_folder_perms(parent: Folder | None) -> dict:
+    """Permission fields a new subfolder inherits from its parent.
+
+    Top-level folders (no parent) keep the model defaults.
+    """
+    if parent is None:
+        return {}
+    return {
+        "group_id": parent.group_id,
+        "group_read": parent.group_read,
+        "group_write": parent.group_write,
+        "others_read": parent.others_read,
+        "others_write": parent.others_write,
+    }
+
+
 def is_admin(user: User) -> bool:
     """Check if user has the 'admin' permission via any of their roles."""
     for ur in user.roles:

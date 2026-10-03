@@ -28,7 +28,7 @@ from app.models import ApiKey, Chunk, Document, DocumentTag, File, Folder, Tag, 
 from app.services.audit import audit_log
 from app.services.auth import verify_token
 from app.services.document_processing import get_file_type
-from app.services.permissions import can_access_folder
+from app.services.permissions import can_access_folder, inherited_folder_perms
 from app.services.job_queue import create_job
 from app.utils.filename import sanitize_filename
 
@@ -414,6 +414,7 @@ async def ingest_content(
         if folder_path:
             parts = [p.strip() for p in folder_path.split("/") if p.strip()]
             parent_id: uuid.UUID | None = None
+            parent_obj: Folder | None = None
             for part in parts:
                 result = await db.execute(
                     select(Folder).where(
@@ -423,10 +424,14 @@ async def ingest_content(
                 )
                 folder_obj = result.scalar_one_or_none()
                 if not folder_obj:
-                    folder_obj = Folder(name=part, parent_id=parent_id, owner_id=current_user.id)
+                    folder_obj = Folder(
+                        name=part, parent_id=parent_id, owner_id=current_user.id,
+                        **inherited_folder_perms(parent_obj),
+                    )
                     db.add(folder_obj)
                     await db.flush()
                 parent_id = folder_obj.id
+                parent_obj = folder_obj
             folder_id = parent_id
 
     # Enforce API key folder restriction
