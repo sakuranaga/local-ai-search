@@ -15,7 +15,9 @@ import os
 import re
 import shutil
 import stat
+import json
 import time
+from datetime import datetime, timezone
 import unicodedata
 import uuid as _uuid
 from collections import OrderedDict
@@ -373,7 +375,7 @@ def _load_folder_children_sync(parent_inode: int) -> FolderCache:
 
 
 # Import models after helpers are defined
-from app.models import Document, File, Folder, User, Group, GroupMember, Job
+from app.models import AuditLog, Document, File, Folder, User, Group, GroupMember, Job
 
 
 # ---------------------------------------------------------------------------
@@ -810,7 +812,8 @@ class LASFuseServer(pyfuse3.Operations):
         fd = os.open(storage_path, oflags)
         fh = self._next_fh; self._next_fh += 1
         self._open_files[fh] = {"fd": fd, "inode": inode, "kind": "db",
-                                 "doc_id": db_id, "storage_path": storage_path, "dirty": False}
+                                 "doc_id": db_id, "storage_path": storage_path, "dirty": False,
+                                 "uid": ctx.uid if ctx is not None else None}
         return pyfuse3.FileInfo(fh=fh)
 
     async def read(self, fh: int, off: int, size: int):
@@ -852,7 +855,7 @@ class LASFuseServer(pyfuse3.Operations):
             doc_id = info.get("doc_id")
             spath = info.get("storage_path")
             if doc_id and spath:
-                self._sync_queue.append(("reindex", doc_id, spath))
+                self._sync_queue.append(("reindex", doc_id, spath, info.get("uid")))
 
     async def access(self, inode: int, mode, ctx):
         return True
@@ -1223,8 +1226,9 @@ class LASFuseServer(pyfuse3.Operations):
             for item in to_process:
                 try:
                     if isinstance(item, tuple) and item[0] == "reindex":
-                        _, doc_id, spath = item
-                        await trio.to_thread.run_sync(lambda did=doc_id, sp=spath: self._reindex_sync(did, sp))
+                        _, doc_id, spath, uid = item
+                        await trio.to_thread.run_sync(
+                            lambda did=doc_id, sp=spath, u=uid: self._reindex_sync(did, sp, u))
                     elif isinstance(item, PendingFile):
                         await trio.to_thread.run_sync(lambda pf=item: self._commit_pending_sync(pf))
                 except Exception:
@@ -1325,12 +1329,21 @@ class LASFuseServer(pyfuse3.Operations):
         except Exception:
             self._redis = None  # reset on error
 
-    def _reindex_sync(self, doc_id: str, storage_path: str):
+    def _reindex_sync(self, doc_id: str, storage_path: str, caller_uid: int | None = None):
         with _get_session() as db:
             doc = db.get(Document, doc_id)
             if not doc:
                 return
             doc.processing_status = "pending"
+            # record who overwrote the file and when (the reindex job keeps updated_at as it is)
+            user = db.execute(select(User).where(User.unix_uid == caller_uid)).scalar_one_or_none() \
+                if caller_uid is not None else None
+            if user is not None:
+                doc.updated_by_id = user.id
+            doc.updated_at = datetime.now(timezone.utc)
+            db.add(AuditLog(user_id=user.id if user else None, username=user.username if user else "",
+                            action="document.update", target_type="document", target_id=str(doc.id),
+                            target_name=doc.title, detail=json.dumps({"via": "smb"})))
             fr = db.execute(select(File).where(File.document_id == doc_id).limit(1)).scalar_one_or_none()
             if fr and os.path.exists(storage_path):
                 fr.file_size = os.path.getsize(storage_path)

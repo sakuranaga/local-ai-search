@@ -1,6 +1,7 @@
 """WOPI endpoints for Collabora Online integration."""
 
 import os
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Document, File, User
+from app.services.audit import audit_log
 from app.services.auth import verify_token
 
 router = APIRouter(prefix="/wopi", tags=["wopi"])
@@ -114,8 +116,8 @@ async def put_file(
     db: AsyncSession = Depends(get_db),
 ):
     """WOPI PutFile — save edited file contents."""
-    await _get_user_by_token(access_token, db)
-    _, file = await _get_document_and_file(doc_id, db)
+    user = await _get_user_by_token(access_token, db)
+    doc, file = await _get_document_and_file(doc_id, db)
 
     file_path = os.path.join(STORAGE_PATH, file.storage_path)
     content = await request.body()
@@ -124,6 +126,11 @@ async def put_file(
         f.write(content)
 
     file.file_size = len(content)
+    # record who saved and when (the reindex job keeps updated_at as it is)
+    doc.updated_by_id = user.id
+    doc.updated_at = datetime.now(timezone.utc)
+    await audit_log(db, user=user, action="document.update", target_type="document", target_id=str(doc.id),
+                    target_name=doc.title, detail={"via": "collabora"}, request=request)
     await db.commit()
 
     return Response(status_code=200)

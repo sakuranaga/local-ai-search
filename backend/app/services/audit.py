@@ -44,7 +44,7 @@ async def audit_log(
 
     entry = AuditLog(
         user_id=user.id if user else None,
-        username=(user.display_name or user.username) if user else "",
+        username=((user.display_name or user.username) if user else "")[:150],  # audit_logs.username is 150
         action=action,
         target_type=target_type,
         target_id=target_id,
