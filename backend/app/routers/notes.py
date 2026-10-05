@@ -5,8 +5,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, update, func
+from sqlalchemy.orm import load_only
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -15,10 +16,69 @@ from app.deps import get_current_user, require_permission
 from app.models import Chunk, Document, File, Folder, User
 from app.utils.filename import sanitize_filename
 from app.services.audit import audit_log
+from app.services.permissions import build_visibility_filter, can_access_document, get_user_group_ids
 from app.services.document_processing import chunk_text, get_embeddings
 from app.services.versioning import create_initial_version, create_versions_on_edit, save_new_version
 
 router = APIRouter(prefix="/notes", tags=["notes"])
+
+
+async def _require_access(db: AsyncSession, doc: Document, user: User, need_write: bool) -> None:
+    """Same document permissions as the documents API (owner / group / others / admin)."""
+    if not await can_access_document(doc, user, need_write=need_write, db=db):
+        raise HTTPException(403, "Access denied")
+
+
+async def _readable_parent(db: AsyncSession, parent_id: uuid.UUID, user: User) -> Document:
+    """Parent note for create / move / convert. A note the user cannot read is treated as missing."""
+    parent = await db.get(Document, parent_id)
+    if (not parent or not parent.is_note or parent.deleted_at
+            or not await can_access_document(parent, user, need_write=False, db=db)):
+        raise HTTPException(404, "親ノートが見つかりません")
+    return parent
+
+
+async def _writable(db: AsyncSession, docs, user: User) -> list[Document]:
+    """Only the notes the user may change (side effects must not reach other people's notes)."""
+    return [d for d in docs if await can_access_document(d, user, need_write=True, db=db)]
+
+
+def _place_orders(items: list[tuple[bool, int]]) -> list[int] | None:
+    """Orders for siblings in the wanted sequence. items: (writable, current order).
+
+    Notes the user cannot change keep their order; writable notes get the free values
+    around them (negative values allowed). None if there is no room.
+    """
+    fixed = [(i, o) for i, (w, o) in enumerate(items) if not w]
+    out = [o for _, o in items]
+    if not fixed:
+        return list(range(len(items)))
+    lo, hi = -2**31, 2**31 - 1  # INTEGER column
+    # before the first fixed note: count down from it
+    first_i, first_o = fixed[0]
+    for k, i in enumerate(range(first_i - 1, -1, -1)):
+        out[i] = first_o - 1 - k
+    # between fixed notes, and after the last one
+    for n, (fi, fo) in enumerate(fixed):
+        nxt = fixed[n + 1] if n + 1 < len(fixed) else None
+        end = nxt[0] if nxt else len(items)
+        if nxt and end - fi - 1 > 0 and nxt[1] - fo - 1 < end - fi - 1:
+            return None
+        for k, i in enumerate(range(fi + 1, end)):
+            out[i] = fo + 1 + k
+    if any(not lo <= o <= hi for o in out):
+        return None
+    return out
+
+
+async def _detach_children(db: AsyncSession, note_id: uuid.UUID, user: User) -> None:
+    """Move child notes to the top level. Children the user cannot change keep their link;
+    they are shown at the top level anyway because the parent is no longer a note."""
+    children = (await db.execute(
+        select(Document).where(Document.parent_note_id == note_id).where(Document.is_note.is_(True))
+    )).scalars().all()
+    for child in await _writable(db, children, user):
+        child.parent_note_id = None
 
 
 # ── Schemas ──────────────────────────────────────────────────────────
@@ -34,7 +94,7 @@ class NoteUpdateRequest(BaseModel):
 
 class NoteMoveRequest(BaseModel):
     parent_note_id: str | None = None  # None = top-level
-    note_order: int | None = None
+    note_order: int | None = Field(None, ge=-2**31, le=2**31 - 1)  # INTEGER column
     position: int | None = None  # Insert before this index among siblings (0-based)
 
 
@@ -267,9 +327,7 @@ async def create_note(
     parent_id = None
     if body.parent_note_id:
         parent_id = uuid.UUID(body.parent_note_id)
-        parent = await db.get(Document, parent_id)
-        if not parent or not parent.is_note or parent.deleted_at:
-            raise HTTPException(404, "親ノートが見つかりません")
+        await _readable_parent(db, parent_id, current_user)
 
     # Get next note_order
     max_order = await db.scalar(
@@ -333,20 +391,19 @@ async def list_notes(
 ):
     """Get note tree (hierarchical)."""
     result = await db.execute(
-        select(
-            Document.id,
-            Document.title,
-            Document.parent_note_id,
-            Document.note_order,
-            Document.file_type,
-            Document.note_readonly,
-            Document.updated_at,
-        )
+        select(Document)
+        .options(load_only(
+            Document.id, Document.title, Document.parent_note_id, Document.note_order, Document.file_type,
+            Document.note_readonly, Document.updated_at, Document.owner_id, Document.group_id,
+            Document.group_read, Document.others_read,
+        ))
         .where(Document.is_note.is_(True))
         .where(Document.deleted_at.is_(None))
+        .where(build_visibility_filter(current_user, await get_user_group_ids(db, current_user.id)))
         .order_by(Document.note_order, Document.title)
     )
-    rows = result.all()
+    # the SQL filter narrows; the final decision is the same as the detail API
+    rows = [d for d in result.scalars().all() if await can_access_document(d, current_user, db=db)]
 
     # Build tree
     nodes = {}
@@ -368,6 +425,7 @@ async def list_notes(
         if pid and uuid.UUID(pid) in nodes:
             nodes[uuid.UUID(pid)]["children"].append(node)
         else:
+            node["parent_note_id"] = None  # parent hidden or no longer a note: shown at the top level
             roots.append(node)
 
     return roots
@@ -383,6 +441,7 @@ async def get_note(
     doc = await db.get(Document, note_id)
     if not doc or not doc.is_note or doc.deleted_at:
         raise HTTPException(404, "ノートが見つかりません")
+    await _require_access(db, doc, current_user, need_write=False)
 
     # Resolve updated_by name
     updated_by_name = None
@@ -435,6 +494,7 @@ async def update_note(
     doc = await db.get(Document, note_id)
     if not doc or not doc.is_note or doc.deleted_at:
         raise HTTPException(404, "ノートが見つかりません")
+    await _require_access(db, doc, current_user, need_write=True)
 
     changed = False
 
@@ -478,6 +538,7 @@ async def move_note(
     doc = await db.get(Document, note_id)
     if not doc or not doc.is_note or doc.deleted_at:
         raise HTTPException(404, "ノートが見つかりません")
+    await _require_access(db, doc, current_user, need_write=True)
 
     # Resolve target parent
     new_parent_id = doc.parent_note_id  # default: unchanged
@@ -488,9 +549,7 @@ async def move_note(
             new_parent_id = uuid.UUID(body.parent_note_id)
             if new_parent_id == note_id:
                 raise HTTPException(400, "自分自身を親にはできません")
-            parent = await db.get(Document, new_parent_id)
-            if not parent or not parent.is_note or parent.deleted_at:
-                raise HTTPException(404, "親ノートが見つかりません")
+            parent = await _readable_parent(db, new_parent_id, current_user)
             # Check for circular: walk up the tree
             check_id = parent.parent_note_id
             while check_id:
@@ -502,29 +561,33 @@ async def move_note(
     doc.parent_note_id = new_parent_id
 
     if body.position is not None:
-        # Fetch all siblings under target parent (excluding the moved note)
-        sibling_q = (
-            select(Document)
-            .where(Document.is_note.is_(True))
-            .where(Document.deleted_at.is_(None))
-            .where(Document.id != note_id)
-        )
-        if new_parent_id is None:
-            sibling_q = sibling_q.where(Document.parent_note_id.is_(None))
+        # Siblings as the user sees them in the tree (same rule as the list: a note whose parent
+        # is not visible is shown at the top level)
+        readable = [
+            d for d in (await db.execute(
+                select(Document).where(Document.is_note.is_(True)).where(Document.deleted_at.is_(None))
+                .where(build_visibility_filter(current_user, await get_user_group_ids(db, current_user.id)))
+                .order_by(Document.note_order, Document.title)
+            )).scalars().all()
+            if await can_access_document(d, current_user, db=db)
+        ]
+        visible_ids = {d.id for d in readable}
+        # parent kept as is but hidden from the user: the note is listed at the top level
+        sibling_parent = new_parent_id if new_parent_id in visible_ids else None
+        if sibling_parent is None:
+            siblings = [d for d in readable if d.parent_note_id is None or d.parent_note_id not in visible_ids]
         else:
-            sibling_q = sibling_q.where(Document.parent_note_id == new_parent_id)
-        sibling_q = sibling_q.order_by(Document.note_order, Document.title)
+            siblings = [d for d in readable if d.parent_note_id == sibling_parent]
+        siblings = [d for d in siblings if d.id != note_id]
 
-        result = await db.execute(sibling_q)
-        siblings = list(result.scalars().all())
-
-        # Insert at position
         pos = max(0, min(body.position, len(siblings)))
         siblings.insert(pos, doc)
-
-        # Reindex all
-        for idx, sib in enumerate(siblings):
-            sib.note_order = idx
+        writable = {d.id for d in await _writable(db, siblings, current_user)} | {doc.id}
+        orders = _place_orders([(d.id in writable, d.note_order) for d in siblings])
+        if orders is None:
+            raise HTTPException(409, "変更できないノートの間には、この位置で並べられません")
+        for sib, order in zip(siblings, orders):
+            sib.note_order = order
     elif body.note_order is not None:
         doc.note_order = body.note_order
 
@@ -542,14 +605,10 @@ async def remove_note(
     doc = await db.get(Document, note_id)
     if not doc or not doc.is_note or doc.deleted_at:
         raise HTTPException(404, "ノートが見つかりません")
+    await _require_access(db, doc, current_user, need_write=True)
 
     # Move children to top-level
-    await db.execute(
-        update(Document)
-        .where(Document.parent_note_id == note_id)
-        .where(Document.is_note.is_(True))
-        .values(parent_note_id=None)
-    )
+    await _detach_children(db, note_id, current_user)
 
     doc.is_note = False
     doc.note_content = None
@@ -569,14 +628,10 @@ async def delete_note_with_file(
     doc = await db.get(Document, note_id)
     if not doc or doc.deleted_at:
         raise HTTPException(404, "ノートが見つかりません")
+    await _require_access(db, doc, current_user, need_write=True)
 
     # Move children to top-level
-    await db.execute(
-        update(Document)
-        .where(Document.parent_note_id == note_id)
-        .where(Document.is_note.is_(True))
-        .values(parent_note_id=None)
-    )
+    await _detach_children(db, note_id, current_user)
 
     doc.deleted_at = datetime.now(timezone.utc)
     await db.commit()
@@ -596,6 +651,7 @@ async def convert_to_note(
     doc = await db.get(Document, document_id)
     if not doc or doc.deleted_at:
         raise HTTPException(404, "ドキュメントが見つかりません")
+    await _require_access(db, doc, current_user, need_write=True)
     if doc.is_note:
         raise HTTPException(400, "既にノートです")
     if doc.file_type != "md":
@@ -605,9 +661,7 @@ async def convert_to_note(
     parent_id = None
     if body.parent_note_id:
         parent_id = uuid.UUID(body.parent_note_id)
-        parent = await db.get(Document, parent_id)
-        if not parent or not parent.is_note or parent.deleted_at:
-            raise HTTPException(404, "親ノートが見つかりません")
+        await _readable_parent(db, parent_id, current_user)
 
     # Get next order
     max_order = await db.scalar(
@@ -646,6 +700,7 @@ async def export_note_md(
     doc = await db.get(Document, note_id)
     if not doc or not doc.is_note or doc.deleted_at:
         raise HTTPException(404, "ノートが見つかりません")
+    await _require_access(db, doc, current_user, need_write=False)
 
     markdown = _blocknote_to_markdown(doc.note_content)
     return {"markdown": markdown, "title": doc.title}
