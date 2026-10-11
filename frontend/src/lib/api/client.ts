@@ -1,3 +1,5 @@
+import { sameSession, type Session } from "./session";
+
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
 // ---------------------------------------------------------------------------
@@ -25,6 +27,16 @@ export function clearToken() {
   localStorage.removeItem("las_refresh_token");
 }
 
+/** The tokens now, to tell later whether it is still the same login (design doc AO 3). */
+export function currentSession(): Session {
+  return { access: getToken(), refresh: getRefreshToken() };
+}
+
+/** Still the login `start` was taken in (not signed out or in again, maybe in another tab). */
+export function stillSession(start: Session): boolean {
+  return sameSession(start, currentSession());
+}
+
 // ---------------------------------------------------------------------------
 // Generic fetch wrapper
 // ---------------------------------------------------------------------------
@@ -33,7 +45,8 @@ export async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const token = getToken();
+  const start = currentSession();
+  const token = start.access;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> | undefined),
@@ -45,8 +58,10 @@ export async function apiFetch<T>(
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
   if (res.status === 401) {
+    // LAP (design doc AO 3): another login since it was sent: this request fails, that login is left alone
+    if (!stillSession(start)) throw new Error("Unauthorized");
     // Try refreshing the token once
-    const rt = getRefreshToken();
+    const rt = start.refresh;
     if (rt) {
       try {
         const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
@@ -54,8 +69,10 @@ export async function apiFetch<T>(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ refresh_token: rt }),
         });
+        if (!stillSession(start)) throw new Error("Unauthorized"); // signed out (or in) meanwhile: not kept
         if (refreshRes.ok) {
           const data = await refreshRes.json();
+          if (!stillSession(start)) throw new Error("Unauthorized");
           setToken(data.access_token);
           headers["Authorization"] = `Bearer ${data.access_token}`;
           const retry = await fetch(`${API_BASE}${path}`, { ...options, headers });
@@ -68,6 +85,7 @@ export async function apiFetch<T>(
         // refresh failed, fall through to logout
       }
     }
+    if (!stillSession(start)) throw new Error("Unauthorized");
     clearToken();
     // Avoid reload loop when the request originated from the login page itself
     if (window.location.pathname !== "/login") {

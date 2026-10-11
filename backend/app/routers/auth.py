@@ -1,4 +1,6 @@
+import math
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -6,6 +8,7 @@ from pathlib import Path
 import redis.asyncio as redis
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -115,15 +118,60 @@ async def refresh(
     return AccessTokenResponse(access_token=access_token)
 
 
+class LogoutRequest(BaseModel):
+    refresh_token: str | None = None
+
+
+_optional_bearer = HTTPBearer(auto_error=False)
+
+
+def _now() -> float:
+    return time.time()
+
+
+async def _revoke(r: redis.Redis, payloads: list[dict]) -> None:
+    """Blacklist each token until a minute after it expires (rounded up: never gone before the token)."""
+    for p in payloads:
+        ttl = max(0, math.ceil(float(p["exp"]) - _now())) + 60  # design doc AO 2.2
+        await r.set(f"blacklist:{p['jti']}", "1", ex=ttl)
+
+
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    body: LogoutRequest | None = None,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
     r: redis.Redis = Depends(get_redis),
     db: AsyncSession = Depends(get_db),
 ):
-    """Blacklist the current access token in Redis with a TTL matching token expiry."""
-    await audit_log(db, user=current_user, action="logout", request=request)
+    """Revoke the tokens this browser holds: the access token (header) and the refresh token (body).
+
+    No login required: an expired access token must not keep the refresh token alive, and revoking a
+    token one holds harms no one. API keys are not touched. Nothing valid to revoke is still 204.
+    """
+    payloads = []
+    if credentials and "." in credentials.credentials:
+        p = verify_token(credentials.credentials, expected_type="access")
+        if p and p.get("jti"):
+            payloads.append(p)
+    if body and body.refresh_token:
+        p = verify_token(body.refresh_token, expected_type="refresh")
+        if p and p.get("jti"):
+            payloads.append(p)
+    if not payloads:
+        return None
+
+    try:
+        await _revoke(r, payloads)
+    except Exception:  # Redis unreachable: the browser signs out anyway
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not revoke the tokens")
+
+    user = None
+    try:
+        user = await db.get(User, uuid.UUID(payloads[0]["sub"]))
+    except (KeyError, ValueError, TypeError):
+        pass
+    await audit_log(db, user=user, action="logout", request=request)
     return None
 
 
