@@ -13,9 +13,12 @@ if _sentry_dsn:
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import db_init
 from app.db import engine, get_db
+from app.db_init import ddl
 from app.deps import get_current_user
 from app.models import ApiKey, AuditLog, Base, Chunk, Document, User
 from app.routers import api_keys, audit, auth, chat, documents, folders, groups, ingest, mail, roles, search, settings, share, tags, users
@@ -26,12 +29,31 @@ logger = logging.getLogger(__name__)
 _db_initialized = False
 
 
+async def _bigm_index(conn):
+    """pg_bigm may be missing (then no index, as before); lock waits go on to be tried again (design doc AP)."""
+    try:
+        await ddl(conn, "CREATE INDEX IF NOT EXISTS ix_chunks_content_bigm ON chunks USING gin (content gin_bigm_ops)")
+    except DBAPIError as e:
+        if db_init.sqlstate(e) in db_init.RETRY_CODES:
+            raise
+    except Exception:
+        pass
+
+
 async def init_db():
     global _db_initialized
     if _db_initialized:
         return
     logger.info("Initializing database...")
+    # One process at a time, schema changes only when needed, lock waits tried again (design doc AP)
+    deadline = db_init.Deadline(db_init.BUDGET)
+    async with db_init.init_lock(engine, deadline):
+        await _init_db(deadline)
+    _db_initialized = True
+    logger.info("Database tables created/verified")
 
+
+async def _init_db(deadline: db_init.Deadline):
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         logger.info("pgvector extension enabled")
@@ -47,61 +69,63 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
 
     # Migrate: add new columns to documents table if they don't exist
-    async with engine.begin() as conn:
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS memo TEXT DEFAULT ''"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS created_by_id UUID REFERENCES users(id) ON DELETE SET NULL"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS updated_by_id UUID REFERENCES users(id) ON DELETE SET NULL"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS searchable BOOLEAN DEFAULT TRUE"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS ai_knowledge BOOLEAN DEFAULT TRUE"))
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255) DEFAULT ''"))
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(1000)"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS folder_id UUID REFERENCES folders(id) ON DELETE SET NULL"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_folder_id ON documents(folder_id)"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary TEXT DEFAULT ''"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS processing_status VARCHAR(30) DEFAULT 'done' NOT NULL"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS scan_status VARCHAR(20) DEFAULT 'pending' NOT NULL"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS scan_result TEXT"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS share_prohibited BOOLEAN DEFAULT FALSE"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS download_prohibited BOOLEAN DEFAULT FALSE"))
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS can_share BOOLEAN DEFAULT TRUE"))
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS can_download BOOLEAN DEFAULT TRUE"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS title_embedding vector(1024)"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS current_version INTEGER DEFAULT 1 NOT NULL"))
-        await conn.execute(text("ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS change_type VARCHAR(20)"))
-        await conn.execute(text("ALTER TABLE webhook_endpoints ADD COLUMN IF NOT EXISTS format VARCHAR(20) DEFAULT 'json' NOT NULL"))
+    async def documents_columns(conn):
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS memo TEXT DEFAULT ''")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS created_by_id UUID REFERENCES users(id) ON DELETE SET NULL")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS updated_by_id UUID REFERENCES users(id) ON DELETE SET NULL")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS searchable BOOLEAN DEFAULT TRUE")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS ai_knowledge BOOLEAN DEFAULT TRUE")
+        await ddl(conn, "ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255) DEFAULT ''")
+        await ddl(conn, "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(1000)")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS folder_id UUID REFERENCES folders(id) ON DELETE SET NULL")
+        await ddl(conn, "CREATE INDEX IF NOT EXISTS ix_documents_folder_id ON documents(folder_id)")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary TEXT DEFAULT ''")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS processing_status VARCHAR(30) DEFAULT 'done' NOT NULL")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS scan_status VARCHAR(20) DEFAULT 'pending' NOT NULL")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS scan_result TEXT")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS share_prohibited BOOLEAN DEFAULT FALSE")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS download_prohibited BOOLEAN DEFAULT FALSE")
+        await ddl(conn, "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_share BOOLEAN DEFAULT TRUE")
+        await ddl(conn, "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_download BOOLEAN DEFAULT TRUE")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS title_embedding vector(1024)")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS current_version INTEGER DEFAULT 1 NOT NULL")
+        await ddl(conn, "ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS change_type VARCHAR(20)")
+        await ddl(conn, "ALTER TABLE webhook_endpoints ADD COLUMN IF NOT EXISTS format VARCHAR(20) DEFAULT 'json' NOT NULL")
         # Note feature columns
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_note BOOLEAN DEFAULT FALSE"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS note_content JSONB"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS parent_note_id UUID REFERENCES documents(id) ON DELETE SET NULL"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS note_order INTEGER DEFAULT 0"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_parent_note_id ON documents(parent_note_id)"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_is_note ON documents(is_note) WHERE is_note = TRUE"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS note_readonly BOOLEAN DEFAULT FALSE"))
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_note BOOLEAN DEFAULT FALSE")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS note_content JSONB")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS parent_note_id UUID REFERENCES documents(id) ON DELETE SET NULL")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS note_order INTEGER DEFAULT 0")
+        await ddl(conn, "CREATE INDEX IF NOT EXISTS ix_documents_parent_note_id ON documents(parent_note_id)")
+        await ddl(conn, "CREATE INDEX IF NOT EXISTS ix_documents_is_note ON documents(is_note) WHERE is_note = TRUE")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS note_readonly BOOLEAN DEFAULT FALSE")
         # External integration columns
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'upload'"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS external_id VARCHAR(500)"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS external_url VARCHAR(2000)"))
-        await conn.execute(text(
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'upload'")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS external_id VARCHAR(500)")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS external_url VARCHAR(2000)")
+        await ddl(conn,
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_documents_source_external_id "
             "ON documents(source, external_id) WHERE external_id IS NOT NULL"
-        ))
+        )
         # Usage tracking columns
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS edit_count INTEGER DEFAULT 0"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS download_count INTEGER DEFAULT 0"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMPTZ"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS folder_scores JSONB DEFAULT '{}'"))
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS edit_count INTEGER DEFAULT 0")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS download_count INTEGER DEFAULT 0")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMPTZ")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS folder_scores JSONB DEFAULT '{}'")
         # Performance indexes for JOIN subqueries
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_files_document_id ON files(document_id)"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_document_tags_document_id ON document_tags(document_id)"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_share_links_document_id ON share_links(document_id)"))
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ"))
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS locale VARCHAR(10)"))
+        await ddl(conn, "CREATE INDEX IF NOT EXISTS ix_files_document_id ON files(document_id)")
+        await ddl(conn, "CREATE INDEX IF NOT EXISTS ix_document_tags_document_id ON document_tags(document_id)")
+        await ddl(conn, "CREATE INDEX IF NOT EXISTS ix_share_links_document_id ON share_links(document_id)")
+        await ddl(conn, "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ")
+        await ddl(conn, "ALTER TABLE users ADD COLUMN IF NOT EXISTS locale VARCHAR(10)")
         # SMB feature columns
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS unix_uid INTEGER UNIQUE"))
-        await conn.execute(text("ALTER TABLE groups ADD COLUMN IF NOT EXISTS unix_gid INTEGER UNIQUE"))
+        await ddl(conn, "ALTER TABLE users ADD COLUMN IF NOT EXISTS unix_uid INTEGER UNIQUE")
+        await ddl(conn, "ALTER TABLE groups ADD COLUMN IF NOT EXISTS unix_gid INTEGER UNIQUE")
         logger.info("Document table migration columns verified")
+
+    await db_init.with_retry(engine, "documents columns", documents_columns, deadline)
 
     # Phase 0: Role simplification (Admin/User)
     async with engine.begin() as conn:
@@ -137,21 +161,21 @@ async def init_db():
         logger.info("Role simplification (Admin/User) done")
 
     # Phase 1: Unix permissions migration
-    async with engine.begin() as conn:
+    async def unix_permissions(conn):
         # Document Unix permission columns
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES groups(id) ON DELETE SET NULL"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS group_read BOOLEAN DEFAULT FALSE"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS group_write BOOLEAN DEFAULT FALSE"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS others_read BOOLEAN DEFAULT TRUE"))
-        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS others_write BOOLEAN DEFAULT FALSE"))
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES groups(id) ON DELETE SET NULL")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS group_read BOOLEAN DEFAULT FALSE")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS group_write BOOLEAN DEFAULT FALSE")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS others_read BOOLEAN DEFAULT TRUE")
+        await ddl(conn, "ALTER TABLE documents ADD COLUMN IF NOT EXISTS others_write BOOLEAN DEFAULT FALSE")
 
         # Folder Unix permission columns
-        await conn.execute(text("ALTER TABLE folders ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES users(id) ON DELETE SET NULL"))
-        await conn.execute(text("ALTER TABLE folders ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES groups(id) ON DELETE SET NULL"))
-        await conn.execute(text("ALTER TABLE folders ADD COLUMN IF NOT EXISTS group_read BOOLEAN DEFAULT FALSE"))
-        await conn.execute(text("ALTER TABLE folders ADD COLUMN IF NOT EXISTS group_write BOOLEAN DEFAULT FALSE"))
-        await conn.execute(text("ALTER TABLE folders ADD COLUMN IF NOT EXISTS others_read BOOLEAN DEFAULT TRUE"))
-        await conn.execute(text("ALTER TABLE folders ADD COLUMN IF NOT EXISTS others_write BOOLEAN DEFAULT FALSE"))
+        await ddl(conn, "ALTER TABLE folders ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES users(id) ON DELETE SET NULL")
+        await ddl(conn, "ALTER TABLE folders ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES groups(id) ON DELETE SET NULL")
+        await ddl(conn, "ALTER TABLE folders ADD COLUMN IF NOT EXISTS group_read BOOLEAN DEFAULT FALSE")
+        await ddl(conn, "ALTER TABLE folders ADD COLUMN IF NOT EXISTS group_write BOOLEAN DEFAULT FALSE")
+        await ddl(conn, "ALTER TABLE folders ADD COLUMN IF NOT EXISTS others_read BOOLEAN DEFAULT TRUE")
+        await ddl(conn, "ALTER TABLE folders ADD COLUMN IF NOT EXISTS others_write BOOLEAN DEFAULT FALSE")
 
         # Migrate is_public → others_read
         # Check if is_public column exists before migrating
@@ -161,7 +185,7 @@ async def init_db():
         ))
         if col_check.scalar_one_or_none():
             await conn.execute(text("UPDATE documents SET others_read = is_public WHERE others_read != is_public"))
-            await conn.execute(text("ALTER TABLE documents DROP COLUMN IF EXISTS is_public"))
+            await ddl(conn, "ALTER TABLE documents DROP COLUMN IF EXISTS is_public")
             logger.info("Migrated is_public → others_read and dropped is_public column")
 
         # Set owner_id from created_by_id for existing documents
@@ -173,19 +197,9 @@ async def init_db():
         await conn.execute(text("DROP TABLE IF EXISTS document_permissions"))
         logger.info("Unix permissions migration done")
 
-    async with engine.begin() as conn:
-        try:
-            await conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_chunks_content_bigm "
-                    "ON chunks USING gin (content gin_bigm_ops)"
-                )
-            )
-        except Exception:
-            pass
+    await db_init.with_retry(engine, "Unix permissions", unix_permissions, deadline)
 
-    _db_initialized = True
-    logger.info("Database tables created/verified")
+    await db_init.with_retry(engine, "bigm index", _bigm_index, deadline)
 
 
 @asynccontextmanager
