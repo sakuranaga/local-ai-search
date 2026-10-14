@@ -291,6 +291,8 @@ async def change_password(
         target_type="user", target_id=str(current_user.id), request=request,
     )
     await db.commit()
+    # Samba too, or SMB keeps taking the old password until the next login
+    _sync_smb_password(current_user.username, body.new_password)
 
 
 # ---------------------------------------------------------------------------

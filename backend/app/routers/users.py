@@ -13,6 +13,7 @@ from app.db import get_db
 from app.deps import require_permission
 from app.models import Role, User, UserRole
 from app.services.audit import audit_log
+from app.routers.auth import _sync_smb_password
 from app.services.auth import hash_password
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -188,6 +189,10 @@ async def update_user(
     await audit_log(db, user=_admin, action="user.update", target_type="user",
                     target_id=str(user.id), target_name=user.username,
                     detail=changed, request=request)
+    if body.password is not None:
+        # Samba too, once the new password is committed
+        await db.commit()
+        _sync_smb_password(user.username, body.password)
     return _user_response(user)
 
 
