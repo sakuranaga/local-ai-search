@@ -11,6 +11,7 @@ Endpoints:
 import base64
 import hashlib
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,7 +29,7 @@ from app.models import ApiKey, Chunk, Document, DocumentTag, File, Folder, Tag, 
 from app.services.audit import audit_log
 from app.services.auth import verify_token
 from app.services.document_processing import get_file_type
-from app.services.permissions import can_access_folder, inherited_folder_perms
+from app.services.permissions import can_access_document, can_access_folder, inherited_folder_perms, is_admin
 from app.services.job_queue import create_job
 from app.utils.filename import sanitize_filename
 
@@ -72,6 +73,18 @@ def _resolve_folder_id(api_key: ApiKey, requested_folder_id: uuid.UUID | None) -
             )
         return api_key.folder_id
     return requested_folder_id
+
+
+async def _need_folder_write(db: AsyncSession, user: User, folder: Folder | None) -> None:
+    """Write permission on a folder something is made in or moved into (as the web API)."""
+    if folder is not None and not await can_access_folder(folder, user, need_write=True, db=db):
+        raise HTTPException(status_code=403, detail="No write permission on target folder")
+
+
+async def _need_document_write(db: AsyncSession, user: User, doc: Document) -> None:
+    """Write permission on a document that is overwritten, updated or deleted."""
+    if not await can_access_document(doc, user, need_write=True, db=db):
+        raise HTTPException(status_code=403, detail="No write permission on the document")
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +207,12 @@ async def _ingest_single_file(
                 detail=f"Document '{file.filename}' already exists and overwrite is not allowed",
             )
 
-        # Overwrite existing document
+        # Overwrite existing document (the document's own permission too)
+        try:
+            await _need_document_write(db, user, existing_doc)
+        except HTTPException:
+            storage_path.unlink(missing_ok=True)
+            raise
         doc = existing_doc
         created = False
 
@@ -424,6 +442,7 @@ async def ingest_content(
                 )
                 folder_obj = result.scalar_one_or_none()
                 if not folder_obj:
+                    await _need_folder_write(db, current_user, parent_obj)  # as making it on the web
                     folder_obj = Folder(
                         name=part, parent_id=parent_id, owner_id=current_user.id,
                         **inherited_folder_perms(parent_obj),
@@ -461,8 +480,20 @@ async def ingest_content(
             )
             trashed_doc = result.scalar_one_or_none()
             if trashed_doc:
+                # restoring is for the owner (as the web's trash)
+                if not is_admin(current_user) and trashed_doc.owner_id != current_user.id:
+                    raise HTTPException(status_code=403, detail="No permission to restore the document")
                 trashed_doc.deleted_at = None
                 existing_doc = trashed_doc
+
+    # an update needs write permission on the document; a new document or a move, on the folder
+    target_folder = await db.get(Folder, resolved_folder) if resolved_folder else None
+    if existing_doc is not None:
+        await _need_document_write(db, current_user, existing_doc)
+        if resolved_folder is not None and resolved_folder != existing_doc.folder_id:
+            await _need_folder_write(db, current_user, target_folder)
+    else:
+        await _need_folder_write(db, current_user, target_folder)
 
     # Append mode: read existing content and prepend to new content
     is_append = body.mode == "append"
@@ -715,6 +746,7 @@ async def ingest_delete(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="API key cannot delete documents outside its assigned folder",
         )
+    await _need_document_write(db, current_user, doc)  # as the web's delete
 
     from datetime import timezone
     doc.deleted_at = datetime.now(timezone.utc)
@@ -761,6 +793,10 @@ async def ingest_list(
 # ---------------------------------------------------------------------------
 # tus upload hooks (called by tusd)
 # ---------------------------------------------------------------------------
+
+
+# an upload in tusd's upload-dir (its ID: letters, digits, "_" and "-"; never "..", "/" or the ".info" beside it)
+_TUS_PATH = re.compile(r"/data/uploads/tus/([A-Za-z0-9_-]+)")
 
 
 def _decode_tus_metadata(metadata: dict) -> dict[str, str]:
@@ -881,9 +917,15 @@ async def tus_hook(
 
         storage_info = upload.get("Storage", {})
         raw_path = storage_info.get("Path", "")
+        # the hook can be called by anyone through /api, so the path must be one of tusd's uploads
+        # (a file directly in its upload-dir), never any file the backend can read or delete
+        m = _TUS_PATH.fullmatch(raw_path or "")
+        if m is None:
+            logger.error("tus post-finish: not an upload path, ignored: %r", raw_path)
+            return JSONResponse(content={"ok": False}, status_code=400)
         # tusd stores paths as /data/uploads/tus/xxx but backend sees /data/storage/uploads/tus/xxx
         # Map tusd's upload-dir to backend's STORAGE_PATH
-        file_path = raw_path.replace("/data/uploads/tus/", f"{settings.STORAGE_PATH}/uploads/tus/")
+        file_path = f"{settings.STORAGE_PATH}/uploads/tus/{m.group(1)}"
         file_size = upload.get("Size", 0)
 
         filename = metadata.get("filename", "unknown")
@@ -891,9 +933,25 @@ async def tus_hook(
         folder_id_str = metadata.get("folder_id", "")
 
         async with async_session() as db:
+            # a file already registered (its path is shown with its document) is not taken again, nor
+            # deleted: only a fresh upload is registered or thrown away below
+            taken = (await db.execute(select(File.id).where(File.storage_path == file_path).limit(1))).first() or \
+                (await db.execute(select(Document.id).where(Document.source_path == file_path).limit(1))).first()
+            if taken:
+                logger.error("tus post-finish: the upload is registered already, ignored: %s", file_path)
+                return JSONResponse(content={"ok": False}, status_code=400)
+
+            def _drop_upload() -> None:
+                """A refused upload leaves no file behind (as a refused overwrite)."""
+                try:
+                    Path(file_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+
             user, api_key = await _authenticate_tus_upload(metadata, db)
             if user is None:
                 logger.error("tus post-finish: authentication failed for %s", filename)
+                _drop_upload()
                 return JSONResponse(content={"ok": False})
 
             file_type = get_file_type(filename)
@@ -908,6 +966,7 @@ async def tus_hook(
                 folder_check = await db.get(Folder, folder_uuid)
                 if folder_check and not await can_access_folder(folder_check, user, need_write=True, db=db):
                     logger.error("tus post-finish: no write permission on folder %s for user %s", folder_uuid, user.username)
+                    _drop_upload()
                     return JSONResponse(content={"ok": False}, status_code=403)
 
             # Copy permissions from folder
@@ -953,6 +1012,11 @@ async def tus_hook(
                         pass
                     logger.warning("tus overwrite denied for API key %s: %s", api_key.name, filename)
                     return JSONResponse(content={"ok": False, "detail": "Overwrite not allowed"})
+                # the overwritten document's own permission
+                if not await can_access_document(existing_doc, user, need_write=True, db=db):
+                    _drop_upload()
+                    logger.error("tus post-finish: no write permission on document %s for user %s", existing_doc.id, user.username)
+                    return JSONResponse(content={"ok": False}, status_code=403)
 
                 doc = existing_doc
                 # Version management: save old state before overwriting

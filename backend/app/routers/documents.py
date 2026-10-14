@@ -349,6 +349,10 @@ async def create_text_document(
     existing_doc = existing_result.scalars().first()
 
     if existing_doc:
+        # overwriting needs write permission on the document itself, not only on the folder
+        if not await _check_doc_access(existing_doc, current_user, need_write=True, db=db):
+            storage_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=403, detail="No write permission on the existing document")
         doc = existing_doc
         old_files = await db.execute(select(File).where(File.document_id == doc.id))
         for old_f in old_files.scalars().all():
@@ -1385,10 +1389,14 @@ async def bulk_action(
             else:
                 existing_q = existing_q.where(Document.folder_id.is_(None))
             existing_result = await db.execute(existing_q)
+            replaced = [d for d in existing_result.scalars().all() if d.id not in moving_ids]
+            # throwing a same-named document away needs write permission on it (the whole move is refused)
+            for existing_doc in replaced:
+                if not await _check_doc_access(existing_doc, current_user, need_write=True, db=db):
+                    raise HTTPException(status_code=403, detail="No write permission on a document to overwrite")
             now = datetime.now(timezone.utc)
-            for existing_doc in existing_result.scalars().all():
-                if existing_doc.id not in moving_ids:
-                    existing_doc.deleted_at = now
+            for existing_doc in replaced:
+                existing_doc.deleted_at = now
 
         for doc in docs:
             doc.folder_id = folder_uuid
