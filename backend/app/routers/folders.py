@@ -254,6 +254,8 @@ async def create_folder(
     db.add(folder)
     await db.flush()
     await db.refresh(folder)
+    group_name = (await db.execute(select(Group.name).where(Group.id == folder.group_id))).scalar() \
+        if folder.group_id else None
 
     return FolderResponse(
         id=str(folder.id),
@@ -261,6 +263,13 @@ async def create_folder(
         parent_id=str(folder.parent_id) if folder.parent_id else None,
         owner_id=str(folder.owner_id) if folder.owner_id else None,
         owner_name=current_user.display_name or current_user.username,
+        # the permissions it took from its parent (not the defaults)
+        group_id=str(folder.group_id) if folder.group_id else None,
+        group_name=group_name,
+        group_read=folder.group_read,
+        group_write=folder.group_write,
+        others_read=folder.others_read,
+        others_write=folder.others_write,
         document_count=0,
         created_at=folder.created_at.isoformat(),
         updated_at=folder.updated_at.isoformat(),
@@ -331,6 +340,10 @@ async def create_folders_bulk(
                 current_parent = folder.id
                 current_parent_obj = folder
             else:
+                # an existing folder on the way is written into as the starting one (checked above)
+                if current_parent_obj is not None and not await can_access_folder(
+                        current_parent_obj, current_user, need_write=True, db=db):
+                    raise HTTPException(status_code=403, detail="No write permission on parent folder")
                 folder = Folder(
                     name=part,
                     parent_id=current_parent,

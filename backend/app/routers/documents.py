@@ -513,9 +513,12 @@ async def get_filter_options(
     current_user: User = Depends(get_current_user),
 ):
     """Return distinct file types and creators for filter dropdowns."""
+    # only from the documents the user may see (as the list itself)
+    visible = build_visibility_filter(current_user, await get_user_group_ids(db, current_user.id))
     # Distinct file types
     ft_result = await db.execute(
         select(Document.file_type)
+        .where(visible)
         .where(Document.deleted_at.is_(None))
         .group_by(Document.file_type)
         .order_by(Document.file_type)
@@ -529,6 +532,7 @@ async def get_filter_options(
             func.coalesce(func.nullif(User.display_name, ""), User.username).label("name"),
         )
         .join(Document, Document.created_by_id == User.id)
+        .where(visible)
         .where(Document.deleted_at.is_(None))
         .where(User.is_active.is_(True))
         .group_by(User.id, User.display_name, User.username)
