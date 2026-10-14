@@ -424,6 +424,11 @@ def _can_write_entry(entry: CachedEntry, caller_uid: int, caller_is_admin: bool,
     return False
 
 
+def _is_las_user_sync(uid: int) -> bool:
+    with _get_session() as db:
+        return db.execute(select(User.id).where(User.unix_uid == uid)).first() is not None
+
+
 def _can_write_folder_sync(folder_id: str | None, caller_uid: int) -> bool:
     """Check if a user can create files in this folder (sync DB check)."""
     is_admin, caller_gids = _get_user_info_sync(caller_uid)
@@ -899,8 +904,9 @@ class LASFuseServer(pyfuse3.Operations):
         if not is_temp and ctx is not None:
             parent_key = _inode_key(parent_inode)
             folder_id = parent_key[1] if parent_key and parent_key[0] == "folder" else None
+            # a uid no LAS user has makes no file: it would have no owner
             can_write = await trio.to_thread.run_sync(
-                lambda: _can_write_folder_sync(folder_id, ctx.uid))
+                lambda: _is_las_user_sync(ctx.uid) and _can_write_folder_sync(folder_id, ctx.uid))
             if not can_write:
                 raise pyfuse3.FUSEError(errno.EACCES)
 
@@ -1272,10 +1278,9 @@ class LASFuseServer(pyfuse3.Operations):
 
         with _get_session() as db:
             user = db.execute(select(User).where(User.unix_uid == pf.caller_uid)).scalar_one_or_none()
-            if not user:
-                user = db.execute(select(User).limit(1)).scalar_one_or_none()
-            if not user:
-                log.error("No user for uid %d", pf.caller_uid)
+            if not user:  # nobody else is made its owner (a temporary name renamed, or the writer removed)
+                log.error("No LAS user has uid %d: %s is not saved", pf.caller_uid, pf.name)
+                os.unlink(final_path)
                 return
             user_id = user.id
 
