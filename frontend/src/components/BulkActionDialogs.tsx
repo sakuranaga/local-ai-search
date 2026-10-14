@@ -20,9 +20,9 @@ import {
   type Group,
   type DocumentListItem,
 } from "@/lib/api";
+import { MIXED, currentPermissions, nextBit, permissionChanges, type Mixed, type PermissionChoice } from "@/lib/bulkPermissions";
 import {
   formatBytes,
-  formatPermString,
   hasDirectoryEntries,
   traverseDataTransferItems,
   type FileWithPath,
@@ -35,41 +35,64 @@ import {
 export function BulkPermissionsDialog({
   open,
   selectedIds,
+  items,
   onClose,
   onDone,
 }: {
   open: boolean;
   selectedIds: string[];
+  items: DocumentListItem[];
   onClose: () => void;
   onDone: () => void;
 }) {
   const [groups, setGroups] = useState<Group[]>([]);
-  const [groupId, setGroupId] = useState("");
-  const [groupRead, setGroupRead] = useState(false);
-  const [groupWrite, setGroupWrite] = useState(false);
-  const [othersRead, setOthersRead] = useState(true);
-  const [othersWrite, setOthersWrite] = useState(false);
+  // Start from the selected files' own permissions; fields that differ between them stay unchanged
+  const [start, setStart] = useState<PermissionChoice>(() => currentPermissions([]));
+  const [perm, setPerm] = useState<PermissionChoice>(start);
   const [saving, setSaving] = useState(false);
+  const [fileGroups, setFileGroups] = useState<{ id: string; name: string }[]>([]);
+  const source = useRef({ items, selectedIds });
+  source.current = { items, selectedIds };
 
   useEffect(() => {
-    if (open) getGroups().then(setGroups).catch(() => {});
+    if (!open) return;
+    // Read once on open: the parent passes a new selectedIds array on every render
+    const { items: all, selectedIds: ids } = source.current;
+    const chosen = all.filter((i) => ids.includes(i.id));
+    const p = currentPermissions(chosen);
+    setStart(p);
+    const seen = new Map<string, string>();
+    for (const i of chosen) if (i.group_id) seen.set(i.group_id, i.group_name ?? i.group_id);
+    setFileGroups([...seen].map(([id, name]) => ({ id, name })));
+    setPerm(p);
+    getGroups().then(setGroups).catch(() => {});
   }, [open]);
 
   async function handleSave() {
+    const changes = permissionChanges(start, perm);
+    if (!Object.keys(changes).length) { onClose(); return; }
     setSaving(true);
     try {
-      const res = await bulkAction(selectedIds, "set_permissions", {
-        group_id: groupId || null,
-        group_read: groupRead,
-        group_write: groupWrite,
-        others_read: othersRead,
-        others_write: othersWrite,
-      });
+      const res = await bulkAction(selectedIds, "set_permissions", changes);
       toast.success(t("fileExplorer:bulkPermissions.applied", { count: res.processed }));
       onDone();
     } catch { toast.error(t("common:saveFailed")); }
     finally { setSaving(false); }
   }
+
+  const bit = (v: boolean | Mixed, c: string) => (v === MIXED ? "?" : v ? c : "-");
+  const box = (field: "group_read" | "group_write" | "others_read" | "others_write", label: string) => (
+    <label className="flex items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={perm[field] === true}
+        ref={(el) => { if (el) el.indeterminate = perm[field] === MIXED; }}
+        onChange={() => setPerm({ ...perm, [field]: nextBit(start[field], perm[field]) })}
+      />
+      {label}
+      {perm[field] === MIXED && <span className="text-xs text-muted-foreground">{t("fileExplorer:bulkPermissions.mixed")}</span>}
+    </label>
+  );
 
   return (
     <Dialog open={open} onOpenChange={() => onClose()}>
@@ -82,44 +105,37 @@ export function BulkPermissionsDialog({
           <div>
             <label className="text-sm font-medium">{t("common:group")}</label>
             <select
-              value={groupId}
-              onChange={(e) => setGroupId(e.target.value)}
+              value={perm.group_id}
+              onChange={(e) => setPerm({ ...perm, group_id: e.target.value })}
               className="w-full h-9 rounded-md border bg-background px-3 text-sm mt-1"
             >
+              {start.group_id === MIXED && <option value={MIXED}>{t("fileExplorer:bulkPermissions.keepGroup")}</option>}
               <option value="">{t("common:none")}</option>
+              {/* getGroups lists only the user's own groups for non-admins: keep the files' current ones choosable */}
+              {fileGroups.filter((f) => !groups.some((g) => g.id === f.id)).map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
               {groups.map((g) => (
                 <option key={g.id} value={g.id}>{g.name}</option>
               ))}
             </select>
             <div className="flex gap-4 mt-2">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={groupRead} onChange={(e) => setGroupRead(e.target.checked)} />
-                {t("common:read")}
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={groupWrite} onChange={(e) => setGroupWrite(e.target.checked)} />
-                {t("common:write")}
-              </label>
+              {box("group_read", t("common:read"))}
+              {box("group_write", t("common:write"))}
             </div>
           </div>
           <Separator />
           <div>
             <label className="text-sm font-medium">{t("common:othersLabel")}</label>
             <div className="flex gap-4 mt-2">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={othersRead} onChange={(e) => setOthersRead(e.target.checked)} />
-                {t("common:read")}
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={othersWrite} onChange={(e) => setOthersWrite(e.target.checked)} />
-                {t("common:write")}
-              </label>
+              {box("others_read", t("common:read"))}
+              {box("others_write", t("common:write"))}
             </div>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">{t("common:permissionString")}</span>
             <code className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
-              {formatPermString(groupRead, groupWrite, othersRead, othersWrite)}
+              {"rw" + bit(perm.group_read, "r") + bit(perm.group_write, "w") + bit(perm.others_read, "r") + bit(perm.others_write, "w")}
             </code>
           </div>
         </div>

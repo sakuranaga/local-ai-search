@@ -2278,6 +2278,7 @@ export function FileExplorerPage() {
       <BulkPermissionsDialog
         open={bulkActionOpen === "permissions"}
         selectedIds={[...selected]}
+        items={items}
         onClose={() => setBulkActionOpen(null)}
         onDone={() => { setBulkActionOpen(null); setSelected(new Set()); load(true); }}
       />

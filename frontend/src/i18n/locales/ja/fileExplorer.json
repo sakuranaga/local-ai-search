@@ -132,7 +132,9 @@
   },
   "bulkPermissions": {
     "title": "一括権限変更",
-    "description": "{{count}}件の文書に同じ権限を設定します。",
+    "description": "{{count}}件の文書の権限を変更します。変えた項目だけが反映されます。",
+    "mixed": "（ファイルによって違う）",
+    "keepGroup": "変更しない（ファイルによって違う）",
     "applied": "{{count}}件に権限を設定しました"
   },
   "bulkFolder": {

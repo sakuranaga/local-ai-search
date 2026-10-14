@@ -132,7 +132,9 @@
   },
   "bulkPermissions": {
     "title": "Bulk Permissions",
-    "description": "Set the same permissions for {{count}} documents.",
+    "description": "Change permissions of {{count}} documents. Only the settings you change are applied.",
+    "mixed": "(differs)",
+    "keepGroup": "Keep (differs between files)",
     "applied": "Permissions set for {{count}} documents"
   },
   "bulkFolder": {
