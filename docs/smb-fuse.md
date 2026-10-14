@@ -80,7 +80,8 @@ RUN apk add --no-cache \
     tini
 COPY smb.conf /etc/samba/smb.conf
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY sync.sh /sync.sh
+RUN chmod +x /entrypoint.sh /sync.sh
 EXPOSE 445
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["/entrypoint.sh"]
@@ -130,7 +131,6 @@ fruit:encoding = native
 path = /share-base/fs
 browseable = yes
 read only = no
-admin users = @las_admins
 ```
 
 設定のポイント:
@@ -142,103 +142,34 @@ admin users = @las_admins
 - `read only = no`: 書き込み対応 (Phase 2 で変更)
 - `samba_data` named volume で tdbsam データを永続化 (コンテナ再起動でパスワードが失われない)
 
-### samba/entrypoint.sh (起動時ユーザー同期 + パスワード同期ループ)
+### samba/entrypoint.sh・samba/sync.sh（ユーザー・グループ・アカウントの同期）
 
-```sh
-#!/bin/sh
-set -e
-export SMB_INTERNAL_KEY
+`entrypoint.sh` はバックエンドを待ってから `sync.sh` を呼び、裏で 2 つの処理を回して `smbd` を起こす。`sync.sh` のコマンドは同じファイルを変えるので、`flock` で 1 つずつ動く。
 
-echo "Syncing users from LAS backend..."
+- `sync.sh sync`（起動時と 60 秒ごと）：`/api/auth/smb-users` から一覧を取る。取れない・一覧全体の検証（uid・ユーザー名・gid の形と重なり、`gids` が `groups` にあること）に 1 つでも合わないときは何も変えない
+  - グループ：`las_g<gid>` を作り、一覧にない `las_g*` を消す（LAS のグループ名は日本語などを含みうるので使わない）
+  - ユーザー：コンテナのユーザー（uid 10000 以上と Samba のアカウント）を一覧と**名前と uid の組**で突き合わせ、組の合わないもの（LAS で止めた・消した人、名前を変えた人の前の名前など）は、接続を切ってから Samba のアカウントと Unix のユーザーを消す。一覧の人は LAS の uid で作り、補助グループを一覧とちょうど同じにする（主グループは nobody）
+  - Samba のアカウントは、パスワードなし・使えない状態（`[NDU]`）で 1 回の取り込み（`pdbedit -i smbpasswd:`）で作る。同期が使えるようにすることはない
+- `sync.sh passwords`（1 秒ごと）：`/smb-sync/*.passwd` を `.work` に移してから読み、一覧にいて uid が合う人だけ、パスワードを入れて使えるようにする。一覧にいなければ一度同期してから見直し、それでもいなければ捨てる（ユーザーは作らない）。5 分より古い `.*.tmp` を消す
+- `sync.sh start-clean`（起動時）：途中で止まって残った `.work` を消す
 
-# バックエンドが起動するまで待機 (最大 60 秒)
-for i in $(seq 1 60); do
-  if curl -sf -H "X-Internal-Key: $SMB_INTERNAL_KEY" \
-    http://backend:8000/api/auth/smb-users > /dev/null 2>&1; then
-    break
-  fi
-  echo "Waiting for backend... ($i/60)"
-  sleep 1
-done
+テスト：`scripts/test-samba.sh`（samba のイメージで使い捨てのコンテナを起こし、`samba/tests/test_sync.sh` を動かす）。
 
-USERS_JSON=$(curl -sf -H "X-Internal-Key: $SMB_INTERNAL_KEY" \
-  http://backend:8000/api/auth/smb-users 2>/dev/null || echo '{"users":[],"groups":[]}')
-
-# las_admins グループ作成 (admin users = @las_admins 用)
-addgroup -g 19999 las_admins 2>/dev/null || true
-
-# グループの同期
-echo "$USERS_JSON" | jq -r '.groups[] | "\(.gid) \(.name)"' 2>/dev/null | \
-while read -r gid name; do
-  if [ -n "$gid" ] && ! getent group "$name" > /dev/null 2>&1; then
-    addgroup -g "$gid" "$name" 2>/dev/null || true
-  fi
-done
-
-# ユーザーの同期 (パスワードなし — ログイン時に同期)
-echo "$USERS_JSON" | jq -r '.users[] | "\(.uid) \(.username) \(.primary_gid) \(.groups) \(.is_admin)"' 2>/dev/null | \
-while read -r uid username primary_gid groups is_admin; do
-  [ -z "$uid" ] && continue
-  if ! id "$username" > /dev/null 2>&1; then
-    primary_group=$(getent group "$primary_gid" 2>/dev/null | cut -d: -f1 || echo "nogroup")
-    adduser -D -u "$uid" -G "${primary_group:-nogroup}" -H -s /sbin/nologin "$username" 2>/dev/null || true
-  fi
-  echo "$groups" | tr ',' '\n' | while read -r grp; do
-    [ -n "$grp" ] && addgroup "$username" "$grp" 2>/dev/null || true
-  done
-  if [ "$is_admin" = "true" ]; then
-    addgroup "$username" las_admins 2>/dev/null || true
-  fi
-  # Samba ユーザー登録 (ダミーパスワード、実パスワードはログイン時に同期)
-  if ! pdbedit -L 2>/dev/null | grep -q "^${username}:"; then
-    echo -e "dummy_initial_pw\ndummy_initial_pw" | smbpasswd -a -s "$username" 2>/dev/null || true
-  fi
-done
-
-echo "User sync complete."
-
-# --- パスワード同期ループ ---
-# バックエンドが LAS ログイン時に /smb-sync/{username}.passwd を書き出す。
-# このループがファイルを検知して smbpasswd で Samba に反映する。
-mkdir -p /smb-sync
-(
-  while true; do
-    for f in /smb-sync/*.passwd; do
-      [ -f "$f" ] || continue
-      username=$(head -1 "$f")
-      password=$(tail -1 "$f")
-      if [ -n "$username" ] && [ -n "$password" ]; then
-        if ! id "$username" > /dev/null 2>&1; then
-          adduser -D -H -s /sbin/nologin "$username" 2>/dev/null || true
-        fi
-        echo -e "${password}\n${password}" | smbpasswd -a -s "$username" 2>/dev/null && \
-          echo "Password synced for $username"
-      fi
-      rm -f "$f"
-    done
-    sleep 1
-  done
-) &
-
-echo "Starting Samba..."
-exec smbd --foreground --no-process-group --debug-stdout
-```
-
-> **パスワード同期の仕組み**: LAS バックエンドのログイン API (`POST /auth/login`) が成功時に `/smb-sync/{username}.passwd` にユーザー名とパスワードを書き出す。entrypoint.sh のバックグラウンドループが 1 秒間隔でファイルを検知し、`smbpasswd` で tdbsam に反映後、ファイルを削除する。パスワードファイルは最大 1 秒間ディスク上に存在する。
+> **パスワード同期の仕組み**: LAS バックエンドのログイン API (`POST /auth/login`) が成功時に、`/smb-sync` の中の一時ファイル（ログインごとに別の名前）に書いてから `/smb-sync/{username}.passwd` に置き換える。`sync.sh passwords` が 1 秒間隔で拾って `smbpasswd` で tdbsam に反映し、ファイルを消す。
 
 ## バックエンド側の API (`GET /auth/smb-users`)
 
-全アクティブユーザーと全グループの `unix_uid`/`unix_gid` を返す (Samba 起動時に一括取得):
+有効なユーザーと全グループの `unix_uid`/`unix_gid` を返す（なければ割り当てる）。samba で使えないユーザー名（`^[a-z_][a-z0-9_.-]*$` に合わないもの）の人は返さない:
 
 ```json
 {
   "users": [
-    {"uid": 10001, "username": "tanaka", "primary_gid": 20001, "groups": "sales,engineering", "is_admin": false},
-    {"uid": 10002, "username": "suzuki", "primary_gid": 20002, "groups": "engineering", "is_admin": true}
+    {"uid": 10001, "username": "tanaka", "gids": [20001, 20002]},
+    {"uid": 10002, "username": "suzuki", "gids": [20002]}
   ],
   "groups": [
-    {"gid": 20001, "name": "sales"},
-    {"gid": 20002, "name": "engineering"}
+    {"gid": 20001},
+    {"gid": 20002}
   ]
 }
 ```
@@ -252,7 +183,7 @@ exec smbd --foreground --no-process-group --debug-stdout
 3. Samba entrypoint のバックグラウンドループが検知、`smbpasswd` で tdbsam 更新
 4. 以降、SMB 接続は tdbsam で認証 (LAS API 不要)
 
-**初回ログイン前のユーザー**: Samba 起動時に全ユーザーをダミーパスワードで登録。LAS Web UI にログインすると実パスワードに更新される。LAS ログイン前は SMB 接続不可。
+**初回ログイン前のユーザー**: Samba のアカウントは使えない状態で作られる。LAS Web UI にログインするとパスワードが入り、使えるようになる。LAS ログイン前は SMB 接続不可。
 
 ## 権限マッピング
 
@@ -311,9 +242,7 @@ FUSE の `readdir()` / `lookup()` / `open()` で可視性フィルタ (`_can_see
 
 ### admin 権限
 
-admin ユーザーは 2 重に保護:
-- **FUSE 層**: `_can_see_entry()` で全エントリが可視
-- **Samba 層**: `admin users = @las_admins` でファイルパーミッションに関係なくフルアクセス
+admin ユーザーは FUSE 層で判定する（`_get_user_info_sync()` が uid から LAS のユーザーを引いて管理者かを見る。`_can_see_entry()` で全エントリが可視）。Samba の `admin users` は使わない（指定した人のファイル操作を root で行うので、FUSE が管理者を見分けられなくなる）
 
 ### UID/GID 自動割り当て
 

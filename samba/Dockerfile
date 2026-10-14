@@ -10,7 +10,8 @@ RUN apk add --no-cache \
 
 COPY smb.conf /etc/samba/smb.conf
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY sync.sh /sync.sh
+RUN chmod +x /entrypoint.sh /sync.sh
 
 EXPOSE 445
 

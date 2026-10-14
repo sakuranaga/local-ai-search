@@ -1,5 +1,8 @@
+import logging
 import math
 import os
+import re
+import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
@@ -389,16 +392,30 @@ async def serve_avatar(filename: str):
 _SMB_SYNC_DIR = "/smb-sync"
 
 
+# User names samba's adduser takes; others are left out of the SMB user list
+_SMB_NAME = re.compile(r"[a-z_][a-z0-9_.-]*")
+_log = logging.getLogger(__name__)
+
+
 def _sync_smb_password(username: str, password: str):
-    """Write password file for Samba sync loop to pick up."""
+    """Write password file for Samba sync loop to pick up.
+
+    Written to a temporary file of its own in the same folder and renamed over, so samba never reads a part-written
+    file and two logins of one user do not share a temporary file."""
+    tmp = None
     try:
         os.makedirs(_SMB_SYNC_DIR, exist_ok=True)
-        path = os.path.join(_SMB_SYNC_DIR, f"{username}.passwd")
-        with open(path, "w") as f:
+        fd, tmp = tempfile.mkstemp(dir=_SMB_SYNC_DIR, prefix=f".{username}.", suffix=".tmp")  # 0600
+        with os.fdopen(fd, "w") as f:
             f.write(f"{username}\n{password}")
-        os.chmod(path, 0o600)
+        os.replace(tmp, os.path.join(_SMB_SYNC_DIR, f"{username}.passwd"))
     except OSError:
-        pass  # SMB sync dir not mounted — skip silently
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        # SMB sync dir not mounted — skip silently
 
 
 _SMB_INTERNAL_KEY = os.environ.get("SMB_INTERNAL_KEY", "")
@@ -486,7 +503,6 @@ async def smb_users(request: Request, db: AsyncSession = Depends(get_db)):
 
     from sqlalchemy import select
     from app.models import Group, GroupMember
-    from app.services.permissions import is_admin
 
     # Ensure all users have unix_uid
     user_result = await db.execute(select(User).where(User.is_active.is_(True)))
@@ -500,33 +516,19 @@ async def smb_users(request: Request, db: AsyncSession = Depends(get_db)):
     for g in groups:
         await _ensure_unix_gid(db, g)
 
-    # Build membership map
+    # Each user's groups by gid: names may hold spaces, commas or Japanese
     gm_result = await db.execute(select(GroupMember))
-    memberships = gm_result.scalars().all()
-    user_groups: dict[str, list[str]] = {}
-    user_primary_gid: dict[str, int] = {}
-    for gm in memberships:
-        uid_str = str(gm.user_id)
-        group = next((g for g in groups if g.id == gm.group_id), None)
-        if group:
-            user_groups.setdefault(uid_str, []).append(group.name)
-            if uid_str not in user_primary_gid:
-                user_primary_gid[uid_str] = group.unix_gid
+    gid_of = {g.id: g.unix_gid for g in groups}
+    user_gids: dict[str, list[int]] = {}
+    for gm in gm_result.scalars().all():
+        if gm.group_id in gid_of:
+            user_gids.setdefault(str(gm.user_id), []).append(gid_of[gm.group_id])
 
     await db.commit()
-    return {
-        "users": [
-            {
-                "uid": u.unix_uid,
-                "username": u.username,
-                "primary_gid": user_primary_gid.get(str(u.id), 65534),
-                "groups": ",".join(user_groups.get(str(u.id), [])),
-                "is_admin": is_admin(u),
-            }
-            for u in users
-        ],
-        "groups": [
-            {"gid": g.unix_gid, "name": g.name}
-            for g in groups
-        ],
-    }
+    listed = []
+    for u in users:
+        if not _SMB_NAME.fullmatch(u.username):  # not match: "$" also takes a trailing newline
+            _log.warning("SMB: user %r left out: the name is not one samba takes", u.username)
+            continue
+        listed.append({"uid": u.unix_uid, "username": u.username, "gids": sorted(user_gids.get(str(u.id), []))})
+    return {"users": listed, "groups": [{"gid": g.unix_gid} for g in groups]}
