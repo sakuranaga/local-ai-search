@@ -8,21 +8,28 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import redis.asyncio as redis
+
 from app.db import get_db
+from app.deps import get_redis
 from app.models import Document, File, User
 from app.services.audit import audit_log
 from app.services.auth import verify_token
+from app.services.permissions import can_access_document
 
 router = APIRouter(prefix="/wopi", tags=["wopi"])
 
 STORAGE_PATH = os.environ.get("STORAGE_PATH", "/app/storage")
 
 
-async def _get_user_by_token(access_token: str, db: AsyncSession) -> User:
+async def _get_user_by_token(access_token: str, db: AsyncSession, r: redis.Redis) -> User:
     """Validate WOPI access token and return the user."""
     payload = verify_token(access_token, expected_type="access")
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid token")
+    jti = payload.get("jti")  # a token revoked by logging out (as get_current_user)
+    if jti and await r.exists(f"blacklist:{jti}"):
+        raise HTTPException(status_code=401, detail="Token has been revoked")
     import uuid
     user_id = uuid.UUID(payload["sub"])
     result = await db.execute(select(User).where(User.id == user_id, User.is_active.is_(True)))
@@ -32,8 +39,9 @@ async def _get_user_by_token(access_token: str, db: AsyncSession) -> User:
     return user
 
 
-async def _get_document_and_file(doc_id: str, db: AsyncSession) -> tuple[Document, File]:
-    """Load document and its primary file."""
+async def _get_document_and_file(doc_id: str, db: AsyncSession, user: User, *, need_write: bool) -> tuple[Document, File]:
+    """Load document and its primary file; the document's permissions first (as the documents API, so
+    whether a file exists is not told to who may not see the document)."""
     import uuid as _uuid
     result = await db.execute(
         select(Document).where(Document.id == _uuid.UUID(doc_id), Document.deleted_at.is_(None))
@@ -41,6 +49,8 @@ async def _get_document_and_file(doc_id: str, db: AsyncSession) -> tuple[Documen
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
+    if not await can_access_document(doc, user, need_write=need_write, db=db):
+        raise HTTPException(status_code=403, detail="Access denied")
 
     file_result = await db.execute(
         select(File).where(File.document_id == doc.id).order_by(File.created_at.desc()).limit(1)
@@ -52,9 +62,22 @@ async def _get_document_and_file(doc_id: str, db: AsyncSession) -> tuple[Documen
     return doc, file
 
 
-async def _check_file_info(doc_id: str, access_token: str, db: AsyncSession, *, writable: bool):
-    user = await _get_user_by_token(access_token, db)
-    doc, file = await _get_document_and_file(doc_id, db)
+async def _readable(doc_id: str, access_token: str, db: AsyncSession, r: redis.Redis) -> tuple[User, Document, File]:
+    """The user, and the document they may read (the document's own permissions, as the documents API)."""
+    user = await _get_user_by_token(access_token, db, r)
+    doc, file = await _get_document_and_file(doc_id, db, user, need_write=False)
+    return user, doc, file
+
+
+async def _savable(doc: Document, user: User, db: AsyncSession) -> bool:
+    """Whether PutFile would take a save: write permission on the document."""
+    return await can_access_document(doc, user, need_write=True, db=db)
+
+
+async def _check_file_info(doc_id: str, access_token: str, db: AsyncSession, r: redis.Redis, *, writable: bool):
+    user, doc, file = await _readable(doc_id, access_token, db, r)
+    # the editor offers saving only to who may write
+    writable = writable and await _savable(doc, user, db)
     info = {
         "BaseFileName": doc.title or "untitled",
         "Size": file.file_size or 0,
@@ -73,9 +96,8 @@ async def _check_file_info(doc_id: str, access_token: str, db: AsyncSession, *, 
     return info
 
 
-async def _get_file_contents(doc_id: str, access_token: str, db: AsyncSession):
-    await _get_user_by_token(access_token, db)
-    _, file = await _get_document_and_file(doc_id, db)
+async def _get_file_contents(doc_id: str, access_token: str, db: AsyncSession, r: redis.Redis):
+    _, _, file = await _readable(doc_id, access_token, db, r)
     file_path = os.path.join(STORAGE_PATH, file.storage_path)
     if not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="File not on disk")
@@ -93,9 +115,10 @@ async def check_file_info(
     doc_id: str,
     access_token: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    r: redis.Redis = Depends(get_redis),
 ):
     """WOPI CheckFileInfo — return file metadata (read-write)."""
-    return await _check_file_info(doc_id, access_token, db, writable=True)
+    return await _check_file_info(doc_id, access_token, db, r, writable=True)
 
 
 @router.get("/files/{doc_id}/contents")
@@ -103,9 +126,10 @@ async def get_file(
     doc_id: str,
     access_token: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    r: redis.Redis = Depends(get_redis),
 ):
     """WOPI GetFile — return file contents."""
-    return await _get_file_contents(doc_id, access_token, db)
+    return await _get_file_contents(doc_id, access_token, db, r)
 
 
 @router.post("/files/{doc_id}/contents")
@@ -114,10 +138,11 @@ async def put_file(
     access_token: str = Query(...),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
+    r: redis.Redis = Depends(get_redis),
 ):
     """WOPI PutFile — save edited file contents."""
-    user = await _get_user_by_token(access_token, db)
-    doc, file = await _get_document_and_file(doc_id, db)
+    user = await _get_user_by_token(access_token, db, r)
+    doc, file = await _get_document_and_file(doc_id, db, user, need_write=True)
 
     file_path = os.path.join(STORAGE_PATH, file.storage_path)
     content = await request.body()
@@ -145,9 +170,10 @@ async def check_file_info_readonly(
     doc_id: str,
     access_token: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    r: redis.Redis = Depends(get_redis),
 ):
     """WOPI CheckFileInfo — return file metadata (read-only)."""
-    return await _check_file_info(doc_id, access_token, db, writable=False)
+    return await _check_file_info(doc_id, access_token, db, r, writable=False)
 
 
 @router.get("/view/{doc_id}/contents")
@@ -155,9 +181,10 @@ async def get_file_readonly(
     doc_id: str,
     access_token: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    r: redis.Redis = Depends(get_redis),
 ):
     """WOPI GetFile — return file contents (read-only)."""
-    return await _get_file_contents(doc_id, access_token, db)
+    return await _get_file_contents(doc_id, access_token, db, r)
 
 
 @router.post("/view/{doc_id}/contents")
