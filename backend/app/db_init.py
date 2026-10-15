@@ -111,6 +111,27 @@ async def init_lock(engine, deadline: Deadline):
         await conn.close()
 
 
+# (table, column, sequence) of the unix ids
+UNIX_ID_SEQUENCES = (("users", "unix_uid", "users_unix_uid_seq"), ("groups", "unix_gid", "groups_unix_gid_seq"))
+
+
+async def raise_unix_id_sequences(engine, deadline: Deadline | None = None) -> None:
+    """Raise each unix id sequence above the largest number in its table (a dump without the sequence, a number
+    set by hand); never lowers it. Only then is the table locked: the lock waits for a number being given and holds
+    new ones off, so the largest number read is final. A sequence ahead of the table needs no lock, as every number
+    being given comes from it. One transaction per table: one lock at a time."""
+    for table, column, seq in UNIX_ID_SEQUENCES:
+        behind = (f"FROM (SELECT max({column}) AS m FROM {table}) AS t, {seq} AS s "
+                  f"WHERE t.m IS NOT NULL AND t.m >= CASE WHEN s.is_called THEN s.last_value + 1 ELSE s.last_value END")
+
+        async def _raise(conn, table=table, seq=seq, behind=behind):
+            if (await conn.execute(text(f"SELECT 1 {behind}"))).first() is None:
+                return
+            await conn.execute(text(f"LOCK TABLE {table} IN SHARE ROW EXCLUSIVE MODE"))
+            await conn.execute(text(f"SELECT setval('{seq}', t.m) {behind}"))
+        await with_retry(engine, f"{seq} raised", _raise, deadline or Deadline(BUDGET))
+
+
 async def with_retry(engine, name: str, fn, deadline: Deadline) -> None:
     """Runs `fn(conn)` in a transaction; on a deadlock or a lock wait running out, up to three times."""
     for attempt in range(len(RETRY_WAITS) + 1):

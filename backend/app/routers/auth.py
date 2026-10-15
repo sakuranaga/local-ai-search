@@ -431,29 +431,36 @@ def _verify_internal_key(request: Request):
         raise HTTPException(401, "Invalid internal key")
 
 
+async def _ensure_unix_id(db: AsyncSession, row, column, seq) -> int:
+    """Give `row` the next number of `seq` unless it has one. Numbers are never given twice, also after a user or a
+    group is deleted; a request that gave it one meanwhile wins, waited for by the row lock."""
+    from sqlalchemy import select, update
+    from sqlalchemy.orm.attributes import set_committed_value
+
+    model = type(row)
+    if getattr(row, column.key) is not None:
+        return getattr(row, column.key)
+    number = (await db.execute(
+        update(model).where(model.id == row.id, column.is_(None))
+        .values({column.key: seq.next_value()}).returning(column)
+        .execution_options(synchronize_session=False)
+    )).scalar_one_or_none()
+    if number is None:  # given one meanwhile
+        number = (await db.execute(select(column).where(model.id == row.id))).scalar_one()
+    set_committed_value(row, column.key, number)
+    return number
+
+
 async def _ensure_unix_uid(db: AsyncSession, user: User) -> int:
     """Assign a unix_uid if not yet set. Returns the uid."""
-    if user.unix_uid is not None:
-        return user.unix_uid
-    from sqlalchemy import select, func as sa_func
-    result = await db.execute(select(sa_func.coalesce(sa_func.max(User.unix_uid), 9999)))
-    max_uid = result.scalar() or 9999
-    user.unix_uid = max_uid + 1
-    await db.flush()
-    return user.unix_uid
+    from app.models import UNIX_UID_SEQ
+    return await _ensure_unix_id(db, user, User.unix_uid, UNIX_UID_SEQ)
 
 
 async def _ensure_unix_gid(db: AsyncSession, group) -> int:
     """Assign a unix_gid if not yet set. Returns the gid."""
-    from app.models import Group
-    if group.unix_gid is not None:
-        return group.unix_gid
-    from sqlalchemy import select, func as sa_func
-    result = await db.execute(select(sa_func.coalesce(sa_func.max(Group.unix_gid), 19999)))
-    max_gid = result.scalar() or 19999
-    group.unix_gid = max_gid + 1
-    await db.flush()
-    return group.unix_gid
+    from app.models import UNIX_GID_SEQ, Group
+    return await _ensure_unix_id(db, group, Group.unix_gid, UNIX_GID_SEQ)
 
 
 @router.post("/smb-verify")

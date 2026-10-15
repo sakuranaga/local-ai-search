@@ -126,6 +126,8 @@ async def _init_db(deadline: db_init.Deadline):
         logger.info("Document table migration columns verified")
 
     await db_init.with_retry(engine, "documents columns", documents_columns, deadline)
+    # unix ids are never given twice: their sequences (from create_all) above the tables' numbers
+    await db_init.raise_unix_id_sequences(engine, deadline)
 
     # Phase 0: Role simplification (Admin/User)
     async with engine.begin() as conn:

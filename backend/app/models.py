@@ -9,6 +9,7 @@ from sqlalchemy import (
     Index,
     Integer,
     JSON,
+    Sequence,
     String,
     Text,
     UniqueConstraint,
@@ -31,6 +32,12 @@ class SystemSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+# unix ids for samba and las-fuse: never given twice, also after a user or a group is deleted.
+# Raised at start above the numbers in the tables (db_init.raise_unix_id_sequences).
+UNIX_UID_SEQ = Sequence("users_unix_uid_seq", start=10000, minvalue=1, metadata=Base.metadata)
+UNIX_GID_SEQ = Sequence("groups_unix_gid_seq", start=20000, minvalue=1, metadata=Base.metadata)
 
 
 class User(Base):
