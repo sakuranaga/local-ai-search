@@ -22,7 +22,6 @@ from typing import AsyncIterator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from app.models import Folder, User
 from app.services.agent_tools import (
@@ -32,6 +31,7 @@ from app.services.agent_tools import (
     extract_tool_calls_from_text,
     summarize_result,
     summarize_result_for_context,
+    visible_filters,
 )
 from app.services.compaction import compact_messages, should_compact
 from app.services.llm import CancelledByClient, chat_completion, stream_chat_raw
@@ -146,10 +146,11 @@ async def _stream_filtered(
 # ---------------------------------------------------------------------------
 
 
-async def _build_folder_tree(db: AsyncSession) -> str:
-    """Build a concise folder tree string for the system prompt."""
+async def _build_folder_tree(db: AsyncSession, user: User | None) -> str:
+    """Build a concise folder tree string for the system prompt, of the folders the user may see."""
+    folder_ok, _ = await visible_filters(db, user)
     result = await db.execute(
-        select(Folder).options(selectinload(Folder.children)).order_by(Folder.name)
+        select(Folder).where(folder_ok).order_by(Folder.name)
     )
     all_folders = result.scalars().all()
     if not all_folders:
@@ -333,7 +334,7 @@ async def run_agent(
     system_content += f"\n\n## 現在日時\n{date_str}\n"
 
     # Inject folder tree
-    folder_tree = await _build_folder_tree(db)
+    folder_tree = await _build_folder_tree(db, user)
     if folder_tree:
         system_content += (
             f"\n\n## フォルダ構造\n"

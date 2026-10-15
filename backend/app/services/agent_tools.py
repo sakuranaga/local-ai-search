@@ -10,14 +10,29 @@ import re
 import uuid as _uuid_mod
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import ColumnElement
 
 from app.models import Chunk, Document, Folder, User
-from app.services.permissions import can_access_document
+from app.services.permissions import (
+    build_folder_visibility_filter,
+    build_visibility_filter,
+    can_access_document,
+    get_user_group_ids,
+)
 from app.services.search import grep_search, merged_search, title_search
 
 logger = logging.getLogger(__name__)
+
+
+async def visible_filters(db: AsyncSession, user: User | None) -> tuple[ColumnElement[bool], ColumnElement[bool]]:
+    """(folders, documents) the user may see: names are given only for these. No user, no filter, as
+    in the other tools."""
+    if user is None:
+        return literal(True), literal(True)
+    group_ids = await get_user_group_ids(db, user.id)
+    return build_folder_visibility_filter(user, group_ids), build_visibility_filter(user, group_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +395,8 @@ async def execute_tool(
             # Build metadata header
             folder_name = ""
             if doc.folder_id:
-                folder_result = await db.execute(select(Folder.name).where(Folder.id == doc.folder_id))
+                folder_ok, _ = await visible_filters(db, user)
+                folder_result = await db.execute(select(Folder.name).where(Folder.id == doc.folder_id, folder_ok))
                 fn = folder_result.scalar_one_or_none()
                 if fn:
                     folder_name = f" | フォルダ: {fn}"
@@ -454,9 +470,10 @@ async def execute_tool(
 
         elif name == "list_folders":
             parent_id = arguments.get("parent_id") or None
+            folder_ok, doc_ok = await visible_filters(db, user)
             stmt = (
                 select(Folder)
-                .where(Folder.parent_id == parent_id)
+                .where(Folder.parent_id == parent_id, folder_ok)
                 .order_by(Folder.name)
             )
             result = await db.execute(stmt)
@@ -473,12 +490,12 @@ async def execute_tool(
                 doc_count = await db.scalar(
                     select(func.count())
                     .select_from(Document)
-                    .where(Document.folder_id == f.id, Document.deleted_at.is_(None))
+                    .where(Document.folder_id == f.id, Document.deleted_at.is_(None), doc_ok)
                 )
                 child_count = await db.scalar(
                     select(func.count())
                     .select_from(Folder)
-                    .where(Folder.parent_id == f.id)
+                    .where(Folder.parent_id == f.id, folder_ok)
                 )
                 lines.append(
                     f"- **{f.name}** (ID: {f.id}) — 文書{doc_count}件、サブフォルダ{child_count}件"
@@ -489,12 +506,14 @@ async def execute_tool(
             folder_id = arguments.get("folder_id", "").strip()
             if not folder_id:
                 return "folder_id を指定してください。", sources
+            _, doc_ok = await visible_filters(db, user)
             stmt = (
                 select(Document)
                 .where(
                     Document.folder_id == folder_id,
                     Document.deleted_at.is_(None),
                     Document.ai_knowledge.is_(True),
+                    doc_ok,
                 )
                 .order_by(Document.title)
                 .limit(30)
