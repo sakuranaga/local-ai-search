@@ -535,7 +535,9 @@ class LASFuseServer(pyfuse3.Operations):
         attr = pyfuse3.EntryAttributes()
         attr.st_ino = entry.inode
         attr.generation = 0
-        attr.entry_timeout = 5
+        # No name kept by the kernel: one mount serves every user, so a kept name would reach someone who may not
+        # see it without asking us. Attributes are everyone's and reached only through a name.
+        attr.entry_timeout = 0
         attr.attr_timeout = 5
         attr.st_mode = entry.mode
         attr.st_nlink = 2 if entry.is_dir else 1
