@@ -11,7 +11,7 @@ from sqlalchemy.orm import aliased
 
 from app.config import settings
 from app.db import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, get_redis
 from app.utils.filename import sanitize_filename
 from app.models import Chunk, Document, DocumentTag, DocumentVersion, File, Folder, Group, Tag, User, UserFavorite
 from app.schemas.documents import (
@@ -729,6 +729,9 @@ async def _resolve_token_user(request: Request, token: str | None, db: AsyncSess
     payload = _verify(raw_token, expected_type="access")
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    jti = payload.get("jti")  # a token revoked by logging out (as get_current_user)
+    if jti and await (await get_redis()).exists(f"blacklist:{jti}"):
+        raise HTTPException(status_code=401, detail="Token has been revoked")
     try:
         user_id = uuid.UUID(payload["sub"])
     except (KeyError, ValueError):

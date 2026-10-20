@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import async_session, get_db
-from app.deps import get_api_key, get_current_user
+from app.deps import get_api_key, get_current_user, get_redis
 from app.models import ApiKey, Chunk, Document, DocumentTag, File, Folder, Tag, User
 from app.services.audit import audit_log
 from app.services.auth import verify_token
@@ -820,6 +820,13 @@ async def _authenticate_tus_upload(
     if token:
         payload = verify_token(token, expected_type="access")
         if not payload:
+            return None, None
+        jti = payload.get("jti")  # a token revoked by logging out (as get_current_user)
+        try:
+            if jti and await (await get_redis()).exists(f"blacklist:{jti}"):
+                return None, None
+        except Exception:  # cannot tell (Redis): refused, as the API does
+            logger.warning("tus: the token could not be checked")
             return None, None
         try:
             user_id = uuid.UUID(payload["sub"])
