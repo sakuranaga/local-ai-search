@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Document, DocumentTag, Tag, User
+from app.services.permissions import build_visibility_filter, get_user_group_ids
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -42,6 +43,7 @@ async def list_tags(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    group_ids = await get_user_group_ids(db, current_user.id)
     doc_count_sq = (
         select(
             DocumentTag.tag_id,
@@ -49,6 +51,7 @@ async def list_tags(
         )
         .join(Document, DocumentTag.document_id == Document.id)
         .where(Document.deleted_at.is_(None))
+        .where(build_visibility_filter(current_user, group_ids))  # the documents the user may read
         .group_by(DocumentTag.tag_id)
         .subquery()
     )
@@ -113,7 +116,8 @@ async def update_tag(
         await db.execute(
             select(func.count(DocumentTag.id))
             .join(Document, DocumentTag.document_id == Document.id)
-            .where(DocumentTag.tag_id == tag_id, Document.deleted_at.is_(None))
+            .where(DocumentTag.tag_id == tag_id, Document.deleted_at.is_(None),
+                   build_visibility_filter(current_user, await get_user_group_ids(db, current_user.id)))
         )
     ).scalar() or 0
 
