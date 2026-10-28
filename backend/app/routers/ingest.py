@@ -909,18 +909,12 @@ async def tus_hook(
 
     if event_type == "post-finish":
         # File upload complete — create Document and start processing
-        # Extract client IP from tusd hook payload
-        http_req = body.get("Event", {}).get("HTTPRequest", {})
-        client_ip = None
-        # Check X-Forwarded-For header first
-        fwd_headers = http_req.get("Header", {}).get("X-Forwarded-For", [])
-        if fwd_headers:
-            client_ip = fwd_headers[0].split(",")[0].strip()
-        if not client_ip:
-            # Fall back to RemoteAddr (format: "ip:port")
-            remote_addr = http_req.get("RemoteAddr", "")
-            if remote_addr:
-                client_ip = remote_addr.rsplit(":", 1)[0].strip("[]")
+        # Extract client IP from tusd hook payload: X-Real-IP as nginx's /tusd/ set it (Go names it X-Real-Ip),
+        # else RemoteAddr ("ip:port"); never X-Forwarded-For (a client writes it)
+        from app.services import client_ip as _cip
+        http_req = body.get("Event", {}).get("HTTPRequest", {}) or {}
+        client_ip = (_cip.parse_ip(_cip.header(http_req.get("Header"), "X-Real-IP"))
+                     or _cip.parse_remote_addr(http_req.get("RemoteAddr")))
 
         storage_info = upload.get("Storage", {})
         raw_path = storage_info.get("Path", "")

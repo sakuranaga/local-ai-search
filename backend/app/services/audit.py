@@ -9,6 +9,7 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AuditLog, User
+from app.services.client_ip import client_ip
 
 
 def _normalize_ip(ip: str | None) -> str | None:
@@ -31,12 +32,8 @@ async def audit_log(
     ip_address: str | None = None,
 ) -> AuditLog:
     """Write a single audit log entry."""
-    ip = ip_address
-    if ip is None and request is not None:
-        ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
-            request.client.host if request.client else None
-        )
-    ip = _normalize_ip(ip)
+    # the address nginx set (X-Real-IP), never X-Forwarded-For (a client writes it)
+    ip = _normalize_ip(ip_address) if ip_address is not None else client_ip(request)
 
     detail_str = None
     if detail is not None:
