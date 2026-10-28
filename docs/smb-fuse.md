@@ -61,7 +61,7 @@ sudo mount --make-shared ./data/fuse-mount
 - 書き込み権限チェック: `_can_write_entry()` / `_can_write_folder_sync()` で owner/group/others の書き込み権限を検証
 - FUSE コンテナ: 非特権モード (`devices: /dev/fuse` + `cap_add: SYS_ADMIN` + `apparmor:unconfined`)。`privileged: true` は不要
 - ポート 445: LAN/VPN 内のみ公開。README にファイアウォール設定を記載
-- 内部 API (`/api/auth/smb-users`, `/api/auth/smb-verify`): `X-Internal-Key` ヘッダーで認証、nginx で外部非公開
+- 内部 API (`/api/auth/smb-users`, `/api/auth/smb-verify`): `X-Internal-Key` ヘッダーで認証。nginx は `/api/auth/smb-` で始まるパスを 404 にして外部に出さない
 
 ## Samba コンテナ設計 (自前ビルド)
 
@@ -174,7 +174,7 @@ read only = no
 }
 ```
 
-認証: `X-Internal-Key` ヘッダーで内部 API キーを検証。キーは `.env` の `SMB_INTERNAL_KEY` で定義し、Samba コンテナと backend コンテナの両方に環境変数として渡す。nginx では `/api/auth/smb-users` と `/api/auth/smb-verify` を外部公開しない (internal 扱い)。
+認証: `X-Internal-Key` ヘッダーで内部 API キーを検証。キーは `.env` の `SMB_INTERNAL_KEY` で定義し、Samba コンテナと backend コンテナの両方に環境変数として渡す。nginx は `/api/auth/smb-` で始まるパス（`smb-users`・`smb-verify`）を 404 にし、外部に出さない（`nginx/nginx.conf`）。Samba は `backend:8000` に直接つなぐ。
 
 ## 認証フロー
 

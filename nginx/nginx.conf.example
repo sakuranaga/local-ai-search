@@ -105,6 +105,16 @@ http {
             proxy_read_timeout 600s;
         }
 
+        # tusd のフックは内部のネットワーク（backend:8000）から呼ぶ。外からは受け付けない
+        location ^~ /api/ingest/tus-hook {
+            return 404;
+        }
+
+        # Samba 用の内部の API（smb-users・smb-verify など）は内部のネットワーク（backend:8000）から呼ぶ。外からは受け付けない
+        location ^~ /api/auth/smb- {
+            return 404;
+        }
+
         # --- API プロキシ ---
         # FastAPI バックエンド (認証, 検索, 文書管理, AI チャット等)
         location /api/ {
